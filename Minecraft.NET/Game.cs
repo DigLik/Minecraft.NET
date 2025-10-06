@@ -1,4 +1,7 @@
-﻿using Minecraft.NET.Core.Abstractions;
+﻿using Minecraft.NET.Core;
+using Minecraft.NET.Core.Abstractions;
+using Minecraft.NET.Core.Blocks;
+using Minecraft.NET.Core.World;
 using Minecraft.NET.Diagnostics;
 using Minecraft.NET.GameObjects;
 using Minecraft.NET.Graphics;
@@ -6,11 +9,11 @@ using Minecraft.NET.Graphics.Materials;
 using Minecraft.NET.Graphics.Meshes;
 using Minecraft.NET.Graphics.Scene;
 using Minecraft.NET.Graphics.Shaders;
-using Silk.NET.Input;
 using Silk.NET.Maths;
 using Silk.NET.OpenGL;
 using Silk.NET.Windowing;
-using System.Numerics;
+using System.Collections.Concurrent;
+using Texture = Minecraft.NET.Graphics.Texture;
 
 namespace Minecraft.NET;
 
@@ -23,153 +26,160 @@ public sealed class Game : IDisposable
     private readonly PerformanceMonitor _performanceMonitor;
 
     private readonly Camera _camera;
-    private IKeyboard _keyboard = null!;
-    private IMouse _mouse = null!;
-
-    private bool _isMouseCaptured = false;
-    private Vector2 _lastMousePosition;
+    private readonly InputManager _inputManager;
+    private readonly GraphicsSettings _graphicsSettings;
+    private readonly GameSettings _gameSettings;
 
     private readonly List<IRenderable> _renderables = [];
     private readonly List<IUpdateable> _updateables = [];
 
     private BasicShader _basicShader = null!;
-    private Mesh _cubeMesh = null!;
+    private Texture _atlasTexture = null!;
 
-    private readonly List<ChunkRenderObject> _chunkRenderObjects = [];
+    private readonly Dictionary<Vector2, ChunkRenderObject> _chunkRenderObjects = [];
+
+    private Vector2 _lastPlayerChunkPosition = new(float.MaxValue);
+
+    private readonly ConcurrentQueue<Vector2> _chunksToBuildQueue = new();
+    private readonly ConcurrentQueue<ChunkMeshData> _chunksToRenderQueue = new();
+    private readonly List<Thread> _chunkWorkers = [];
+    private readonly CancellationTokenSource _cancellationTokenSource = new();
 
     public Game(
         IWindow window,
         Renderer renderer,
         IWorldManager worldManager,
         PerformanceMonitor performanceMonitor,
-        Camera camera
-    )
+        Camera camera,
+        GraphicsSettings graphicsSettings,
+        GameSettings gameSettings)
     {
         _window = window;
         _renderer = renderer;
         _worldManager = worldManager;
         _performanceMonitor = performanceMonitor;
         _camera = camera;
+        _graphicsSettings = graphicsSettings;
+        _gameSettings = gameSettings;
+
+        _inputManager = new InputManager(window, camera);
 
         _window.Load += OnLoad;
         _window.Update += OnUpdate;
         _window.Render += OnRender;
         _window.Closing += OnClose;
         _window.FramebufferResize += OnFramebufferResize;
+
+        for (int i = 0; i < _gameSettings.MaxBackgroundThreads; i++)
+        {
+            var worker = new ChunkWorker(_worldManager, _gameSettings, _chunksToBuildQueue, _chunksToRenderQueue, _cancellationTokenSource.Token);
+            var thread = new Thread(worker.Run) { Name = $"ChunkWorker-{i}", IsBackground = true };
+            _chunkWorkers.Add(thread);
+            thread.Start();
+        }
     }
 
     public void Run() => _window.Run();
 
     private void OnLoad()
     {
-        _renderer.Load(_window, _camera);
         _gl = _window.CreateOpenGL();
+        _renderer.Load(_window, _camera, _graphicsSettings, _gameSettings);
 
-        _renderer.Load(_window, _camera);
-        _gl = _window.CreateOpenGL();
+        BlockManager.Initialize();
 
         LoadResources();
         CreateScene();
 
-        var input = _window.CreateInput();
-        _keyboard = input.Keyboards[0];
-        _mouse = input.Mice[0];
-
-        _mouse.Cursor.CursorMode = CursorMode.Normal;
-        _mouse.MouseMove += OnMouseMove;
-        _keyboard.KeyDown += OnKeyDown;
+        _inputManager.Initialize();
     }
 
     private void LoadResources()
     {
         _basicShader = new BasicShader(_gl);
-        _cubeMesh = null!;
+        _atlasTexture = new Texture(_gl, "Assets/Textures/atlas.png");
     }
     private void CreateScene()
     {
-        var orangeMaterial = new BasicMaterial(_basicShader);
-
-        for (int x = -1; x <= 1; x++)
-        {
-            for (int z = -1; z <= 1; z++)
-            {
-                var columnPosition = new Vector2(x, z);
-
-                var column = _worldManager.GetChunkColumn(columnPosition);
-
-                if (column != null)
-                {
-                    var chunkRenderObject = new ChunkRenderObject(
-                        _gl,
-                        column,
-                        orangeMaterial,
-                        columnPosition
-                    );
-
-                    _renderables.Add(chunkRenderObject);
-                    _chunkRenderObjects.Add(chunkRenderObject);
-                }
-            }
-        }
-
-        _camera.Position = new Vector3(0, 70.0f, 5.0f);
-        _camera.Pitch = -15.0f;
+        _camera.Position = new Vector3(8, 170.0f, 8);
+        _camera.Pitch = -30.0f;
         _camera.UpdateVectors();
     }
 
     private void OnUpdate(double delta)
     {
-        HandleInput((float)delta);
+        _inputManager.HandleInput((float)delta);
 
+        UpdateVisibleChunks();
+
+        ProcessRenderQueue();
+        
         foreach (var updateable in _updateables)
             updateable.Update((float)delta);
     }
-    private void HandleInput(float dt)
+    private void UpdateVisibleChunks()
     {
-        const float cameraSpeed = 5.0f;
+        var playerPos = _camera.Position;
+        var currentChunkPos = new Vector2(
+            MathF.Floor(playerPos.X / _gameSettings.ChunkSize),
+            MathF.Floor(playerPos.Z / _gameSettings.ChunkSize)
+        );
 
-        if (_keyboard.IsKeyPressed(Key.W))
-            _camera.Position += _camera.Front * cameraSpeed * dt;
-        if (_keyboard.IsKeyPressed(Key.S))
-            _camera.Position -= _camera.Front * cameraSpeed * dt;
-        if (_keyboard.IsKeyPressed(Key.A))
-            _camera.Position -= _camera.Right * cameraSpeed * dt;
-        if (_keyboard.IsKeyPressed(Key.D))
-            _camera.Position += _camera.Right * cameraSpeed * dt;
-        if (_keyboard.IsKeyPressed(Key.Space))
-            _camera.Position += Vector3.UnitY * cameraSpeed * dt;
-        if (_keyboard.IsKeyPressed(Key.ShiftLeft))
-            _camera.Position -= Vector3.UnitY * cameraSpeed * dt;
-    }
-    private void OnMouseMove(IMouse mouse, Vector2 position)
-    {
-        if (!_isMouseCaptured)
+        if (currentChunkPos == _lastPlayerChunkPosition) return;
+
+        _lastPlayerChunkPosition = currentChunkPos;
+
+        var worldMaterial = new BasicMaterial(_basicShader) { Texture = _atlasTexture };
+
+        for (int x = -_graphicsSettings.RenderDistance; x <= _graphicsSettings.RenderDistance; x++)
+            for (int z = -_graphicsSettings.RenderDistance; z <= _graphicsSettings.RenderDistance; z++)
+            {
+                var chunkPos = new Vector2(currentChunkPos.X + x, currentChunkPos.Y + z);
+                if (!_chunkRenderObjects.ContainsKey(chunkPos))
+                {
+                    var column = _worldManager.GetChunkColumn(chunkPos);
+                    if (column != null)
+                    {
+                        _chunksToBuildQueue.Enqueue(chunkPos);
+                        _chunkRenderObjects.Add(chunkPos, null!);
+                    }
+                }
+            }
+
+        var chunksToUnload = new List<Vector2>();
+        foreach (var (pos, chunk) in _chunkRenderObjects)
         {
-            _lastMousePosition = position;
-            return;
+            float distance = Vector2.Distance(pos, currentChunkPos);
+            if (distance > _graphicsSettings.RenderDistance + 2)
+            {
+                chunksToUnload.Add(pos);
+                if (chunk is not null)
+                {
+                    _renderables.Remove(chunk);
+                    chunk.Dispose();
+                }
+            }
         }
 
-        const float sensitivity = 0.1f;
-        var offset = new Vector2(position.X - _lastMousePosition.X, _lastMousePosition.Y - position.Y);
-        _lastMousePosition = new Vector2(position.X, position.Y);
-
-        offset *= sensitivity;
-
-        _camera.Yaw += offset.X;
-        _camera.Pitch += offset.Y;
-
-        _camera.UpdateVectors();
+        foreach (var pos in chunksToUnload)
+            _chunkRenderObjects.Remove(pos);
     }
-    private void OnKeyDown(IKeyboard keyboard, Key key, int arg3)
+    private void ProcessRenderQueue()
     {
-        if (key == Key.Escape)
+        int processedCount = 0;
+        const int maxMeshesPerFrame = 4;
+
+        while (processedCount < maxMeshesPerFrame && _chunksToRenderQueue.TryDequeue(out var meshData))
         {
-            _window.Close();
-        }
-        else if (key == Key.Tab)
-        {
-            _isMouseCaptured = !_isMouseCaptured;
-            _mouse.Cursor.CursorMode = _isMouseCaptured ? CursorMode.Disabled : CursorMode.Normal;
+            if (_chunkRenderObjects.ContainsKey(meshData.Position))
+            {
+                var worldMaterial = new BasicMaterial(_basicShader) { Texture = _atlasTexture };
+                var chunkRenderObject = new ChunkRenderObject(_gl, worldMaterial, meshData);
+
+                _chunkRenderObjects[meshData.Position] = chunkRenderObject;
+                _renderables.Add(chunkRenderObject);
+            }
+            processedCount++;
         }
     }
 
@@ -190,10 +200,15 @@ public sealed class Game : IDisposable
 
     private void OnClose()
     {
-        foreach (var obj in _chunkRenderObjects)
-            obj.Dispose();
+        _cancellationTokenSource.Cancel();
+        foreach (var thread in _chunkWorkers)
+            thread.Join();
+
+        foreach (var chunk in _chunkRenderObjects.Values)
+            chunk?.Dispose();
 
         _basicShader.Dispose();
+        _atlasTexture.Dispose();
         _renderer.Dispose();
     }
     public void Dispose()

@@ -19,7 +19,10 @@ public sealed class Mesh : IDisposable
         _vao = new VertexArrayObject<float>(gl, _vbo);
         _ibo = new IndexBufferObject(gl, indices);
 
-        _vao.SetVertexAttributePointer(0, 3, VertexAttribPointerType.Float, 3 * sizeof(float), 0);
+        const uint stride = 5 * sizeof(float);
+
+        _vao.SetVertexAttributePointer(0, 3, VertexAttribPointerType.Float, stride, 0);
+        _vao.SetVertexAttributePointer(1, 2, VertexAttribPointerType.Float, stride, 3 * sizeof(float));
     }
 
     public void Bind()

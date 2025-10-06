@@ -1,4 +1,5 @@
-﻿using Minecraft.NET.Graphics.Scene;
+﻿using Minecraft.NET.Core;
+using Minecraft.NET.Graphics.Scene;
 using Silk.NET.Maths;
 using Silk.NET.OpenGL;
 using Silk.NET.Windowing;
@@ -10,14 +11,18 @@ public sealed class Renderer : IDisposable
     private GL _gl = null!;
     private Camera _camera = null!;
     private Vector2D<int> _viewportSize;
+    private GraphicsSettings _graphicsSettings = null!;
+    private GameSettings _gameSettings = null!;
 
-    public void Load(IWindow window, Camera camera)
+    public void Load(IWindow window, Camera camera, GraphicsSettings graphicsSettings, GameSettings gameSettings)
     {
         _gl = window.CreateOpenGL();
         _camera = camera;
         _viewportSize = window.FramebufferSize;
+        _graphicsSettings = graphicsSettings;
+        _gameSettings = gameSettings;
 
-        _gl.ClearColor(System.Drawing.Color.Black);
+        _gl.ClearColor(0.53f, 0.81f, 0.92f, 1.0f);
         _gl.Enable(EnableCap.DepthTest);
     }
 
@@ -26,7 +31,9 @@ public sealed class Renderer : IDisposable
         _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
         var view = _camera.GetViewMatrix();
-        var projection = _camera.GetProjectionMatrix((float)_viewportSize.X / _viewportSize.Y);
+
+        float farPlane = (_graphicsSettings.RenderDistance + 2) * _gameSettings.ChunkSize;
+        var projection = _camera.GetProjectionMatrix((float)_viewportSize.X / _viewportSize.Y, farPlane);
 
         foreach (var renderable in renderables)
         {

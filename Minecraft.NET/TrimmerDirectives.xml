@@ -1,0 +1,23 @@
+﻿<linker>
+	<assembly fullname="Silk.NET.Windowing" />
+	<assembly fullname="Silk.NET.Windowing.Glfw" />
+	<assembly fullname="Silk.NET.Input" />
+	<assembly fullname="Silk.NET.Input.Glfw" />
+	<assembly fullname="Silk.NET.OpenGL" />
+
+	<type fullname="Silk.NET.GLFW.Glfw" preserve="all" />
+	<type fullname="Silk.NET.Windowing.Window" preserve="all" />
+	<type fullname="Silk.NET.OpenGL.GL" preserve="all" />
+	<type fullname="Silk.NET.Input.IInputContext" preserve="all" />
+	<type fullname="Silk.NET.Input.InputWindowExtensions" preserve="all" />
+
+	<type fullname="Silk.NET.Input.Glfw.GlfwInputPlatform" preserve="all" />
+
+	<!-- Для Linux -->
+	<!--<type fullname="Silk.NET.Input.Glfw.GlfwInputPlatform" preserve="all" /> 
+	<type fullname="Silk.NET.Input.Linux.Input.LinuxInputPlatform" preserve="all" />--> 
+
+	<!-- Для macOS -->
+	<!--<type fullname="Silk.NET.Input.Glfw.GlfwInputPlatform" preserve="all" /> 
+	<type fullname="Silk.NET.Input.Mac.Input.CocoaInputPlatform" preserve="all" />--> 
+</linker>

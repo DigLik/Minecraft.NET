@@ -1,7 +1,4 @@
-﻿using Silk.NET.Maths;
-using System.Numerics;
-
-namespace Minecraft.NET.Graphics;
+﻿namespace Minecraft.NET.Graphics;
 
 public class Camera
 {
@@ -32,16 +29,13 @@ public class Camera
         set => _fov = Math.Clamp(value, 1.0f, 90.0f);
     }
 
-    public Camera()
-    {
-        UpdateVectors();
-    }
+    public Camera() => UpdateVectors();
 
     public Matrix4x4 GetViewMatrix()
         => Matrix4x4.CreateLookAt(Position, Position + Front, Up);
 
-    public Matrix4x4 GetProjectionMatrix(float aspectRatio)
-        => Matrix4x4.CreatePerspectiveFieldOfView(float.DegreesToRadians(FieldOfView), aspectRatio, 0.1f, 100.0f);
+    public Matrix4x4 GetProjectionMatrix(float aspectRatio, float farPlane)
+        => Matrix4x4.CreatePerspectiveFieldOfView(float.DegreesToRadians(FieldOfView), aspectRatio, 0.1f, farPlane);
 
     public void UpdateVectors()
     {

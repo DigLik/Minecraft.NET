@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PublishAot>False</PublishAot>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,15 +15,16 @@
     <PackageReference Include="Silk.NET.OpenGL" Version="2.22.0" />
     <PackageReference Include="Silk.NET.SDL" Version="2.22.0" />
     <PackageReference Include="Silk.NET.Windowing" Version="2.22.0" />
+    <PackageReference Include="StbImageSharp" Version="2.30.15" />
     <PackageReference Include="System.Text.Json" Version="9.0.9" />
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Assets\" />
+	<TrimmerRootDescriptor Include="TrimmerDirectives.xml" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Assets\atlas.png">
+    <None Update="Assets\Textures\atlas.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
