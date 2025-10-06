@@ -2,6 +2,7 @@
 using Minecraft.NET.Core.Abstractions;
 using Minecraft.NET.Core.Blocks;
 using Minecraft.NET.Core.World;
+using Minecraft.NET.Shared.Structs;
 using System.Collections.Concurrent;
 
 namespace Minecraft.NET.Graphics.Meshes;
@@ -11,6 +12,7 @@ file readonly record struct GeneratedFace(float[] FaceVertices, Vector3 BlockPos
 
 public static class ChunkMesher
 {
+    #region Cube Face Definitions
     private static readonly float[] FrontFace = [-0.5f, -0.5f, 0.5f, 0, 1, 0.5f, -0.5f, 0.5f, 1, 1, 0.5f, 0.5f, 0.5f, 1, 0, -0.5f, 0.5f, 0.5f, 0, 0];
     private static readonly float[] BackFace = [0.5f, -0.5f, -0.5f, 0, 1, -0.5f, -0.5f, -0.5f, 1, 1, -0.5f, 0.5f, -0.5f, 1, 0, 0.5f, 0.5f, -0.5f, 0, 0];
     private static readonly float[] TopFace = [-0.5f, 0.5f, 0.5f, 0, 1, 0.5f, 0.5f, 0.5f, 1, 1, 0.5f, 0.5f, -0.5f, 1, 0, -0.5f, 0.5f, -0.5f, 0, 0];
@@ -19,9 +21,13 @@ public static class ChunkMesher
     private static readonly float[] LeftFace = [-0.5f, -0.5f, -0.5f, 0, 1, -0.5f, -0.5f, 0.5f, 1, 1, -0.5f, 0.5f, 0.5f, 1, 0, -0.5f, 0.5f, -0.5f, 0, 0];
 
     private static readonly uint[] FaceIndices = [0, 1, 2, 2, 3, 0];
+    #endregion
 
-    public static ChunkMeshData GenerateMesh(IWorldManager world, ChunkColumn column, Vector2 columnPosition, GameSettings gameSettings)
+    public static MeshBuffer GenerateMesh(IWorldManager world, ChunkColumn column, Vector2 columnPosition, GameSettings gameSettings)
     {
+        var buffer = MeshBufferPool.Get();
+        buffer.Position = columnPosition;
+
         var visibleFaces = new ConcurrentBag<GeneratedFace>();
 
         var threadLocalCache = new ThreadLocal<Dictionary<Vector2, ChunkColumn?>>(() =>
@@ -40,7 +46,7 @@ public static class ChunkMesher
                 for (int y = 0; y < gameSettings.ChunkSize; y++)
                     for (int z = 0; z < gameSettings.ChunkSize; z++)
                     {
-                        var blockId = chunk.BlockIDs[x, y, z].ID;
+                        var blockId = chunk.GetBlock(x, y, z).ID;
                         if (blockId == BlockManager.Air.ID) continue;
                         if (!BlockManager.TryGetDefinition(blockId, out var def)) continue;
 
@@ -61,24 +67,34 @@ public static class ChunkMesher
                     }
         });
 
-        threadLocalCache.Dispose();
+        buffer.EnsureVertexCapacity(visibleFaces.Count * 4 * 5);
+        buffer.EnsureIndexCapacity(visibleFaces.Count * 6);
 
-        var vertices = new List<float>(visibleFaces.Count * 4 * 5);
-        var indices = new List<uint>(visibleFaces.Count * 6);
+        var verticesBuffer = new ResizableBuffer<float>(buffer.GetVertexSpan());
+        var indicesBuffer = new ResizableBuffer<uint>(buffer.GetIndexSpan());
+
         uint vertexOffset = 0;
-
         foreach (var face in visibleFaces)
-            AddFace(vertices, indices, ref vertexOffset, face.FaceVertices, face.BlockPos, face.TexCoords);
+        {
+            AddFace(ref verticesBuffer, ref indicesBuffer, ref vertexOffset, face.FaceVertices, face.BlockPos, face.TexCoords);
+        }
 
-        return new ChunkMeshData(columnPosition, [.. vertices], [.. indices]);
+        buffer.VerticesCount = verticesBuffer.Count;
+        buffer.IndicesCount = indicesBuffer.Count;
+
+        return buffer;
     }
 
-    private static void AddFace(List<float> vertices, List<uint> indices, ref uint vertexOffset, float[] faceVertices, Vector3 blockPos, Vector2 texCoords)
+    private static void AddFace(
+        ref ResizableBuffer<float> vertices,
+        ref ResizableBuffer<uint> indices,
+        ref uint vertexOffset, float[] faceVertices,
+        Vector3 blockPos, Vector2 texCoords)
     {
-        float u0 = texCoords.X * Constants.TileSize / Constants.AtlasWidth;
-        float v0 = texCoords.Y * Constants.TileSize / Constants.AtlasHeight;
-        float u1 = u0 + Constants.TileSize / Constants.AtlasWidth;
-        float v1 = v0 + Constants.TileSize / Constants.AtlasHeight;
+        float u0 = (texCoords.X * Constants.TileSize) / Constants.AtlasWidth;
+        float v0 = (texCoords.Y * Constants.TileSize) / Constants.AtlasHeight;
+        float u1 = u0 + (Constants.TileSize / Constants.AtlasWidth);
+        float v1 = v0 + (Constants.TileSize / Constants.AtlasHeight);
 
         for (int i = 0; i < 4; i++)
         {
@@ -131,7 +147,7 @@ public static class ChunkMesher
 
         if (targetChunkY < 0 || targetChunkY >= targetColumn.Chunks.Length) return true;
 
-        var blockId = targetColumn.Chunks[targetChunkY].BlockIDs[localX, localY, localZ].ID;
+        var blockId = targetColumn.Chunks[targetChunkY].GetBlock(localX, localY, localZ).ID;
         return blockId == BlockManager.Air.ID;
     }
 }

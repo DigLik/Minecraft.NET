@@ -11,7 +11,10 @@ public class FlatWorldGenerator(GameSettings gameSettings) : IWorldGenerator
 
         for (int chunkY = 0; chunkY < gameSettings.ChunkHeight; chunkY++)
         {
-            var chunk = new Chunk(gameSettings.ChunkSize);
+            var palette = new Dictionary<ushort, ushort>(); // <BlockID, PaletteIndex>
+            var paletteList = new List<Block>();
+            var blockIndices = new ushort[gameSettings.ChunkSize, gameSettings.ChunkSize, gameSettings.ChunkSize];
+
             var worldY_base = chunkY * gameSettings.ChunkSize;
 
             for (int x = 0; x < gameSettings.ChunkSize; x++)
@@ -29,10 +32,20 @@ public class FlatWorldGenerator(GameSettings gameSettings) : IWorldGenerator
                         else
                             block = new Block(BlockManager.Air.ID, new ModelID(BlockManager.Air.ID));
 
-                        chunk.BlockIDs[x, y, z] = block;
+                        if (!palette.TryGetValue(block.ID, out ushort paletteIndex))
+                        {
+                            paletteIndex = (ushort)paletteList.Count;
+                            palette.Add(block.ID, paletteIndex);
+                            paletteList.Add(block);
+                        }
+
+                        blockIndices[x, y, z] = paletteIndex;
                     }
 
-            chunk.IsDirty = true;
+            var chunk = new Chunk(gameSettings.ChunkSize, paletteList, blockIndices)
+            {
+                IsDirty = true
+            };
             column.Chunks[chunkY] = chunk;
         }
 

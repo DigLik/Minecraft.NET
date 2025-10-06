@@ -15,17 +15,19 @@ public sealed class ChunkRenderObject : IRenderable, IDisposable
     public ChunkRenderObject(
         GL gl,
         Material material,
-        ChunkMeshData meshData
+        MeshBuffer meshBuffer
     )
     {
         _gl = gl;
         Material = material;
         Transform = new Transform { Position = Vector3.Zero };
 
-        if (meshData.Indices.Length > 0)
-            Mesh = new Mesh(_gl, meshData.Vertices, meshData.Indices);
+        if (meshBuffer.IndicesCount > 0)
+            Mesh = new Mesh(_gl, meshBuffer.GetVertices(), meshBuffer.GetIndices());
         else
-            Mesh = new Mesh(_gl, [0], [0]);
+            Mesh = new Mesh(_gl, [], []);
+
+        MeshBufferPool.Return(meshBuffer);
     }
 
     public void Dispose() => Mesh?.Dispose();

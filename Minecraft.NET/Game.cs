@@ -41,7 +41,7 @@ public sealed class Game : IDisposable
     private Vector2 _lastPlayerChunkPosition = new(float.MaxValue);
 
     private readonly ConcurrentQueue<Vector2> _chunksToBuildQueue = new();
-    private readonly ConcurrentQueue<ChunkMeshData> _chunksToRenderQueue = new();
+    private readonly ConcurrentQueue<MeshBuffer> _chunksToRenderQueue = new();
     private readonly List<Thread> _chunkWorkers = [];
     private readonly CancellationTokenSource _cancellationTokenSource = new();
 
@@ -52,7 +52,8 @@ public sealed class Game : IDisposable
         PerformanceMonitor performanceMonitor,
         Camera camera,
         GraphicsSettings graphicsSettings,
-        GameSettings gameSettings)
+        GameSettings gameSettings
+    )
     {
         _window = window;
         _renderer = renderer;
@@ -72,7 +73,9 @@ public sealed class Game : IDisposable
 
         for (int i = 0; i < _gameSettings.MaxBackgroundThreads; i++)
         {
-            var worker = new ChunkWorker(_worldManager, _gameSettings, _chunksToBuildQueue, _chunksToRenderQueue, _cancellationTokenSource.Token);
+            var worker = new ChunkWorker(
+                _worldManager, _gameSettings, _chunksToBuildQueue, _chunksToRenderQueue, _cancellationTokenSource.Token
+            );
             var thread = new Thread(worker.Run) { Name = $"ChunkWorker-{i}", IsBackground = true };
             _chunkWorkers.Add(thread);
             thread.Start();
@@ -126,10 +129,7 @@ public sealed class Game : IDisposable
         );
 
         if (currentChunkPos == _lastPlayerChunkPosition) return;
-
         _lastPlayerChunkPosition = currentChunkPos;
-
-        var worldMaterial = new BasicMaterial(_basicShader) { Texture = _atlasTexture };
 
         for (int x = -_graphicsSettings.RenderDistance; x <= _graphicsSettings.RenderDistance; x++)
             for (int z = -_graphicsSettings.RenderDistance; z <= _graphicsSettings.RenderDistance; z++)
@@ -137,12 +137,8 @@ public sealed class Game : IDisposable
                 var chunkPos = new Vector2(currentChunkPos.X + x, currentChunkPos.Y + z);
                 if (!_chunkRenderObjects.ContainsKey(chunkPos))
                 {
-                    var column = _worldManager.GetChunkColumn(chunkPos);
-                    if (column != null)
-                    {
-                        _chunksToBuildQueue.Enqueue(chunkPos);
-                        _chunkRenderObjects.Add(chunkPos, null!);
-                    }
+                    _chunksToBuildQueue.Enqueue(chunkPos);
+                    _chunkRenderObjects.Add(chunkPos, null!);
                 }
             }
 
@@ -158,6 +154,7 @@ public sealed class Game : IDisposable
                     _renderables.Remove(chunk);
                     chunk.Dispose();
                 }
+                _worldManager.UnloadChunkColumn(pos);
             }
         }
 
@@ -167,17 +164,21 @@ public sealed class Game : IDisposable
     private void ProcessRenderQueue()
     {
         int processedCount = 0;
-        const int maxMeshesPerFrame = 4;
+        const int maxMeshesPerFrame = 8;
 
-        while (processedCount < maxMeshesPerFrame && _chunksToRenderQueue.TryDequeue(out var meshData))
+        while (processedCount < maxMeshesPerFrame && _chunksToRenderQueue.TryDequeue(out var meshBuffer))
         {
-            if (_chunkRenderObjects.ContainsKey(meshData.Position))
+            if (_chunkRenderObjects.ContainsKey(meshBuffer.Position))
             {
                 var worldMaterial = new BasicMaterial(_basicShader) { Texture = _atlasTexture };
-                var chunkRenderObject = new ChunkRenderObject(_gl, worldMaterial, meshData);
+                var chunkRenderObject = new ChunkRenderObject(_gl, worldMaterial, meshBuffer);
 
-                _chunkRenderObjects[meshData.Position] = chunkRenderObject;
+                _chunkRenderObjects[meshBuffer.Position] = chunkRenderObject;
                 _renderables.Add(chunkRenderObject);
+            }
+            else
+            {
+                MeshBufferPool.Return(meshBuffer);
             }
             processedCount++;
         }

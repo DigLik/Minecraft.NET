@@ -10,7 +10,7 @@ public sealed class Mesh : IDisposable
     private readonly VertexArrayObject<float> _vao;
     private readonly uint _indexCount;
 
-    public unsafe Mesh(GL gl, float[] vertices, uint[] indices)
+    public unsafe Mesh(GL gl, ReadOnlySpan<float> vertices, ReadOnlySpan<uint> indices)
     {
         _gl = gl;
         _indexCount = (uint)indices.Length;
@@ -20,7 +20,6 @@ public sealed class Mesh : IDisposable
         _ibo = new IndexBufferObject(gl, indices);
 
         const uint stride = 5 * sizeof(float);
-
         _vao.SetVertexAttributePointer(0, 3, VertexAttribPointerType.Float, stride, 0);
         _vao.SetVertexAttributePointer(1, 2, VertexAttribPointerType.Float, stride, 3 * sizeof(float));
     }

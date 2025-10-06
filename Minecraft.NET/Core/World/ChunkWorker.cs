@@ -8,7 +8,7 @@ public class ChunkWorker(
     IWorldManager worldManager,
     GameSettings gameSettings,
     ConcurrentQueue<Vector2> buildQueue,
-    ConcurrentQueue<ChunkMeshData> resultQueue,
+    ConcurrentQueue<MeshBuffer> resultQueue,
     CancellationToken cancellationToken)
 {
     private readonly IWorldManager _worldManager = worldManager;
@@ -20,7 +20,11 @@ public class ChunkWorker(
         {
             if (buildQueue.TryDequeue(out var position))
             {
-                var column = _worldManager.GetChunkColumn(position);
+                var columnTask = _worldManager.RequestChunkColumnAsync(position);
+                columnTask.Wait(cancellationToken);
+
+                var column = columnTask.Result;
+
                 if (column != null)
                 {
                     var meshData = ChunkMesher.GenerateMesh(_worldManager, column, position, _gameSettings);
