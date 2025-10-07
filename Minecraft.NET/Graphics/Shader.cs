@@ -1,15 +1,13 @@
-﻿using Silk.NET.OpenGL;
-using System.Diagnostics;
-using System.Numerics;
+﻿using System.Diagnostics;
 
-namespace Minecraft.NET.Graphics.Shaders;
+namespace Minecraft.NET.Graphics;
 
-public abstract class Shader : IDisposable
+public sealed class Shader : IDisposable
 {
-    protected readonly GL _gl;
-    public uint Handle { get; }
+    private readonly GL _gl;
+    public readonly uint Handle;
 
-    protected Shader(GL gl, string vertexSource, string fragmentSource)
+    public Shader(GL gl, string vertexSource, string fragmentSource)
     {
         _gl = gl;
 
@@ -31,35 +29,17 @@ public abstract class Shader : IDisposable
         _gl.DeleteShader(fragmentShader);
     }
 
-    protected Shader(GL gl, string computeSource)
-    {
-        _gl = gl;
-
-        var computeShader = CompileShader(ShaderType.ComputeShader, computeSource);
-
-        Handle = _gl.CreateProgram();
-
-        _gl.AttachShader(Handle, computeShader);
-        _gl.LinkProgram(Handle);
-
-        _gl.GetProgram(Handle, ProgramPropertyARB.LinkStatus, out var status);
-        if (status == 0)
-            throw new Exception($"Shader program linking failed: {_gl.GetProgramInfoLog(Handle)}");
-
-        _gl.DetachShader(Handle, computeShader);
-        _gl.DeleteShader(computeShader);
-    }
-
     public void Use() => _gl.UseProgram(Handle);
 
-    protected int GetUniformLocation(string name)
+    public int GetUniformLocation(string name)
     {
         int location = _gl.GetUniformLocation(Handle, name);
         if (location == -1)
-            Debug.WriteLine($"[WARNING] Uniform '{name}' not found in shader {GetType().Name}.");
-
+            Debug.WriteLine($"[WARNING] Uniform '{name}' not found.");
         return location;
     }
+
+    public unsafe void SetMatrix4x4(int location, Matrix4x4 matrix) => _gl.UniformMatrix4(location, 1, false, (float*)&matrix);
 
     private uint CompileShader(ShaderType type, string source)
     {
@@ -70,13 +50,8 @@ public abstract class Shader : IDisposable
         _gl.GetShader(shader, ShaderParameterName.CompileStatus, out var status);
         if (status == 0)
             throw new Exception($"Shader compilation of type {type} failed: {_gl.GetShaderInfoLog(shader)}");
-
         return shader;
     }
 
-    public void Dispose()
-    {
-        _gl.DeleteProgram(Handle);
-        GC.SuppressFinalize(this);
-    }
+    public void Dispose() => _gl.DeleteProgram(Handle);
 }
