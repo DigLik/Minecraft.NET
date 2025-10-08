@@ -164,20 +164,19 @@ public sealed class Renderer
 
         _visibleChunks.Clear();
         _modelMatrices.Clear();
-        lock (chunks)
+
+        foreach (var chunk in chunks)
         {
-            foreach (var chunk in chunks)
-            {
-                if (chunk.Mesh == null || chunk.Mesh.IndexCount == 0 || chunk.State != ChunkState.Rendered) continue;
+            if (chunk.Mesh == null || chunk.Mesh.IndexCount == 0)
+                continue;
 
-                var chunkWorldPos = chunk.Position * ChunkSize;
-                var box = new BoundingBox(chunkWorldPos, chunkWorldPos + new Vector3(ChunkSize));
-                if (!_frustum.Intersects(box))
-                    continue;
+            var chunkWorldPos = chunk.Position * ChunkSize;
+            var box = new BoundingBox(chunkWorldPos, chunkWorldPos + new Vector3(ChunkSize));
+            if (!_frustum.Intersects(box))
+                continue;
 
-                _visibleChunks.Add(chunk);
-                _modelMatrices.Add(Matrix4x4.CreateTranslation(chunkWorldPos));
-            }
+            _visibleChunks.Add(chunk);
+            _modelMatrices.Add(Matrix4x4.CreateTranslation(chunkWorldPos));
         }
 
         _gBuffer.Bind();

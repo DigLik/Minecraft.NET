@@ -23,7 +23,7 @@ public sealed class Game : IDisposable
         _camera = new Camera(new Vector3(8, 40, 8));
         _world = new World();
         _renderer = new Renderer();
-        _inputManager = new InputManager(_window, _camera);
+        _inputManager = new InputManager(_window, _camera, _world);
 
         _window.Load += OnLoad;
         _window.Update += OnUpdate;
@@ -53,34 +53,35 @@ public sealed class Game : IDisposable
         {
             var (chunk, meshData, isNewChunk) = result;
 
-            chunk.Mesh?.Dispose();
-            chunk.Mesh = null;
-
+            Mesh? newMesh = null;
             if (meshData.IndexCount > 0)
             {
-                var newMesh = new Mesh(meshData);
+                newMesh = new Mesh(meshData);
                 newMesh.UploadToGpu(_gl, _renderer.InstanceVbo);
-                chunk.Mesh = newMesh;
             }
             else
             {
                 meshData.Dispose();
             }
 
+            var oldMesh = chunk.Mesh;
+            chunk.Mesh = newMesh;
+            oldMesh?.Dispose();
+
             chunk.State = ChunkState.Rendered;
-            if (isNewChunk)
+            if (isNewChunk && newMesh != null)
             {
                 _world.AddRenderableChunk(chunk);
             }
         }
 
-        _window.Title = $"FPS: {_fpsCounter.FPS:F0} | Chunks: {_world.GetLoadedChunkCount()} | Renderables: {_world.GetRenderableChunks().Count} | Position: {_camera.Position}";
+        _window.Title = $"FPS: {_fpsCounter.FPS:F0} | Chunks: {_world.GetLoadedChunkCount()} | Renderables: {_world.GetRenderableChunkCount()} | Position: {_camera.Position}";
     }
 
     private void OnRender(double deltaTime)
     {
         _fpsCounter.Update(deltaTime);
-        _renderer.Render(_world.GetRenderableChunks(), _camera);
+        _renderer.Render(_world.GetRenderableChunksSnapshot(), _camera);
     }
 
     private void OnFramebufferResize(Vector2D<int> newSize)

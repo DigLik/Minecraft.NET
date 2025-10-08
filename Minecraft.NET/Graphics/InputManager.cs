@@ -1,9 +1,10 @@
-﻿using Silk.NET.Input;
+﻿using Minecraft.NET.Core;
+using Silk.NET.Input;
 using Silk.NET.Windowing;
 
 namespace Minecraft.NET.Graphics;
 
-public class InputManager(IWindow window, Camera camera)
+public class InputManager(IWindow window, Camera camera, World world)
 {
     private readonly IWindow _window = window;
     private IKeyboard _keyboard = null!;
@@ -21,6 +22,7 @@ public class InputManager(IWindow window, Camera camera)
         _mouse.Cursor.CursorMode = CursorMode.Normal;
         _mouse.MouseMove += OnMouseMove;
         _keyboard.KeyDown += OnKeyDown;
+        _mouse.MouseDown += OnMouseDown;
     }
 
     public void Update(float dt)
@@ -35,6 +37,16 @@ public class InputManager(IWindow window, Camera camera)
         if (_keyboard.IsKeyPressed(Key.D)) camera.Position += camera.Right * cameraSpeed * dt;
         if (_keyboard.IsKeyPressed(Key.Space)) camera.Position += Vector3.UnitY * cameraSpeed * dt;
         if (_keyboard.IsKeyPressed(Key.ShiftLeft)) camera.Position -= Vector3.UnitY * cameraSpeed * dt;
+    }
+
+    private void OnMouseDown(IMouse mouse, MouseButton button)
+    {
+        if (!_isMouseCaptured) return;
+
+        if (button == MouseButton.Left)
+        {
+            world.BreakBlock(camera.Position, camera.Front);
+        }
     }
 
     private void OnMouseMove(IMouse mouse, Vector2 position)
@@ -63,6 +75,12 @@ public class InputManager(IWindow window, Camera camera)
         {
             _isMouseCaptured = !_isMouseCaptured;
             _mouse.Cursor.CursorMode = _isMouseCaptured ? CursorMode.Disabled : CursorMode.Normal;
+
+            if (_isMouseCaptured)
+            {
+                _lastMousePosition = new Vector2(_window.Size.X / 2f, _window.Size.Y / 2f);
+                _mouse.Position = _lastMousePosition;
+            }
         }
     }
 }

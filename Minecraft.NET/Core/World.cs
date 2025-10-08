@@ -151,6 +151,93 @@ public sealed class World : IDisposable
         _generatedMeshes.Enqueue((chunk, meshData, isNewChunk));
     }
 
+    public void BreakBlock(Vector3 cameraPos, Vector3 cameraDir)
+    {
+        var result = Raycast(cameraPos, cameraDir, 6.0f);
+        if (result.HasValue)
+        {
+            SetBlock(result.Value, BlockId.Air);
+        }
+    }
+
+    private Vector3? Raycast(Vector3 origin, Vector3 direction, float maxDistance)
+    {
+        Vector3 pos = origin;
+        Vector3 step = Vector3.Normalize(direction) * 0.05f;
+
+        for (float dist = 0; dist < maxDistance; dist += 0.05f)
+        {
+            pos += step;
+            var blockPos = new Vector3(MathF.Floor(pos.X), MathF.Floor(pos.Y), MathF.Floor(pos.Z));
+
+            var blockId = GetBlock(blockPos);
+            if (blockId != BlockId.Air)
+                return blockPos;
+        }
+
+        return null;
+    }
+
+    public BlockId GetBlock(Vector3 worldPosition)
+    {
+        var chunkPos = new Vector3(
+            MathF.Floor(worldPosition.X / ChunkSize),
+            MathF.Floor(worldPosition.Y / ChunkSize),
+            MathF.Floor(worldPosition.Z / ChunkSize)
+        );
+
+        if (!_chunks.TryGetValue(chunkPos, out var chunk))
+            return BlockId.Air;
+
+        int localX = (int)(worldPosition.X - chunkPos.X * ChunkSize);
+        int localY = (int)(worldPosition.Y - chunkPos.Y * ChunkSize);
+        int localZ = (int)(worldPosition.Z - chunkPos.Z * ChunkSize);
+
+        return chunk.GetBlock(localX, localY, localZ);
+    }
+
+    public void SetBlock(Vector3 worldPosition, BlockId id)
+    {
+        var chunkPos = new Vector3(
+            MathF.Floor(worldPosition.X / ChunkSize),
+            MathF.Floor(worldPosition.Y / ChunkSize),
+            MathF.Floor(worldPosition.Z / ChunkSize)
+        );
+
+        if (!_chunks.TryGetValue(chunkPos, out var chunk))
+            return;
+
+        int localX = (int)(worldPosition.X - chunkPos.X * ChunkSize);
+        int localY = (int)(worldPosition.Y - chunkPos.Y * ChunkSize);
+        int localZ = (int)(worldPosition.Z - chunkPos.Z * ChunkSize);
+
+        chunk.SetBlock(localX, localY, localZ, id);
+
+        lock (_chunkLock)
+        {
+            if (chunk.State == ChunkState.Rendered)
+            {
+                chunk.State = ChunkState.AwaitingMesh;
+                TryQueueChunkForMeshing(chunk);
+            }
+
+            if (localX == 0 && _chunks.TryGetValue(chunkPos - Vector3.UnitX, out var neighborXN))
+                if (neighborXN.State == ChunkState.Rendered) { neighborXN.State = ChunkState.AwaitingMesh; TryQueueChunkForMeshing(neighborXN); }
+            if (localX == ChunkSize - 1 && _chunks.TryGetValue(chunkPos + Vector3.UnitX, out var neighborXP))
+                if (neighborXP.State == ChunkState.Rendered) { neighborXP.State = ChunkState.AwaitingMesh; TryQueueChunkForMeshing(neighborXP); }
+
+            if (localY == 0 && _chunks.TryGetValue(chunkPos - Vector3.UnitY, out var neighborYN))
+                if (neighborYN.State == ChunkState.Rendered) { neighborYN.State = ChunkState.AwaitingMesh; TryQueueChunkForMeshing(neighborYN); }
+            if (localY == ChunkSize - 1 && _chunks.TryGetValue(chunkPos + Vector3.UnitY, out var neighborYP))
+                if (neighborYP.State == ChunkState.Rendered) { neighborYP.State = ChunkState.AwaitingMesh; TryQueueChunkForMeshing(neighborYP); }
+
+            if (localZ == 0 && _chunks.TryGetValue(chunkPos - Vector3.UnitZ, out var neighborZN))
+                if (neighborZN.State == ChunkState.Rendered) { neighborZN.State = ChunkState.AwaitingMesh; TryQueueChunkForMeshing(neighborZN); }
+            if (localZ == ChunkSize - 1 && _chunks.TryGetValue(chunkPos + Vector3.UnitZ, out var neighborZP))
+                if (neighborZP.State == ChunkState.Rendered) { neighborZP.State = ChunkState.AwaitingMesh; TryQueueChunkForMeshing(neighborZP); }
+        }
+    }
+
     public ChunkSection? GetChunk(Vector3 position)
     {
         _chunks.TryGetValue(position, out var chunk);
@@ -166,7 +253,22 @@ public sealed class World : IDisposable
             _renderableChunks.Add(chunk);
     }
 
-    public IReadOnlyCollection<ChunkSection> GetRenderableChunks() => _renderableChunks;
+    public List<ChunkSection> GetRenderableChunksSnapshot()
+    {
+        lock (_chunkLock)
+        {
+            return [.. _renderableChunks];
+        }
+    }
+
+    public int GetRenderableChunkCount()
+    {
+        lock (_chunkLock)
+        {
+            return _renderableChunks.Count;
+        }
+    }
+
     public int GetLoadedChunkCount() => _chunks.Count;
 
     public void Dispose()
