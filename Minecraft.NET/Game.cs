@@ -40,6 +40,8 @@ public sealed class Game : IDisposable
         _inputManager.Initialize();
         _renderer.Load(_gl);
         _world.Initialize();
+
+        OnFramebufferResize(_window.FramebufferSize);
     }
 
     private void OnUpdate(double deltaTime)
@@ -78,10 +80,13 @@ public sealed class Game : IDisposable
     private void OnRender(double deltaTime)
     {
         _fpsCounter.Update(deltaTime);
-        _renderer.Render(_world.GetRenderableChunks(), _camera, _window.FramebufferSize);
+        _renderer.Render(_world.GetRenderableChunks(), _camera);
     }
 
-    private void OnFramebufferResize(Vector2D<int> newSize) => _gl.Viewport(newSize);
+    private void OnFramebufferResize(Vector2D<int> newSize)
+    {
+        _renderer.OnFramebufferResize(newSize);
+    }
 
     private void OnClose() => _world.Dispose();
 

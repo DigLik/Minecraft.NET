@@ -43,6 +43,7 @@ public sealed class Shader : IDisposable
     public void SetFloat(int location, float value) => _gl.Uniform1(location, value);
     public void SetBool(int location, bool value) => _gl.Uniform1(location, value ? 1 : 0);
     public unsafe void SetVector2(int location, Vector2 vector) => _gl.Uniform2(location, 1, (float*)&vector);
+    public unsafe void SetVector3(int location, Vector3 vector) => _gl.Uniform3(location, 1, (float*)&vector);
     public unsafe void SetVector4(int location, Vector4 vector) => _gl.Uniform4(location, 1, (float*)&vector);
     public unsafe void SetMatrix4x4(int location, Matrix4x4 matrix) => _gl.UniformMatrix4(location, 1, false, (float*)&matrix);
 

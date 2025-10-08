@@ -1,76 +1,165 @@
 ﻿using Minecraft.NET.Core;
 using Silk.NET.Maths;
+using System.Runtime.InteropServices;
 
 namespace Minecraft.NET.Graphics;
 
 public sealed class Renderer
 {
     private GL _gl = null!;
-    private Shader _chunkShader = null!;
     public Texture BlockTextureAtlas { get; private set; } = null!;
-    private int _locMvp, _locModel;
-
-    private int _locUseWireframeColor;
-    private int _locWireframeColor;
-    private readonly bool _showWireframe = true;
 
     private readonly Frustum _frustum = new();
+
+    private Framebuffer _gBuffer = null!;
+    private Shader _gBufferShader = null!;
+
+    private Framebuffer _ssaoFbo = null!;
+    private Framebuffer _ssaoBlurFbo = null!;
+    private Shader _ssaoShader = null!;
+    private Shader _ssaoBlurShader = null!;
+    private uint _ssaoNoiseTexture;
+    private readonly List<Vector3> _ssaoKernel = [];
+
+    private Shader _lightingShader = null!;
+
+    private uint _quadVao, _quadVbo;
+
+    private Vector2D<int> _viewportSize;
 
     private static string LoadShaderSource(string path)
         => new([.. File.ReadAllText(path).Where(c => c < 128)]);
 
-    public void Load(GL gl)
+    public unsafe void Load(GL gl)
     {
         _gl = gl;
 
         BlockTextureAtlas = new Texture(_gl, "Assets/Textures/atlas.png");
 
-        const float PixelPadding = 0.1f;
-        const float TileSizeVal = Constants.TileSize;
-        const float AtlasWidthVal = Constants.AtlasWidth;
-        const float AtlasHeightVal = Constants.AtlasHeight;
+        string gBufferVert = LoadShaderSource("Assets/Shaders/g_buffer.vert");
+        string gBufferFrag = LoadShaderSource("Assets/Shaders/g_buffer.frag");
+        _gBufferShader = new Shader(_gl, gBufferVert, gBufferFrag);
 
-        string vertSource = LoadShaderSource("Assets/Shaders/chunk.vert");
-        string fragSource = LoadShaderSource("Assets/Shaders/chunk.frag");
+        _gBufferShader.Use();
+        _gBufferShader.SetInt(_gBufferShader.GetUniformLocation("uTexture"), 0);
+        _gBufferShader.SetVector2(_gBufferShader.GetUniformLocation("uTileAtlasSize"), new Vector2(Constants.AtlasWidth, Constants.AtlasHeight));
+        _gBufferShader.SetFloat(_gBufferShader.GetUniformLocation("uTileSize"), Constants.TileSize);
+        _gBufferShader.SetFloat(_gBufferShader.GetUniformLocation("uPixelPadding"), 0.1f);
 
-        _chunkShader = new Shader(_gl, vertSource, fragSource);
+        string ssaoVert = LoadShaderSource("Assets/Shaders/ssao.vert");
+        string ssaoFrag = LoadShaderSource("Assets/Shaders/ssao.frag");
+        _ssaoShader = new Shader(_gl, ssaoVert, ssaoFrag);
 
-        _locMvp = _chunkShader.GetUniformLocation("mvp");
-        _locModel = _chunkShader.GetUniformLocation("model");
-        _locUseWireframeColor = _chunkShader.GetUniformLocation("u_UseWireframeColor");
-        _locWireframeColor = _chunkShader.GetUniformLocation("u_WireframeColor");
+        string ssaoBlurVert = LoadShaderSource("Assets/Shaders/ssao_blur.vert");
+        string ssaoBlurFrag = LoadShaderSource("Assets/Shaders/ssao_blur.frag");
+        _ssaoBlurShader = new Shader(_gl, ssaoBlurVert, ssaoBlurFrag);
 
-        var locTileAtlasSize = _chunkShader.GetUniformLocation("uTileAtlasSize");
-        var locTexture = _chunkShader.GetUniformLocation("uTexture");
-        var locTileSize = _chunkShader.GetUniformLocation("uTileSize");
-        var locPixelPadding = _chunkShader.GetUniformLocation("uPixelPadding");
+        string lightingVert = LoadShaderSource("Assets/Shaders/lighting.vert");
+        string lightingFrag = LoadShaderSource("Assets/Shaders/lighting.frag");
+        _lightingShader = new Shader(_gl, lightingVert, lightingFrag);
 
-        _chunkShader.Use();
-        _chunkShader.SetVector2(locTileAtlasSize, new Vector2(AtlasWidthVal, AtlasHeightVal));
-        _chunkShader.SetInt(locTexture, 0);
-        _chunkShader.SetFloat(locTileSize, TileSizeVal);
-        _chunkShader.SetFloat(locPixelPadding, PixelPadding);
+        _lightingShader.Use();
+        _lightingShader.SetInt(_lightingShader.GetUniformLocation("gAlbedo"), 0);
+        _lightingShader.SetInt(_lightingShader.GetUniformLocation("ssao"), 1);
 
-        _gl.UseProgram(0);
+        _ssaoShader.Use();
+        _ssaoShader.SetInt(_ssaoShader.GetUniformLocation("gPosition"), 0);
+        _ssaoShader.SetInt(_ssaoShader.GetUniformLocation("gNormal"), 1);
+        _ssaoShader.SetInt(_ssaoShader.GetUniformLocation("texNoise"), 2);
+
+        _ssaoBlurShader.Use();
+        _ssaoBlurShader.SetInt(_ssaoBlurShader.GetUniformLocation("ssaoInput"), 0);
+
+        var random = new Random();
+        for (int i = 0; i < 64; ++i)
+        {
+            var sample = new Vector3(
+                (float)random.NextDouble() * 2.0f - 1.0f,
+                (float)random.NextDouble() * 2.0f - 1.0f,
+                (float)random.NextDouble()
+            );
+            sample = Vector3.Normalize(sample);
+            sample *= (float)random.NextDouble();
+            float scale = (float)i / 64.0f;
+            scale = 0.1f + scale * scale * (1.0f - 0.1f);
+            sample *= scale;
+            _ssaoKernel.Add(sample);
+        }
+
+        var ssaoNoise = new List<Vector3>();
+        for (int i = 0; i < 16; i++)
+        {
+            ssaoNoise.Add(new Vector3(
+                (float)random.NextDouble() * 2.0f - 1.0f,
+                (float)random.NextDouble() * 2.0f - 1.0f,
+                0.0f
+            ));
+        }
+        _ssaoNoiseTexture = _gl.GenTexture();
+        _gl.BindTexture(TextureTarget.Texture2D, _ssaoNoiseTexture);
+        fixed (Vector3* p = CollectionsMarshal.AsSpan(ssaoNoise))
+        {
+            _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.Rgba16f, 4, 4, 0, PixelFormat.Rgb, PixelType.Float, p);
+        }
+        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)GLEnum.Nearest);
+        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)GLEnum.Nearest);
+        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)GLEnum.Repeat);
+        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)GLEnum.Repeat);
+
+        float[] quadVertices =
+        [
+            -1.0f,  1.0f, 0.0f, 1.0f,
+            -1.0f, -1.0f, 0.0f, 0.0f,
+             1.0f,  1.0f, 1.0f, 1.0f,
+             1.0f, -1.0f, 1.0f, 0.0f,
+        ];
+        _quadVao = _gl.GenVertexArray();
+        _quadVbo = _gl.GenBuffer();
+        _gl.BindVertexArray(_quadVao);
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _quadVbo);
+        fixed (float* p = quadVertices)
+            _gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(quadVertices.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
+        _gl.EnableVertexAttribArray(0);
+        _gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 4 * sizeof(float), (void*)0);
+        _gl.EnableVertexAttribArray(1);
+        _gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 4 * sizeof(float), (void*)(2 * sizeof(float)));
 
         _gl.ClearColor(0.53f, 0.81f, 0.92f, 1.0f);
         _gl.Enable(EnableCap.DepthTest);
         _gl.Enable(EnableCap.CullFace);
     }
 
-    public void Render(IReadOnlyCollection<ChunkSection> chunks, Camera camera, Vector2D<int> viewportSize)
+    public void OnFramebufferResize(Vector2D<int> size)
     {
+        _gl.Viewport(size);
+        _viewportSize = size;
+
+        _gBuffer?.Dispose();
+        _ssaoFbo?.Dispose();
+        _ssaoBlurFbo?.Dispose();
+
+        _gBuffer = new Framebuffer(_gl, (uint)size.X, (uint)size.Y);
+        _ssaoFbo = new Framebuffer(_gl, (uint)size.X, (uint)size.Y, true);
+        _ssaoBlurFbo = new Framebuffer(_gl, (uint)size.X, (uint)size.Y, true);
+    }
+
+    public unsafe void Render(IReadOnlyCollection<ChunkSection> chunks, Camera camera)
+    {
+        if (_gBuffer is null)
+            return;
+
+        _gBuffer.Bind();
         _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
-        _chunkShader.Use();
-        BlockTextureAtlas.Bind();
 
         var view = camera.GetViewMatrix();
-        var projection = camera.GetProjectionMatrix((float)viewportSize.X / viewportSize.Y);
-        var viewProjection = view * projection;
+        var projection = camera.GetProjectionMatrix((float)_viewportSize.X / _viewportSize.Y);
+        _frustum.Update(view * projection);
 
-        _frustum.Update(viewProjection);
+        _gBufferShader.Use();
+        _gBufferShader.SetMatrix4x4(_gBufferShader.GetUniformLocation("view"), view);
+        _gBufferShader.SetMatrix4x4(_gBufferShader.GetUniformLocation("projection"), projection);
 
-        _chunkShader.SetBool(_locUseWireframeColor, false);
+        BlockTextureAtlas.Bind(TextureUnit.Texture0);
 
         lock (chunks)
         {
@@ -85,56 +174,51 @@ public sealed class Renderer
                     continue;
 
                 mesh.Bind();
-
                 var model = Matrix4x4.CreateTranslation(chunkWorldPos);
-                var mvp = model * viewProjection;
-                _chunkShader.SetMatrix4x4(_locMvp, mvp);
-                _chunkShader.SetMatrix4x4(_locModel, model);
+                _gBufferShader.SetMatrix4x4(_gBufferShader.GetUniformLocation("model"), model);
 
-                unsafe
-                {
-                    _gl.DrawElements(PrimitiveType.Triangles, (uint)mesh.IndexCount, DrawElementsType.UnsignedInt, null);
-                }
+                _gl.DrawElements(PrimitiveType.Triangles, (uint)mesh.IndexCount, DrawElementsType.UnsignedInt, null);
             }
         }
+        _gBuffer.Unbind();
 
-        if (_showWireframe)
-        {
-            _gl.PolygonMode(TriangleFace.FrontAndBack, PolygonMode.Line);
-            _gl.Enable(EnableCap.PolygonOffsetLine);
-            _gl.PolygonOffset(-1.0f, -1.0f);
+        _ssaoFbo.Bind();
+        _gl.Clear(ClearBufferMask.ColorBufferBit);
+        _ssaoShader.Use();
+        for (int i = 0; i < 64; ++i)
+            _ssaoShader.SetVector3(_ssaoShader.GetUniformLocation($"samples[{i}]"), _ssaoKernel[i]);
+        _ssaoShader.SetMatrix4x4(_ssaoShader.GetUniformLocation("projection"), projection);
+        _ssaoShader.SetVector2(_ssaoShader.GetUniformLocation("u_ScreenSize"), new Vector2(_viewportSize.X, _viewportSize.Y));
 
-            _chunkShader.SetBool(_locUseWireframeColor, true);
-            _chunkShader.SetVector4(_locWireframeColor, new Vector4(0.0f, 0.0f, 0.0f, 1.0f));
+        _gl.ActiveTexture(TextureUnit.Texture0);
+        _gl.BindTexture(TextureTarget.Texture2D, _gBuffer.ColorAttachments[0]);
+        _gl.ActiveTexture(TextureUnit.Texture1);
+        _gl.BindTexture(TextureTarget.Texture2D, _gBuffer.ColorAttachments[1]);
+        _gl.ActiveTexture(TextureUnit.Texture2);
+        _gl.BindTexture(TextureTarget.Texture2D, _ssaoNoiseTexture);
 
-            lock (chunks)
-            {
-                foreach (var chunk in chunks)
-                {
-                    var mesh = chunk.Mesh;
-                    if (mesh == null || mesh.IndexCount == 0 || chunk.State != ChunkState.Rendered) continue;
+        _gl.BindVertexArray(_quadVao);
+        _gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
+        _ssaoFbo.Unbind();
 
-                    var chunkWorldPos = chunk.Position * ChunkSize;
-                    var box = new BoundingBox(chunkWorldPos, chunkWorldPos + new Vector3(ChunkSize));
-                    if (!_frustum.Intersects(box))
-                        continue;
+        _ssaoBlurFbo.Bind();
+        _gl.Clear(ClearBufferMask.ColorBufferBit);
+        _ssaoBlurShader.Use();
+        _gl.ActiveTexture(TextureUnit.Texture0);
+        _gl.BindTexture(TextureTarget.Texture2D, _ssaoFbo.ColorAttachments[0]);
 
-                    mesh.Bind();
+        _gl.BindVertexArray(_quadVao);
+        _gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
+        _ssaoBlurFbo.Unbind();
 
-                    var model = Matrix4x4.CreateTranslation(chunkWorldPos);
-                    var mvp = model * viewProjection;
-                    _chunkShader.SetMatrix4x4(_locMvp, mvp);
-                    _chunkShader.SetMatrix4x4(_locModel, model);
+        _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+        _lightingShader.Use();
+        _gl.ActiveTexture(TextureUnit.Texture0);
+        _gl.BindTexture(TextureTarget.Texture2D, _gBuffer.ColorAttachments[2]);
+        _gl.ActiveTexture(TextureUnit.Texture1);
+        _gl.BindTexture(TextureTarget.Texture2D, _ssaoBlurFbo.ColorAttachments[0]);
 
-                    unsafe
-                    {
-                        _gl.DrawElements(PrimitiveType.Triangles, (uint)mesh.IndexCount, DrawElementsType.UnsignedInt, null);
-                    }
-                }
-            }
-
-            _gl.Disable(EnableCap.PolygonOffsetLine);
-            _gl.PolygonMode(TriangleFace.FrontAndBack, PolygonMode.Fill);
-        }
+        _gl.BindVertexArray(_quadVao);
+        _gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
     }
 }
