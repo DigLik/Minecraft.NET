@@ -4,9 +4,9 @@ namespace Minecraft.NET.Graphics;
 
 public static class ChunkMesher
 {
-    public static unsafe MeshData GenerateMesh(ChunkSection chunk, World world)
+    public static unsafe MeshData GenerateMesh(ChunkColumn column, int sectionY, World world)
     {
-        if (chunk.Blocks == null)
+        if (column.Blocks == null)
             return new MeshData(null, 0, null, 0);
 
         using var builder = new MeshBuilder(initialVertexCapacity: 32768, initialIndexCapacity: 49152);
@@ -35,8 +35,8 @@ public static class ChunkMesher
                     {
                         for (x[u] = 0; x[u] < ChunkSize; x[u]++)
                         {
-                            var blockCurrent = GetBlock(chunk, world, x[0], x[1], x[2]);
-                            var blockNeighbor = GetBlock(chunk, world, x[0] + q[0], x[1] + q[1], x[2] + q[2]);
+                            var blockCurrent = GetBlock(column, sectionY, world, x[0], x[1], x[2]);
+                            var blockNeighbor = GetBlock(column, sectionY, world, x[0] + q[0], x[1] + q[1], x[2] + q[2]);
 
                             bool isCurrentSolid = blockCurrent != BlockId.Air;
                             bool isNeighborSolid = blockNeighbor != BlockId.Air;
@@ -129,24 +129,25 @@ public static class ChunkMesher
         }
     }
 
-    private static BlockId GetBlock(ChunkSection chunk, World world, int x, int y, int z)
+    private static BlockId GetBlock(ChunkColumn column, int sectionY, World world, int x, int y, int z)
     {
-        if (x >= 0 && x < ChunkSize && y >= 0 && y < ChunkSize && z >= 0 && z < ChunkSize)
-            return chunk.GetBlock(x, y, z);
+        int worldY = sectionY * ChunkSize + y;
 
-        var neighborChunkPos = chunk.Position;
-        int localX = x, localY = y, localZ = z;
+        if (x >= 0 && x < ChunkSize && z >= 0 && z < ChunkSize)
+        {
+            return column.GetBlock(x, worldY, z);
+        }
+
+        var neighborChunkPos = column.Position;
+        int localX = x, localZ = z;
 
         if (x < 0) { localX += ChunkSize; neighborChunkPos.X--; }
         else if (x >= ChunkSize) { localX -= ChunkSize; neighborChunkPos.X++; }
 
-        if (y < 0) { localY += ChunkSize; neighborChunkPos.Y--; }
-        else if (y >= ChunkSize) { localY -= ChunkSize; neighborChunkPos.Y++; }
+        if (z < 0) { localZ += ChunkSize; neighborChunkPos.Y--; }
+        else if (z >= ChunkSize) { localZ -= ChunkSize; neighborChunkPos.Y++; }
 
-        if (z < 0) { localZ += ChunkSize; neighborChunkPos.Z--; }
-        else if (z >= ChunkSize) { localZ -= ChunkSize; neighborChunkPos.Z++; }
-
-        var neighborChunk = world.GetChunk(neighborChunkPos);
-        return neighborChunk?.GetBlock(localX, localY, localZ) ?? BlockId.Air;
+        var neighborColumn = world.GetColumn(neighborChunkPos);
+        return neighborColumn?.GetBlock(localX, worldY, localZ) ?? BlockId.Air;
     }
 }

@@ -20,31 +20,31 @@ public class WorldGenerator
         _noise.SetFractalGain(0.5f);
     }
 
-    public static void Generate(ChunkSection chunk)
+    public static void Generate(ChunkColumn column)
     {
         for (int x = 0; x < ChunkSize; x++)
         {
             for (int z = 0; z < ChunkSize; z++)
             {
-                float worldX = chunk.Position.X * ChunkSize + x;
-                float worldZ = chunk.Position.Z * ChunkSize + z;
+                float worldX = column.Position.X * ChunkSize + x;
+                float worldZ = column.Position.Y * ChunkSize + z;
 
                 float noiseValue = _noise.GetNoise(worldX, worldZ);
 
                 int terrainHeight = (int)(BaseHeight + noiseValue * Amplitude);
 
-                for (int y = 0; y < ChunkSize; y++)
+                for (int y = 0; y < WorldHeightInBlocks; y++)
                 {
-                    int worldY = (int)(chunk.Position.Y * ChunkSize) + y;
+                    int worldY = y - VerticalChunkOffset * ChunkSize;
 
                     if (worldY > terrainHeight)
                         continue;
                     else if (worldY == terrainHeight)
-                        chunk.SetBlock(x, y, z, BlockId.Grass);
+                        column.SetBlock(x, y, z, BlockId.Grass);
                     else if (worldY > terrainHeight - 4)
-                        chunk.SetBlock(x, y, z, BlockId.Dirt);
+                        column.SetBlock(x, y, z, BlockId.Dirt);
                     else
-                        chunk.SetBlock(x, y, z, BlockId.Stone);
+                        column.SetBlock(x, y, z, BlockId.Stone);
                 }
             }
         }

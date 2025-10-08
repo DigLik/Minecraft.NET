@@ -64,7 +64,7 @@ public sealed class Game : IDisposable
 
         while (_world.TryDequeueGeneratedMesh(out var result))
         {
-            var (chunk, meshData, isNewChunk) = result;
+            var (column, sectionY, meshData) = result;
 
             Mesh? newMesh = null;
             if (meshData.IndexCount > 0)
@@ -77,13 +77,11 @@ public sealed class Game : IDisposable
                 meshData.Dispose();
             }
 
-            var oldMesh = chunk.Mesh;
-            chunk.Mesh = newMesh;
+            var oldMesh = column.Meshes[sectionY];
+            column.Meshes[sectionY] = newMesh;
             oldMesh?.Dispose();
 
-            chunk.State = ChunkState.Rendered;
-            if (isNewChunk && newMesh != null)
-                _world.AddRenderableChunk(chunk);
+            column.SectionStates[sectionY] = ChunkSectionState.Rendered;
         }
     }
 
@@ -122,7 +120,7 @@ public sealed class Game : IDisposable
                 _window.Title =
                     $"Minecraft.NET [{_game.CurrentGameMode}] " +
                     $"| FPS: {_fps:F0} | " +
-                    $"Chunks (Visible/Meshed/Loaded): {renderer.VisibleChunkCount}/{world.GetRenderableChunkCount()}/{world.GetLoadedChunkCount()} | " +
+                    $"Sections (Visible/Meshed): {renderer.VisibleSectionCount}/{world.GetMeshedSectionCount()} | Chunks: {world.GetLoadedChunkCount()} | " +
                     $"{posString}";
 
                 _titleUpdateTimer = 0;

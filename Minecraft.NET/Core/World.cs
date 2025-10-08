@@ -8,22 +8,21 @@ public readonly record struct RaycastResult(Vector3d HitPosition, Vector3d Place
 
 public sealed class World : IDisposable
 {
-    private readonly ConcurrentDictionary<Vector3D<int>, ChunkSection> _chunks = new();
+    private readonly ConcurrentDictionary<Vector2D<int>, ChunkColumn> _chunks = new();
     private readonly WorldGenerator _generator = new();
-    private readonly HashSet<ChunkSection> _renderableChunks = [];
 
     private readonly WorldStorage _storage;
 
-    private readonly ConcurrentQueue<(ChunkSection chunk, MeshData meshData, bool isNewChunk)> _generatedMeshes = new();
-    private readonly ConcurrentQueue<ChunkSection> _chunksToMesh = new();
+    private readonly ConcurrentQueue<(ChunkColumn column, int sectionY, MeshData meshData)> _generatedMeshes = new();
+    private readonly ConcurrentQueue<(ChunkColumn column, int sectionY)> _chunksToMesh = new();
 
     private readonly Lock _chunkLock = new();
     private Task _mesherTask = null!;
     private CancellationTokenSource _cancellationTokenSource = null!;
 
-    private static readonly Vector3D<int>[] NeighborOffsets =
+    private static readonly Vector2D<int>[] NeighborOffsets =
     [
-        new(1,0,0), new(-1,0,0), new(0,1,0), new(0,-1,0), new(0,0,1), new(0,0,-1)
+        new(1, 0), new(-1, 0), new(0, 1), new(0, -1)
     ];
 
     public World()
@@ -44,10 +43,10 @@ public sealed class World : IDisposable
     {
         while (!token.IsCancellationRequested)
         {
-            if (_chunksToMesh.TryDequeue(out var chunkToMesh))
+            if (_chunksToMesh.TryDequeue(out var item))
             {
-                if (_chunks.ContainsKey(chunkToMesh.Position))
-                    RemeshChunk(chunkToMesh);
+                if (_chunks.ContainsKey(item.column.Position))
+                    RemeshChunkSection(item.column, item.sectionY);
             }
             else
             {
@@ -57,40 +56,35 @@ public sealed class World : IDisposable
         }
     }
 
-    private bool AreNeighborsGenerated(Vector3D<int> chunkPos)
+    private bool AreNeighborsGenerated(Vector2D<int> chunkPos)
     {
         foreach (var offset in NeighborOffsets)
         {
             var neighborPos = chunkPos + offset;
-
-            if (neighborPos.Y < -VerticalChunkOffset || neighborPos.Y >= VerticalChunkOffset)
-                continue;
-
-            if (!_chunks.TryGetValue(neighborPos, out var neighbor) || neighbor.State < ChunkState.AwaitingMesh)
+            if (!_chunks.TryGetValue(neighborPos, out var neighbor) || !neighbor.IsGenerated)
                 return false;
         }
         return true;
     }
-    private void TryQueueChunkForMeshing(ChunkSection chunk)
+    private void TryQueueChunkSectionForMeshing(ChunkColumn column, int sectionY)
     {
-        if (chunk.State == ChunkState.AwaitingMesh && AreNeighborsGenerated(chunk.Position))
+        if (column.SectionStates[sectionY] == ChunkSectionState.AwaitingMesh && AreNeighborsGenerated(column.Position))
         {
-            chunk.State = ChunkState.Meshing;
-            _chunksToMesh.Enqueue(chunk);
+            column.SectionStates[sectionY] = ChunkSectionState.Meshing;
+            _chunksToMesh.Enqueue((column, sectionY));
         }
     }
 
     public void Update(Vector3d playerPosition)
     {
-        var playerChunkPos = new Vector3D<int>(
+        var playerChunkPos = new Vector2D<int>(
             (int)Math.Floor(playerPosition.X / ChunkSize),
-            (int)Math.Floor(playerPosition.Y / ChunkSize),
             (int)Math.Floor(playerPosition.Z / ChunkSize)
         );
 
         lock (_chunkLock)
         {
-            var chunksToRemove = new List<Vector3D<int>>();
+            var chunksToRemove = new List<Vector2D<int>>();
             foreach (var pos in _chunks.Keys)
             {
                 var distSq = (pos - playerChunkPos).LengthSquared;
@@ -106,69 +100,69 @@ public sealed class World : IDisposable
                     {
                         foreach (var offset in NeighborOffsets)
                         {
-                            if (_chunks.TryGetValue(posToRemove + offset, out var neighbor) && neighbor.State == ChunkState.Rendered)
+                            if (_chunks.TryGetValue(posToRemove + offset, out var neighbor) && neighbor.IsGenerated)
                             {
-                                neighbor.State = ChunkState.AwaitingMesh;
-                                TryQueueChunkForMeshing(neighbor);
+                                for (int y = 0; y < WorldHeightInChunks; y++)
+                                {
+                                    if (neighbor.SectionStates[y] == ChunkSectionState.Rendered)
+                                    {
+                                        neighbor.SectionStates[y] = ChunkSectionState.AwaitingMesh;
+                                        TryQueueChunkSectionForMeshing(neighbor, y);
+                                    }
+                                }
                             }
                         }
-
-                        _renderableChunks.Remove(removedChunk);
                         removedChunk.Dispose();
                     }
                 }
             }
 
             for (int x = -RenderDistance; x <= RenderDistance; x++)
-                for (int y = -RenderDistance; y <= RenderDistance; y++)
-                    for (int z = -RenderDistance; z <= RenderDistance; z++)
+                for (int z = -RenderDistance; z <= RenderDistance; z++)
+                {
+                    var offset = new Vector2D<int>(x, z);
+                    var targetPos = playerChunkPos + offset;
+
+                    var distSq = offset.LengthSquared;
+                    if (distSq > RenderDistance * RenderDistance) continue;
+
+                    if (!_chunks.ContainsKey(targetPos))
                     {
-                        var offset = new Vector3D<int>(x, y, z);
-                        var targetPos = playerChunkPos + offset;
-
-                        if (targetPos.Y < -VerticalChunkOffset || targetPos.Y >= VerticalChunkOffset) continue;
-
-                        var distSq = offset.LengthSquared;
-                        if (distSq > RenderDistance * RenderDistance) continue;
-
-                        if (!_chunks.ContainsKey(targetPos))
+                        var newChunk = new ChunkColumn(targetPos);
+                        if (_chunks.TryAdd(targetPos, newChunk))
                         {
-                            var newChunk = new ChunkSection(targetPos);
-                            if (_chunks.TryAdd(targetPos, newChunk))
-                            {
-                                newChunk.State = ChunkState.AwaitingGeneration;
-                                Task.Run(() => GenerateChunkData(newChunk));
-                            }
+                            Task.Run(() => GenerateChunkData(newChunk));
                         }
                     }
+                }
         }
     }
 
-    private void GenerateChunkData(ChunkSection chunk)
+    private void GenerateChunkData(ChunkColumn column)
     {
-        chunk.State = ChunkState.Generating;
-        WorldGenerator.Generate(chunk);
-
-        _storage.ApplyModificationsToChunk(chunk);
+        WorldGenerator.Generate(column);
+        _storage.ApplyModificationsToChunk(column);
+        column.IsGenerated = true;
 
         lock (_chunkLock)
         {
-            chunk.State = ChunkState.AwaitingMesh;
-
-            TryQueueChunkForMeshing(chunk);
+            for (int y = 0; y < WorldHeightInChunks; y++)
+            {
+                column.SectionStates[y] = ChunkSectionState.AwaitingMesh;
+                TryQueueChunkSectionForMeshing(column, y);
+            }
 
             foreach (var offset in NeighborOffsets)
-                if (_chunks.TryGetValue(chunk.Position + offset, out var neighbor))
-                    TryQueueChunkForMeshing(neighbor);
+                if (_chunks.TryGetValue(column.Position + offset, out var neighbor) && neighbor.IsGenerated)
+                    for (int y = 0; y < WorldHeightInChunks; y++)
+                        TryQueueChunkSectionForMeshing(neighbor, y);
         }
     }
 
-    private void RemeshChunk(ChunkSection chunk)
+    private void RemeshChunkSection(ChunkColumn column, int sectionY)
     {
-        var meshData = ChunkMesher.GenerateMesh(chunk, this);
-        bool isNewChunk;
-        lock (_chunkLock) isNewChunk = !_renderableChunks.Contains(chunk);
-        _generatedMeshes.Enqueue((chunk, meshData, isNewChunk));
+        var meshData = ChunkMesher.GenerateMesh(column, sectionY, this);
+        _generatedMeshes.Enqueue((column, sectionY, meshData));
     }
 
     public void BreakBlock(Vector3d cameraPos, Vector3 cameraDir)
@@ -227,62 +221,70 @@ public sealed class World : IDisposable
 
     public BlockId GetBlock(Vector3d worldPosition)
     {
-        var chunkPos = new Vector3D<int>(
+        var chunkPos = new Vector2D<int>(
             (int)Math.Floor(worldPosition.X / ChunkSize),
-            (int)Math.Floor(worldPosition.Y / ChunkSize),
             (int)Math.Floor(worldPosition.Z / ChunkSize)
         );
 
-        if (!_chunks.TryGetValue(chunkPos, out var chunk))
+        if (!_chunks.TryGetValue(chunkPos, out var column))
             return BlockId.Air;
 
         int localX = (int)(worldPosition.X - (double)chunkPos.X * ChunkSize);
-        int localY = (int)(worldPosition.Y - (double)chunkPos.Y * ChunkSize);
-        int localZ = (int)(worldPosition.Z - (double)chunkPos.Z * ChunkSize);
+        if (localX < 0) localX += ChunkSize;
+        int localZ = (int)(worldPosition.Z - (double)chunkPos.Y * ChunkSize);
+        if (localZ < 0) localZ += ChunkSize;
 
-        return chunk.GetBlock(localX, localY, localZ);
+        int worldY = (int)Math.Floor(worldPosition.Y) + VerticalChunkOffset * ChunkSize;
+
+        return column.GetBlock(localX, worldY, localZ);
     }
 
     public void SetBlock(Vector3d worldPosition, BlockId id)
     {
-        var chunkPos = new Vector3D<int>(
+        var chunkPos = new Vector2D<int>(
             (int)Math.Floor(worldPosition.X / ChunkSize),
-            (int)Math.Floor(worldPosition.Y / ChunkSize),
             (int)Math.Floor(worldPosition.Z / ChunkSize)
         );
 
-        if (!_chunks.TryGetValue(chunkPos, out var chunk))
+        if (!_chunks.TryGetValue(chunkPos, out var column))
             return;
 
         int localX = (int)(worldPosition.X - (double)chunkPos.X * ChunkSize);
-        int localY = (int)(worldPosition.Y - (double)chunkPos.Y * ChunkSize);
-        int localZ = (int)(worldPosition.Z - (double)chunkPos.Z * ChunkSize);
+        if (localX < 0) localX += ChunkSize;
+        int localZ = (int)(worldPosition.Z - (double)chunkPos.Y * ChunkSize);
+        if (localZ < 0) localZ += ChunkSize;
 
-        chunk.SetBlock(localX, localY, localZ, id);
-        _storage.RecordModification(chunkPos, localX, localY, localZ, id);
+        int worldY = (int)Math.Floor(worldPosition.Y) + VerticalChunkOffset * ChunkSize;
+        if (worldY < 0 || worldY >= WorldHeightInBlocks)
+            return;
+
+        column.SetBlock(localX, worldY, localZ, id);
+        _storage.RecordModification(chunkPos, localX, worldY, localZ, id);
 
         lock (_chunkLock)
         {
-            if (chunk.State == ChunkState.Rendered)
+            int sectionY = worldY / ChunkSize;
+            int localY = worldY % ChunkSize;
+
+            void RemeshSection(ChunkColumn c, int sy)
             {
-                chunk.State = ChunkState.AwaitingMesh;
-                TryQueueChunkForMeshing(chunk);
+                if (c.SectionStates[sy] == ChunkSectionState.Rendered)
+                {
+                    c.SectionStates[sy] = ChunkSectionState.AwaitingMesh;
+                    TryQueueChunkSectionForMeshing(c, sy);
+                }
             }
 
-            if (localX == 0 && _chunks.TryGetValue(chunkPos - Vector3D<int>.UnitX, out var nXN))
-                if (nXN.State == ChunkState.Rendered) { nXN.State = ChunkState.AwaitingMesh; TryQueueChunkForMeshing(nXN); }
-            if (localX == ChunkSize - 1 && _chunks.TryGetValue(chunkPos + Vector3D<int>.UnitX, out var nXP))
-                if (nXP.State == ChunkState.Rendered) { nXP.State = ChunkState.AwaitingMesh; TryQueueChunkForMeshing(nXP); }
+            RemeshSection(column, sectionY);
 
-            if (localY == 0 && _chunks.TryGetValue(chunkPos - Vector3D<int>.UnitY, out var nYN))
-                if (nYN.State == ChunkState.Rendered) { nYN.State = ChunkState.AwaitingMesh; TryQueueChunkForMeshing(nYN); }
-            if (localY == ChunkSize - 1 && _chunks.TryGetValue(chunkPos + Vector3D<int>.UnitY, out var nYP))
-                if (nYP.State == ChunkState.Rendered) { nYP.State = ChunkState.AwaitingMesh; TryQueueChunkForMeshing(nYP); }
+            if (localY == 0 && sectionY > 0) RemeshSection(column, sectionY - 1);
+            if (localY == ChunkSize - 1 && sectionY < WorldHeightInChunks - 1) RemeshSection(column, sectionY + 1);
 
-            if (localZ == 0 && _chunks.TryGetValue(chunkPos - Vector3D<int>.UnitZ, out var nZN))
-                if (nZN.State == ChunkState.Rendered) { nZN.State = ChunkState.AwaitingMesh; TryQueueChunkForMeshing(nZN); }
-            if (localZ == ChunkSize - 1 && _chunks.TryGetValue(chunkPos + Vector3D<int>.UnitZ, out var nZP))
-                if (nZP.State == ChunkState.Rendered) { nZP.State = ChunkState.AwaitingMesh; TryQueueChunkForMeshing(nZP); }
+            if (localX == 0 && _chunks.TryGetValue(chunkPos - new Vector2D<int>(1, 0), out var nXN)) RemeshSection(nXN, sectionY);
+            if (localX == ChunkSize - 1 && _chunks.TryGetValue(chunkPos + new Vector2D<int>(1, 0), out var nXP)) RemeshSection(nXP, sectionY);
+
+            if (localZ == 0 && _chunks.TryGetValue(chunkPos - new Vector2D<int>(0, 1), out var nZN)) RemeshSection(nZN, sectionY);
+            if (localZ == ChunkSize - 1 && _chunks.TryGetValue(chunkPos + new Vector2D<int>(0, 1), out var nZP)) RemeshSection(nZP, sectionY);
         }
     }
 
@@ -445,31 +447,27 @@ public sealed class World : IDisposable
            a.Min.Y <= b.Max.Y && a.Max.Y >= b.Min.Y &&
            a.Min.Z <= b.Max.Z && a.Max.Z >= b.Min.Z;
 
-    public ChunkSection? GetChunk(Vector3D<int> position)
+    public ChunkColumn? GetColumn(Vector2D<int> position)
     {
         _chunks.TryGetValue(position, out var chunk);
         return chunk;
     }
 
-    public bool TryDequeueGeneratedMesh(out (ChunkSection, MeshData, bool) result)
+    public bool TryDequeueGeneratedMesh(out (ChunkColumn, int, MeshData) result)
         => _generatedMeshes.TryDequeue(out result);
 
-    public void AddRenderableChunk(ChunkSection chunk)
+    public List<ChunkColumn> GetRenderableChunksSnapshot()
     {
         lock (_chunkLock)
-            _renderableChunks.Add(chunk);
+            return [.. _chunks.Values.Where(c => c.IsGenerated)];
     }
 
-    public List<ChunkSection> GetRenderableChunksSnapshot()
+    public int GetMeshedSectionCount()
     {
         lock (_chunkLock)
-            return [.. _renderableChunks];
-    }
-
-    public int GetRenderableChunkCount()
-    {
-        lock (_chunkLock)
-            return _renderableChunks.Count;
+        {
+            return _chunks.Values.Sum(c => c.Meshes.Count(m => m != null));
+        }
     }
 
     public int GetLoadedChunkCount() => _chunks.Count;

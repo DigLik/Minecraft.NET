@@ -35,10 +35,10 @@ public sealed class Renderer
     private uint _instanceVbo;
     public uint InstanceVbo => _instanceVbo;
     private readonly List<Matrix4x4> _modelMatrices = [];
-    private readonly List<ChunkSection> _visibleChunks = [];
+    private readonly List<Mesh> _visibleMeshes = [];
     private const int MaxInstances = 8192;
 
-    public int VisibleChunkCount { get; private set; }
+    public int VisibleSectionCount { get; private set; }
 
     private static string LoadShaderSource(string path)
         => new([.. File.ReadAllText(path).Where(c => c < 128)]);
@@ -171,7 +171,7 @@ public sealed class Renderer
         _postProcessFbo = new Framebuffer(_gl, (uint)size.X, (uint)size.Y, false);
     }
 
-    public unsafe void Render(IReadOnlyCollection<ChunkSection> chunks, Camera camera)
+    public unsafe void Render(IReadOnlyCollection<ChunkColumn> columns, Camera camera)
     {
         if (_gBuffer is null || _postProcessFbo is null)
             return;
@@ -187,33 +187,40 @@ public sealed class Renderer
         var fullViewMatrix = camera.GetViewMatrix();
         Matrix4x4.Invert(fullViewMatrix, out var inverseView);
 
-        _visibleChunks.Clear();
+        _visibleMeshes.Clear();
         _modelMatrices.Clear();
 
-        foreach (var chunk in chunks)
+        foreach (var column in columns)
         {
-            if (chunk.Mesh == null || chunk.Mesh.IndexCount == 0)
-                continue;
+            var chunkPosDouble = new Vector3d(column.Position.X, 0, column.Position.Y);
+            var chunkWorldPosBase = chunkPosDouble * ChunkSize;
 
-            var chunkPosDouble = new Vector3d(chunk.Position.X, chunk.Position.Y, chunk.Position.Z);
-            Vector3d chunkWorldPos = chunkPosDouble * ChunkSize;
-            Vector3d relativeChunkPosDouble = chunkWorldPos - cameraOrigin;
-            Vector3 relativeChunkPos = (Vector3)relativeChunkPosDouble;
+            for (int y = 0; y < WorldHeightInChunks; y++)
+            {
+                var mesh = column.Meshes[y];
+                if (mesh == null || mesh.IndexCount == 0)
+                    continue;
 
-            var box = new BoundingBox(relativeChunkPos, relativeChunkPos + new Vector3(ChunkSize));
-            if (!_frustum.Intersects(box))
-                continue;
+                int worldOffsetY = (y - VerticalChunkOffset) * ChunkSize;
+                var chunkWorldPos = chunkWorldPosBase + new Vector3d(0, worldOffsetY, 0);
+                var relativeChunkPosDouble = chunkWorldPos - cameraOrigin;
+                var relativeChunkPos = (Vector3)relativeChunkPosDouble;
 
-            _visibleChunks.Add(chunk);
-            _modelMatrices.Add(Matrix4x4.CreateTranslation(relativeChunkPos));
+                var box = new BoundingBox(relativeChunkPos, relativeChunkPos + new Vector3(ChunkSize));
+                if (!_frustum.Intersects(box))
+                    continue;
+
+                _visibleMeshes.Add(mesh);
+                _modelMatrices.Add(Matrix4x4.CreateTranslation(relativeChunkPos));
+            }
         }
 
-        VisibleChunkCount = _visibleChunks.Count;
+        VisibleSectionCount = _visibleMeshes.Count;
 
         _gBuffer.Bind();
         _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
-        if (_visibleChunks.Count > 0)
+        if (_visibleMeshes.Count > 0)
         {
             _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
             fixed (Matrix4x4* p = CollectionsMarshal.AsSpan(_modelMatrices))
@@ -226,11 +233,11 @@ public sealed class Renderer
 
             BlockTextureAtlas.Bind(TextureUnit.Texture0);
 
-            for (int i = 0; i < _visibleChunks.Count; i++)
+            for (int i = 0; i < _visibleMeshes.Count; i++)
             {
-                var chunk = _visibleChunks[i];
-                chunk.Mesh!.Bind();
-                _gl.DrawElementsInstancedBaseInstance(PrimitiveType.Triangles, (uint)chunk.Mesh.IndexCount, DrawElementsType.UnsignedInt, null, 1, (uint)i);
+                var mesh = _visibleMeshes[i];
+                mesh!.Bind();
+                _gl.DrawElementsInstancedBaseInstance(PrimitiveType.Triangles, (uint)mesh.IndexCount, DrawElementsType.UnsignedInt, null, 1, (uint)i);
             }
         }
         _gBuffer.Unbind();
