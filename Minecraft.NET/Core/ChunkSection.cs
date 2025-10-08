@@ -22,16 +22,18 @@ public unsafe sealed class ChunkSection : IDisposable
         NativeMemory.Clear(Blocks, BlocksInChunk * sizeof(BlockId));
     }
 
+    private static int GetIndex(int x, int y, int z) => x + y * ChunkSize + z * ChunkSize * ChunkSize;
+
     public void SetBlock(int x, int y, int z, BlockId id)
     {
         if (x < 0 || x >= ChunkSize || y < 0 || y >= ChunkSize || z < 0 || z >= ChunkSize) return;
-        Blocks[x + y * ChunkSize + z * ChunkSize * ChunkSize] = id;
+        Blocks[GetIndex(x, y, z)] = id;
     }
 
     public BlockId GetBlock(int x, int y, int z)
     {
         if (x < 0 || x >= ChunkSize || y < 0 || y >= ChunkSize || z < 0 || z >= ChunkSize) return BlockId.Air;
-        return Blocks[x + y * ChunkSize + z * ChunkSize * ChunkSize];
+        return Blocks[GetIndex(x, y, z)];
     }
 
     public void Dispose()

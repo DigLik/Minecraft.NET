@@ -7,7 +7,7 @@ public sealed class World : IDisposable
 {
     private readonly ConcurrentDictionary<Vector3, ChunkSection> _chunks = new();
     private readonly WorldGenerator _generator = new();
-    private readonly List<ChunkSection> _renderableChunks = [];
+    private readonly HashSet<ChunkSection> _renderableChunks = [];
 
     private readonly ConcurrentQueue<(ChunkSection chunk, MeshData meshData, bool isNewChunk)> _generatedMeshes = new();
     private readonly ConcurrentQueue<ChunkSection> _chunksToMesh = new();
@@ -24,7 +24,6 @@ public sealed class World : IDisposable
     public void Initialize()
     {
         BlockRegistry.Initialize();
-        ChunkMesher.Initialize();
 
         _cancellationTokenSource = new CancellationTokenSource();
         _mesherTask = Task.Run(() => MesherLoop(_cancellationTokenSource.Token));
@@ -164,11 +163,10 @@ public sealed class World : IDisposable
     public void AddRenderableChunk(ChunkSection chunk)
     {
         lock (_chunkLock)
-            if (!_renderableChunks.Contains(chunk))
-                _renderableChunks.Add(chunk);
+            _renderableChunks.Add(chunk);
     }
 
-    public IReadOnlyList<ChunkSection> GetRenderableChunks() => _renderableChunks;
+    public IReadOnlyCollection<ChunkSection> GetRenderableChunks() => _renderableChunks;
     public int GetLoadedChunkCount() => _chunks.Count;
 
     public void Dispose()

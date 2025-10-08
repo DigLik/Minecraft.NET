@@ -24,13 +24,13 @@ public sealed class Mesh(MeshData meshData) : IDisposable
         _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
         _gl.BufferData(BufferTargetARB.ElementArrayBuffer, (nuint)(meshData.IndexCount * sizeof(uint)), meshData.Indices, BufferUsageARB.StaticDraw);
 
-        const int stride = 6 * sizeof(float);
+        const int stride = 5 * sizeof(float);
+
         _gl.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, stride, (void*)0);
         _gl.EnableVertexAttribArray(0);
+
         _gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, stride, (void*)(3 * sizeof(float)));
         _gl.EnableVertexAttribArray(1);
-        _gl.VertexAttribPointer(2, 1, VertexAttribPointerType.Float, false, stride, (void*)(5 * sizeof(float)));
-        _gl.EnableVertexAttribArray(2);
 
         _gl.BindVertexArray(0);
         _isUploaded = true;

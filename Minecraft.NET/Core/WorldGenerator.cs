@@ -3,7 +3,7 @@
 public class WorldGenerator
 {
     private const int BaseHeight = 0;
-    private const float Amplitude = 30.0f;
+    private const float Amplitude = 150.0f;
 
     private static readonly FastNoiseLite _noise;
 

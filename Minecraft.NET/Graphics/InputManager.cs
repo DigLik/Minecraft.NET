@@ -25,9 +25,9 @@ public class InputManager(IWindow window, Camera camera)
 
     public void Update(float dt)
     {
-        float cameraSpeed = 100.0f;
+        float cameraSpeed = 50.0f;
 
-        if (_keyboard.IsKeyPressed(Key.ControlLeft)) cameraSpeed *= 2.05f;
+        if (_keyboard.IsKeyPressed(Key.ControlLeft)) cameraSpeed *= 2;
 
         if (_keyboard.IsKeyPressed(Key.W)) camera.Position += camera.Front * cameraSpeed * dt;
         if (_keyboard.IsKeyPressed(Key.S)) camera.Position -= camera.Front * cameraSpeed * dt;
