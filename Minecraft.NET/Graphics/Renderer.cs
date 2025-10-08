@@ -24,6 +24,10 @@ public sealed class Renderer
 
     private Shader _lightingShader = null!;
 
+    private Framebuffer _postProcessFbo = null!;
+    private Shader _fxaaShader = null!;
+    private int _fxaaInverseScreenSizeLocation;
+
     private uint _quadVao, _quadVbo;
 
     private Vector2D<int> _viewportSize;
@@ -71,10 +75,20 @@ public sealed class Renderer
         string lightingVert = LoadShaderSource("Assets/Shaders/lighting.vert");
         string lightingFrag = LoadShaderSource("Assets/Shaders/lighting.frag");
         _lightingShader = new Shader(_gl, lightingVert, lightingFrag);
-
         _lightingShader.Use();
         _lightingShader.SetInt(_lightingShader.GetUniformLocation("gAlbedo"), 0);
         _lightingShader.SetInt(_lightingShader.GetUniformLocation("ssao"), 1);
+        _lightingShader.SetInt(_lightingShader.GetUniformLocation("gPosition"), 2);
+        _lightingShader.SetVector3(_lightingShader.GetUniformLocation("u_fogColor"), new Vector3(0.53f, 0.81f, 0.92f));
+        _lightingShader.SetFloat(_lightingShader.GetUniformLocation("u_fogStart"), RenderDistance * ChunkSize * 0.5f);
+        _lightingShader.SetFloat(_lightingShader.GetUniformLocation("u_fogEnd"), RenderDistance * ChunkSize * 0.95f);
+
+        string fxaaVert = LoadShaderSource("Assets/Shaders/fxaa.vert");
+        string fxaaFrag = LoadShaderSource("Assets/Shaders/fxaa.frag");
+        _fxaaShader = new Shader(_gl, fxaaVert, fxaaFrag);
+        _fxaaShader.Use();
+        _fxaaShader.SetInt(_fxaaShader.GetUniformLocation("uTexture"), 0);
+        _fxaaInverseScreenSizeLocation = _fxaaShader.GetUniformLocation("u_inverseScreenSize");
 
         _ssaoShader.Use();
         _ssaoShader.SetInt(_ssaoShader.GetUniformLocation("gPosition"), 0);
@@ -83,6 +97,7 @@ public sealed class Renderer
 
         _ssaoBlurShader.Use();
         _ssaoBlurShader.SetInt(_ssaoBlurShader.GetUniformLocation("ssaoInput"), 0);
+        _ssaoBlurShader.SetInt(_ssaoBlurShader.GetUniformLocation("gPosition"), 1);
 
         var random = new Random();
         for (int i = 0; i < 64; ++i)
@@ -102,19 +117,16 @@ public sealed class Renderer
 
         var ssaoNoise = new List<Vector3>();
         for (int i = 0; i < 16; i++)
-        {
             ssaoNoise.Add(new Vector3(
                 (float)random.NextDouble() * 2.0f - 1.0f,
                 (float)random.NextDouble() * 2.0f - 1.0f,
                 0.0f
             ));
-        }
+
         _ssaoNoiseTexture = _gl.GenTexture();
         _gl.BindTexture(TextureTarget.Texture2D, _ssaoNoiseTexture);
         fixed (Vector3* p = CollectionsMarshal.AsSpan(ssaoNoise))
-        {
             _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.Rgba16f, 4, 4, 0, PixelFormat.Rgb, PixelType.Float, p);
-        }
         _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)GLEnum.Nearest);
         _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)GLEnum.Nearest);
         _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)GLEnum.Repeat);
@@ -151,28 +163,27 @@ public sealed class Renderer
         _gBuffer?.Dispose();
         _ssaoFbo?.Dispose();
         _ssaoBlurFbo?.Dispose();
+        _postProcessFbo?.Dispose();
 
         _gBuffer = new Framebuffer(_gl, (uint)size.X, (uint)size.Y);
         _ssaoFbo = new Framebuffer(_gl, (uint)size.X, (uint)size.Y, true);
         _ssaoBlurFbo = new Framebuffer(_gl, (uint)size.X, (uint)size.Y, true);
+        _postProcessFbo = new Framebuffer(_gl, (uint)size.X, (uint)size.Y, false);
     }
 
     public unsafe void Render(IReadOnlyCollection<ChunkSection> chunks, Camera camera)
     {
-        if (_gBuffer is null)
+        if (_gBuffer is null || _postProcessFbo is null)
             return;
 
         var projection = camera.GetProjectionMatrix((float)_viewportSize.X / _viewportSize.Y);
 
-        // --- High-Precision Relative Rendering Setup ---
         Vector3d cameraOrigin = new(Math.Floor(camera.Position.X), Math.Floor(camera.Position.Y), Math.Floor(camera.Position.Z));
         Vector3 cameraRenderPos = (Vector3)(camera.Position - cameraOrigin);
         var relativeViewMatrix = Matrix4x4.CreateLookAt(cameraRenderPos, cameraRenderPos + camera.Front, camera.Up);
 
-        // --- Frustum Culling Setup (also in relative space) ---
         _frustum.Update(relativeViewMatrix * projection);
 
-        // --- World-Space Calculations (only where necessary) ---
         var fullViewMatrix = camera.GetViewMatrix();
         Matrix4x4.Invert(fullViewMatrix, out var inverseView);
 
@@ -197,7 +208,6 @@ public sealed class Renderer
 
         VisibleChunkCount = _visibleChunks.Count;
 
-        // --- Geometry Pass ---
         _gBuffer.Bind();
         _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
@@ -205,9 +215,7 @@ public sealed class Renderer
         {
             _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
             fixed (Matrix4x4* p = CollectionsMarshal.AsSpan(_modelMatrices))
-            {
                 _gl.BufferSubData(BufferTargetARB.ArrayBuffer, 0, (nuint)(_modelMatrices.Count * sizeof(Matrix4x4)), p);
-            }
 
             _gBufferShader.Use();
             _gBufferShader.SetMatrix4x4(_gBufferShader.GetUniformLocation("view"), relativeViewMatrix);
@@ -225,7 +233,6 @@ public sealed class Renderer
         }
         _gBuffer.Unbind();
 
-        // --- SSAO Pass ---
         _ssaoFbo.Bind();
         _gl.Clear(ClearBufferMask.ColorBufferBit);
         _ssaoShader.Use();
@@ -245,24 +252,37 @@ public sealed class Renderer
         _gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
         _ssaoFbo.Unbind();
 
-        // --- SSAO Blur Pass ---
         _ssaoBlurFbo.Bind();
         _gl.Clear(ClearBufferMask.ColorBufferBit);
         _ssaoBlurShader.Use();
         _gl.ActiveTexture(TextureUnit.Texture0);
         _gl.BindTexture(TextureTarget.Texture2D, _ssaoFbo.ColorAttachments[0]);
+        _gl.ActiveTexture(TextureUnit.Texture1);
+        _gl.BindTexture(TextureTarget.Texture2D, _gBuffer.ColorAttachments[0]);
 
         _gl.BindVertexArray(_quadVao);
         _gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
         _ssaoBlurFbo.Unbind();
 
-        // --- Lighting Pass ---
+        _postProcessFbo.Bind();
         _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
         _lightingShader.Use();
         _gl.ActiveTexture(TextureUnit.Texture0);
         _gl.BindTexture(TextureTarget.Texture2D, _gBuffer.ColorAttachments[2]);
         _gl.ActiveTexture(TextureUnit.Texture1);
         _gl.BindTexture(TextureTarget.Texture2D, _ssaoBlurFbo.ColorAttachments[0]);
+        _gl.ActiveTexture(TextureUnit.Texture2);
+        _gl.BindTexture(TextureTarget.Texture2D, _gBuffer.ColorAttachments[0]);
+
+        _gl.BindVertexArray(_quadVao);
+        _gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
+        _postProcessFbo.Unbind();
+
+        _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+        _fxaaShader.Use();
+        _fxaaShader.SetVector2(_fxaaInverseScreenSizeLocation, new Vector2(1.0f / _viewportSize.X, 1.0f / _viewportSize.Y));
+        _gl.ActiveTexture(TextureUnit.Texture0);
+        _gl.BindTexture(TextureTarget.Texture2D, _postProcessFbo.ColorAttachments[0]);
 
         _gl.BindVertexArray(_quadVao);
         _gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);

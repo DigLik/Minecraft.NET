@@ -20,7 +20,7 @@ public class WorldGenerator
         _noise.SetFractalGain(0.5f);
     }
 
-    public void Generate(ChunkSection chunk)
+    public static void Generate(ChunkSection chunk)
     {
         for (int x = 0; x < ChunkSize; x++)
         {

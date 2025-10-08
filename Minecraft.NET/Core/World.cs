@@ -139,7 +139,7 @@ public sealed class World : IDisposable
     private void GenerateChunkData(ChunkSection chunk)
     {
         chunk.State = ChunkState.Generating;
-        _generator.Generate(chunk);
+        WorldGenerator.Generate(chunk);
 
         _storage.ApplyModificationsToChunk(chunk);
 

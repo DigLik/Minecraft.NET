@@ -75,6 +75,34 @@ public sealed unsafe class Framebuffer : IDisposable
         _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
     }
 
+    public Framebuffer(GL gl, uint width, uint height, bool singleChannel, bool withDepth)
+    {
+        _gl = gl;
+
+        Fbo = _gl.GenFramebuffer();
+        _gl.BindFramebuffer(FramebufferTarget.Framebuffer, Fbo);
+
+        uint colorBuffer = _gl.GenTexture();
+        _gl.BindTexture(TextureTarget.Texture2D, colorBuffer);
+
+        if (singleChannel)
+            _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.R8, width, height, 0, PixelFormat.Red, PixelType.Float, null);
+        else
+            _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.Rgba, width, height, 0, PixelFormat.Rgba, PixelType.UnsignedByte, null);
+
+        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)GLEnum.Nearest);
+        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)GLEnum.Nearest);
+        _gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D, colorBuffer, 0);
+
+        ColorAttachments = [colorBuffer];
+        DepthAttachment = 0;
+
+        if (_gl.CheckFramebufferStatus(FramebufferTarget.Framebuffer) != GLEnum.FramebufferComplete)
+            throw new Exception("Simple Framebuffer is not complete!");
+
+        _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+    }
+
     public void Bind() => _gl.BindFramebuffer(FramebufferTarget.Framebuffer, Fbo);
 
     public void Unbind() => _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);

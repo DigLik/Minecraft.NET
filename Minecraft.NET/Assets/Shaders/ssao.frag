@@ -38,10 +38,14 @@ void main()
         offset.xyz /= offset.w;
         offset.xyz = offset.xyz * 0.5 + 0.5;
         
-        float sampleDepth = texture(gPosition, offset.xy).z;
+        vec3 sampledPos = texture(gPosition, offset.xy).xyz;
+
+        float occlusionFactor = (sampledPos.z > samplePos.z + bias) ? 1.0 : 0.0;
+
+        float dist = length(fragPos - sampledPos);
+        float attenuation = 1.0 - smoothstep(0.0, radius, dist);
         
-        float rangeCheck = smoothstep(0.0, 1.0, radius / abs(fragPos.z - sampleDepth));
-        occlusion += (sampleDepth > samplePos.z + bias ? 1.0 : 0.0) * rangeCheck;
+        occlusion += occlusionFactor * attenuation;
     }
     
     occlusion = 1.0 - (occlusion / kernelSize);
