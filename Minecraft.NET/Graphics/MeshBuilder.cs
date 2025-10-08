@@ -1,5 +1,4 @@
-﻿using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 
 namespace Minecraft.NET.Graphics;
 
@@ -22,9 +21,10 @@ public unsafe class MeshBuilder : IDisposable
         _indices = (uint*)NativeMemory.Alloc((nuint)_indexCapacity, sizeof(uint));
     }
 
-    public void AddVertex(float x, float y, float z, float tx, float ty)
+    public void AddVertex(float x, float y, float z, float tx, float ty, float u, float v)
     {
-        if (VertexCount + 5 > _vertexCapacity)
+        const int vertexSize = 7;
+        if (VertexCount + vertexSize > _vertexCapacity)
         {
             _vertexCapacity *= 2;
             _vertices = (float*)NativeMemory.Realloc(_vertices, (nuint)_vertexCapacity * sizeof(float));
@@ -36,7 +36,9 @@ public unsafe class MeshBuilder : IDisposable
         _vertices[currentOffset + 2] = z;
         _vertices[currentOffset + 3] = tx;
         _vertices[currentOffset + 4] = ty;
-        VertexCount += 5;
+        _vertices[currentOffset + 5] = u;
+        _vertices[currentOffset + 6] = v;
+        VertexCount += vertexSize;
     }
 
     public void AddIndices(uint i1, uint i2, uint i3)

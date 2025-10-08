@@ -157,6 +157,8 @@ public sealed class Renderer
 
     public void OnFramebufferResize(Vector2D<int> size)
     {
+        if (_gl is null) return;
+
         _gl.Viewport(size);
         _viewportSize = size;
 

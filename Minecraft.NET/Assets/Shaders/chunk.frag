@@ -1,8 +1,8 @@
 #version 460 core
 out vec4 FragColor;
 
-in vec3 vLocalPos;
 in vec2 vTexIndex;
+in vec2 vUV;
 
 uniform sampler2D uTexture;
 uniform vec2 uTileAtlasSize; 
@@ -20,25 +20,8 @@ void main()
     }
     else
     {
-        vec3 dx = dFdx(vLocalPos);
-        vec3 dy = dFdy(vLocalPos);
-        vec3 normal = normalize(cross(dx, dy));
-
-        vec2 uv;
-        if (abs(normal.x) > abs(normal.y) && abs(normal.x) > abs(normal.z))
-            uv = vLocalPos.zy;
-        else if (abs(normal.y) > abs(normal.z))
-            uv = vLocalPos.xz;
-        else
-            uv = vLocalPos.xy;
-
-        if (abs(normal.x) > abs(normal.y) && abs(normal.x) > abs(normal.z))
-            uv.y = -uv.y;
-        else if (abs(normal.z) > abs(normal.y))
-            uv.y = -uv.y;
-
         vec2 BaseIndex = vTexIndex;
-        vec2 TileRel = fract(uv);
+        vec2 TileRel = fract(vUV);
         
         vec2 TileUVSize = vec2(uTileSize) / uTileAtlasSize;
         vec2 NormalizedPadding = vec2(uPixelPadding) / uTileAtlasSize;

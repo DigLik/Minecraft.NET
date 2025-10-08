@@ -1,11 +1,12 @@
 #version 460 core
 layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec2 aTexCoords;
-layout (location = 2) in mat4 aModel;
+layout (location = 1) in vec2 aTexIndex;
+layout (location = 2) in vec2 aUV;
+layout (location = 3) in mat4 aModel;
 
 out vec3 v_viewPos;
 out vec2 v_texIndex;
-out vec3 v_localPos;
+out vec2 v_uv;
 
 uniform mat4 view;
 uniform mat4 projection;
@@ -16,8 +17,8 @@ void main()
     vec4 viewPos = view * relativeWorldPos;
 
     v_viewPos = viewPos.xyz;
-    v_texIndex = aTexCoords;
-    v_localPos = aPos;
+    v_texIndex = aTexIndex;
+    v_uv = aUV;
 
     gl_Position = projection * viewPos;
 }

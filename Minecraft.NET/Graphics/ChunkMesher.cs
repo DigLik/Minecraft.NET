@@ -17,10 +17,14 @@ public static class ChunkMesher
             for (int dir = 0; dir < 2; dir++)
             {
                 int d = axis;
-                int u = (axis + 1) % 3;
-                int v = (axis + 2) % 3;
+                int u, v;
 
-                if (axis == 1) (u, v) = (v, u);
+                switch (axis)
+                {
+                    case 0: u = 2; v = 1; break; // X face: u=Z, v=Y
+                    case 1: u = 0; v = 2; break; // Y face: u=X, v=Z
+                    default: u = 0; v = 1; break; // Z face: u=X, v=Y
+                }
 
                 var x = new int[3];
                 var q = new int[3];
@@ -41,10 +45,25 @@ public static class ChunkMesher
                             bool isCurrentSolid = blockCurrent != BlockId.Air;
                             bool isNeighborSolid = blockNeighbor != BlockId.Air;
 
-                            if (isCurrentSolid == isNeighborSolid)
-                                mask[n] = BlockId.Air;
+                            BlockId faceBlockId = BlockId.Air;
+
+                            if (dir == 1)
+                            {
+                                if (isCurrentSolid && !isNeighborSolid)
+                                {
+                                    faceBlockId = blockCurrent;
+                                }
+                            }
                             else
-                                mask[n] = isCurrentSolid ? blockCurrent : blockNeighbor;
+                            {
+                                if (!isCurrentSolid && isNeighborSolid)
+                                {
+                                    faceBlockId = blockNeighbor;
+                                }
+                            }
+
+                            mask[n] = faceBlockId;
+
                             n++;
                         }
                     }
@@ -87,8 +106,12 @@ public static class ChunkMesher
                                 var v4 = new Vector3(x[0] + du[0] + dv[0], x[1] + du[1] + dv[1], x[2] + du[2] + dv[2]);
 
                                 bool reversed = dir == 0;
+                                if (axis == 2)
+                                {
+                                    reversed = !reversed;
+                                }
 
-                                AddQuad(builder, v1, v2, v3, v4, reversed, texCoords, ref vertexOffset);
+                                AddQuad(builder, v1, v2, v3, v4, w, h, reversed, texCoords, ref vertexOffset);
 
                                 vertexOffset += 4;
                                 for (int l = 0; l < h; l++) for (int k = 0; k < w; k++) mask[n + k + l * ChunkSize] = BlockId.Air;
@@ -105,17 +128,18 @@ public static class ChunkMesher
 
     private static void AddQuad(
         MeshBuilder builder,
-        Vector3 v_bl, Vector3 v_br, Vector3 v_tl, Vector3 v_tr,
+        Vector3 v1_bl, Vector3 v2_br, Vector3 v3_tl, Vector3 v4_tr,
+        int w, int h,
         bool reversed, Vector2 texCoords,
         ref uint vertexOffset)
     {
         uint baseIndex = vertexOffset;
-        float Tx = texCoords.X, Ty = texCoords.Y;
+        float tx = texCoords.X, ty = texCoords.Y;
 
-        builder.AddVertex(v_bl.X, v_bl.Y, v_bl.Z, Tx, Ty);
-        builder.AddVertex(v_br.X, v_br.Y, v_br.Z, Tx, Ty);
-        builder.AddVertex(v_tr.X, v_tr.Y, v_tr.Z, Tx, Ty);
-        builder.AddVertex(v_tl.X, v_tl.Y, v_tl.Z, Tx, Ty);
+        builder.AddVertex(v1_bl.X, v1_bl.Y, v1_bl.Z, tx, ty, 0, h);
+        builder.AddVertex(v2_br.X, v2_br.Y, v2_br.Z, tx, ty, w, h);
+        builder.AddVertex(v4_tr.X, v4_tr.Y, v4_tr.Z, tx, ty, w, 0);
+        builder.AddVertex(v3_tl.X, v3_tl.Y, v3_tl.Z, tx, ty, 0, 0);
 
         if (reversed)
         {
