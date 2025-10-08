@@ -195,8 +195,10 @@ public sealed class Renderer
             if (chunk.Mesh == null || chunk.Mesh.IndexCount == 0)
                 continue;
 
-            Vector3d chunkWorldPos = chunk.Position * ChunkSize;
-            Vector3 relativeChunkPos = (Vector3)(chunkWorldPos - cameraOrigin);
+            var chunkPosDouble = new Vector3d(chunk.Position.X, chunk.Position.Y, chunk.Position.Z);
+            Vector3d chunkWorldPos = chunkPosDouble * ChunkSize;
+            Vector3d relativeChunkPosDouble = chunkWorldPos - cameraOrigin;
+            Vector3 relativeChunkPos = (Vector3)relativeChunkPosDouble;
 
             var box = new BoundingBox(relativeChunkPos, relativeChunkPos + new Vector3(ChunkSize));
             if (!_frustum.Intersects(box))

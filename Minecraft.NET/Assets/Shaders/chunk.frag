@@ -1,7 +1,7 @@
 #version 460 core
 out vec4 FragColor;
 
-in vec3 vWorldPos;
+in vec3 vLocalPos;
 in vec2 vTexIndex;
 
 uniform sampler2D uTexture;
@@ -20,17 +20,17 @@ void main()
     }
     else
     {
-        vec3 dx = dFdx(vWorldPos);
-        vec3 dy = dFdy(vWorldPos);
+        vec3 dx = dFdx(vLocalPos);
+        vec3 dy = dFdy(vLocalPos);
         vec3 normal = normalize(cross(dx, dy));
 
         vec2 uv;
         if (abs(normal.x) > abs(normal.y) && abs(normal.x) > abs(normal.z))
-            uv = vWorldPos.zy;
+            uv = vLocalPos.zy;
         else if (abs(normal.y) > abs(normal.z))
-            uv = vWorldPos.xz;
+            uv = vLocalPos.xz;
         else
-            uv = vWorldPos.xy;
+            uv = vLocalPos.xy;
 
         if (abs(normal.x) > abs(normal.y) && abs(normal.x) > abs(normal.z))
             uv.y = -uv.y;

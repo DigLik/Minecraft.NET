@@ -4,14 +4,23 @@ using Silk.NET.Windowing;
 
 namespace Minecraft.NET.Graphics;
 
-public class InputManager(IWindow window, Camera camera, World world)
+public class InputManager(Game game, IWindow window, Camera camera, World world)
 {
+    private readonly Game _game = game;
     private readonly IWindow _window = window;
+    private readonly Camera _camera = camera;
+    private readonly World _world = world;
+
     private IKeyboard _keyboard = null!;
     private IMouse _mouse = null!;
 
     private bool _isMouseCaptured = false;
     private Vector2 _lastMousePosition;
+
+    private const float BreakBlockCooldown = 0.25f;
+    private const float PlaceBlockCooldown = 0.2f;
+    private float _breakCooldownTimer = BreakBlockCooldown;
+    private float _placeCooldownTimer = PlaceBlockCooldown;
 
     public void Initialize()
     {
@@ -27,36 +36,77 @@ public class InputManager(IWindow window, Camera camera, World world)
 
     public void Update(float dt)
     {
+        _breakCooldownTimer += dt;
+        _placeCooldownTimer += dt;
+
+        if (_game.CurrentGameMode == GameMode.Spectator)
+            HandleSpectatorMovement(dt);
+        else
+            HandleCreativeMovement();
+
+        _world.UpdatePlayerPosition(_game, _camera, dt);
+
+        if (_isMouseCaptured)
+        {
+            if (_mouse.IsButtonPressed(MouseButton.Left) && _breakCooldownTimer >= BreakBlockCooldown)
+            {
+                world.BreakBlock(camera.Position, camera.Front);
+                _breakCooldownTimer = 0f;
+            }
+
+            if (_mouse.IsButtonPressed(MouseButton.Right) && _placeCooldownTimer >= PlaceBlockCooldown)
+            {
+                world.PlaceBlock(camera);
+                _placeCooldownTimer = 0f;
+            }
+        }
+    }
+
+    private void HandleSpectatorMovement(float dt)
+    {
         double cameraSpeed = 50.0;
 
         if (_keyboard.IsKeyPressed(Key.ControlLeft)) cameraSpeed *= 2;
 
         var moveDir = Vector3d.Zero;
-        if (_keyboard.IsKeyPressed(Key.W)) moveDir += (Vector3d)camera.Front;
-        if (_keyboard.IsKeyPressed(Key.S)) moveDir -= (Vector3d)camera.Front;
-        if (_keyboard.IsKeyPressed(Key.A)) moveDir -= (Vector3d)camera.Right;
-        if (_keyboard.IsKeyPressed(Key.D)) moveDir += (Vector3d)camera.Right;
+        if (_keyboard.IsKeyPressed(Key.W)) moveDir += (Vector3d)_camera.Front;
+        if (_keyboard.IsKeyPressed(Key.S)) moveDir -= (Vector3d)_camera.Front;
+        if (_keyboard.IsKeyPressed(Key.A)) moveDir -= (Vector3d)_camera.Right;
+        if (_keyboard.IsKeyPressed(Key.D)) moveDir += (Vector3d)_camera.Right;
         if (_keyboard.IsKeyPressed(Key.Space)) moveDir += Vector3d.UnitY;
         if (_keyboard.IsKeyPressed(Key.ShiftLeft)) moveDir -= Vector3d.UnitY;
 
         if (moveDir.LengthSquared() > 0)
         {
-            camera.Position += Vector3d.Normalize(moveDir) * cameraSpeed * dt;
+            _camera.Position += Vector3d.Normalize(moveDir) * cameraSpeed * dt;
         }
+    }
+
+    private void HandleCreativeMovement()
+    {
+        var wishDir = Vector3d.Zero;
+        var forward = Vector3d.Normalize(new Vector3d(_camera.Front.X, 0, _camera.Front.Z));
+        var right = Vector3d.Normalize(new Vector3d(_camera.Right.X, 0, _camera.Right.Z));
+
+        if (_keyboard.IsKeyPressed(Key.W)) wishDir += forward;
+        if (_keyboard.IsKeyPressed(Key.S)) wishDir -= forward;
+        if (_keyboard.IsKeyPressed(Key.A)) wishDir -= right;
+        if (_keyboard.IsKeyPressed(Key.D)) wishDir += right;
+
+        if (wishDir.LengthSquared() > 0)
+            wishDir = Vector3d.Normalize(wishDir);
+
+        var currentYVelocity = _camera.Velocity.Y;
+        var horizontalVelocity = wishDir * MaxSpeed;
+
+        _camera.Velocity = new Vector3d(horizontalVelocity.X, currentYVelocity, horizontalVelocity.Z);
+
+        if (_keyboard.IsKeyPressed(Key.Space) && _camera.IsOnGround)
+            _camera.Velocity = _camera.Velocity with { Y = JumpForce };
     }
 
     private void OnMouseDown(IMouse mouse, MouseButton button)
     {
-        if (!_isMouseCaptured) return;
-
-        if (button == MouseButton.Left)
-        {
-            world.BreakBlock(camera.Position, camera.Front);
-        }
-        else if (button == MouseButton.Right)
-        {
-            world.PlaceBlock(camera.Position, camera.Front);
-        }
     }
 
     private void OnMouseMove(IMouse mouse, Vector2 position)
@@ -91,6 +141,10 @@ public class InputManager(IWindow window, Camera camera, World world)
                 _lastMousePosition = new Vector2(_window.Size.X / 2f, _window.Size.Y / 2f);
                 _mouse.Position = _lastMousePosition;
             }
+        }
+        else if (key == Key.F1)
+        {
+            _game.ToggleGameMode();
         }
     }
 }

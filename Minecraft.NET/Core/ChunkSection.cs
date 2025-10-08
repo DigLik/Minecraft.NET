@@ -1,4 +1,5 @@
 ﻿using Minecraft.NET.Graphics;
+using Silk.NET.Maths;
 using System.Runtime.InteropServices;
 
 namespace Minecraft.NET.Core;
@@ -7,14 +8,14 @@ public enum ChunkState : byte { Empty, AwaitingGeneration, Generating, AwaitingM
 
 public unsafe sealed class ChunkSection : IDisposable
 {
-    public readonly Vector3 Position;
+    public readonly Vector3D<int> Position;
     public BlockId* Blocks { get; private set; }
     public ChunkState State { get; set; }
     public Mesh? Mesh { get; set; }
 
     private bool _isDisposed;
 
-    public ChunkSection(Vector3 position)
+    public ChunkSection(Vector3D<int> position)
     {
         Position = position;
         State = ChunkState.Empty;

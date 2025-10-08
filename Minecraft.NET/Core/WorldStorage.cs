@@ -1,19 +1,20 @@
-﻿using System.Collections.Concurrent;
+﻿using Silk.NET.Maths;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Minecraft.NET.Core;
 
-[JsonSerializable(typeof(Dictionary<Vector3, Dictionary<int, BlockId>>))]
+[JsonSerializable(typeof(Dictionary<Vector3D<int>, Dictionary<int, BlockId>>))]
 [JsonSerializable(typeof(Dictionary<string, Dictionary<int, BlockId>>))]
-[JsonSourceGenerationOptions(Converters = [typeof(Vector3JsonConverter)])]
+[JsonSourceGenerationOptions(Converters = [typeof(Vector3DIntJsonConverter)])]
 internal partial class WorldStorageJsonContext : JsonSerializerContext { }
 
 public class WorldStorage
 {
     private readonly string _worldName;
     private readonly string _savePath;
-    private ConcurrentDictionary<Vector3, ConcurrentDictionary<int, BlockId>> _modifications = new();
+    private ConcurrentDictionary<Vector3D<int>, ConcurrentDictionary<int, BlockId>> _modifications = new();
 
     public WorldStorage(string worldName)
     {
@@ -31,9 +32,9 @@ public class WorldStorage
         try
         {
             var json = File.ReadAllText(_savePath);
-            var loadedDict = JsonSerializer.Deserialize(json, WorldStorageJsonContext.Default.DictionaryVector3DictionaryInt32BlockId) ?? [];
+            var loadedDict = JsonSerializer.Deserialize(json, WorldStorageJsonContext.Default.DictionaryVector3DInt32DictionaryInt32BlockId) ?? [];
 
-            _modifications = new ConcurrentDictionary<Vector3, ConcurrentDictionary<int, BlockId>>(
+            _modifications = new ConcurrentDictionary<Vector3D<int>, ConcurrentDictionary<int, BlockId>>(
                 loadedDict.ToDictionary(
                     kvp => kvp.Key,
                     kvp => new ConcurrentDictionary<int, BlockId>(kvp.Value)
@@ -61,7 +62,7 @@ public class WorldStorage
                 kvp => kvp.Value.ToDictionary(innerKvp => innerKvp.Key, innerKvp => innerKvp.Value)
             );
 
-            var json = JsonSerializer.Serialize(regularDict, WorldStorageJsonContext.Default.DictionaryVector3DictionaryInt32BlockId);
+            var json = JsonSerializer.Serialize(regularDict, WorldStorageJsonContext.Default.DictionaryVector3DInt32DictionaryInt32BlockId);
             File.WriteAllText(_savePath, json);
         }
         catch (Exception ex)
@@ -84,7 +85,7 @@ public class WorldStorage
         }
     }
 
-    public void RecordModification(Vector3 chunkPos, int x, int y, int z, BlockId blockId)
+    public void RecordModification(Vector3D<int> chunkPos, int x, int y, int z, BlockId blockId)
     {
         var chunkMods = _modifications.GetOrAdd(chunkPos, _ => new ConcurrentDictionary<int, BlockId>());
         chunkMods[GetIndex(x, y, z)] = blockId;

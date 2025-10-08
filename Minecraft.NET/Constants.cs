@@ -14,4 +14,11 @@ public static class Constants
     public const float TileSize = 16.0f;
     public const float AtlasWidth = 1024.0f;
     public const float AtlasHeight = 512.0f;
+    
+    public const double PlayerHeight = 1.8;
+    public const double PlayerWidth = 0.6;
+    public const double PlayerEyeHeight = 1.62;
+    public const double Gravity = 28.0;
+    public const double MaxSpeed = 5.0;
+    public const double JumpForce = 9.0;
 }

@@ -5,6 +5,8 @@ using Silk.NET.Windowing;
 
 namespace Minecraft.NET;
 
+public enum GameMode { Creative, Spectator }
+
 public sealed class Game : IDisposable
 {
     private readonly IWindow _window;
@@ -17,20 +19,29 @@ public sealed class Game : IDisposable
 
     private readonly GameStatsUpdater _statsUpdater;
 
+    public GameMode CurrentGameMode { get; private set; } = GameMode.Creative;
+
     public Game(IWindow window)
     {
         _window = window;
-        _camera = new Camera(new Vector3d(0, 40, 0));
+        _camera = new Camera(new Vector3d(16, 80, 16));
         _world = new World();
         _renderer = new Renderer();
-        _inputManager = new InputManager(_window, _camera, _world);
-        _statsUpdater = new GameStatsUpdater(_window, _camera, _world, _renderer);
+        _inputManager = new InputManager(this, _window, _camera, _world);
+        _statsUpdater = new GameStatsUpdater(this, _window, _camera, _world, _renderer);
 
         _window.Load += OnLoad;
         _window.Update += OnUpdate;
         _window.Render += OnRender;
         _window.FramebufferResize += OnFramebufferResize;
         _window.Closing += OnClose;
+    }
+
+    public void ToggleGameMode()
+    {
+        CurrentGameMode = CurrentGameMode == GameMode.Creative ? GameMode.Spectator : GameMode.Creative;
+        if (CurrentGameMode == GameMode.Spectator)
+            _camera.Velocity = Vector3d.Zero;
     }
 
     public void Run() => _window.Run();
@@ -89,8 +100,9 @@ public sealed class Game : IDisposable
 
     public void Dispose() => _window.Dispose();
 
-    private class GameStatsUpdater(IWindow window, Camera camera, World world, Renderer renderer, double updateInterval = 1.0)
+    private class GameStatsUpdater(Game game, IWindow window, Camera camera, World world, Renderer renderer, double updateInterval = 1.0)
     {
+        private readonly Game _game = game;
         private readonly IWindow _window = window;
         private int _frameCount;
         private double _titleUpdateTimer;
@@ -108,7 +120,7 @@ public sealed class Game : IDisposable
                 var pos = camera.Position;
                 var posString = $"X: {pos.X:F1} Y: {pos.Y:F1} Z: {pos.Z:F1}";
                 _window.Title =
-                    $"Minecraft.NET " +
+                    $"Minecraft.NET [{_game.CurrentGameMode}] " +
                     $"| FPS: {_fps:F0} | " +
                     $"Chunks (Visible/Meshed/Loaded): {renderer.VisibleChunkCount}/{world.GetRenderableChunkCount()}/{world.GetLoadedChunkCount()} | " +
                     $"{posString}";
