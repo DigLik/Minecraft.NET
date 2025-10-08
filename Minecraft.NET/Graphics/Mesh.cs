@@ -8,7 +8,7 @@ public sealed class Mesh(MeshData meshData) : IDisposable
     private bool _isUploaded;
     private GL _gl = null!;
 
-    public unsafe void UploadToGpu(GL gl)
+    public unsafe void UploadToGpu(GL gl, uint instanceVbo)
     {
         if (_isUploaded) return;
         _gl = gl;
@@ -31,6 +31,23 @@ public sealed class Mesh(MeshData meshData) : IDisposable
 
         _gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, stride, (void*)(3 * sizeof(float)));
         _gl.EnableVertexAttribArray(1);
+
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, instanceVbo);
+
+        nuint matrixSize = (nuint)sizeof(Matrix4x4);
+        _gl.EnableVertexAttribArray(2);
+        _gl.VertexAttribPointer(2, 4, VertexAttribPointerType.Float, false, (uint)matrixSize, 0);
+        _gl.EnableVertexAttribArray(3);
+        _gl.VertexAttribPointer(3, 4, VertexAttribPointerType.Float, false, (uint)matrixSize, sizeof(Vector4));
+        _gl.EnableVertexAttribArray(4);
+        _gl.VertexAttribPointer(4, 4, VertexAttribPointerType.Float, false, (uint)matrixSize, (nint)(2 * sizeof(Vector4)));
+        _gl.EnableVertexAttribArray(5);
+        _gl.VertexAttribPointer(5, 4, VertexAttribPointerType.Float, false, (uint)matrixSize, (nint)(3 * sizeof(Vector4)));
+
+        _gl.VertexAttribDivisor(2, 1);
+        _gl.VertexAttribDivisor(3, 1);
+        _gl.VertexAttribDivisor(4, 1);
+        _gl.VertexAttribDivisor(5, 1);
 
         _gl.BindVertexArray(0);
         _isUploaded = true;

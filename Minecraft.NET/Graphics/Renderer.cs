@@ -27,12 +27,22 @@ public sealed class Renderer
 
     private Vector2D<int> _viewportSize;
 
+    private uint _instanceVbo;
+    public uint InstanceVbo => _instanceVbo;
+    private readonly List<Matrix4x4> _modelMatrices = [];
+    private readonly List<ChunkSection> _visibleChunks = [];
+    private const int MaxInstances = 8192;
+
     private static string LoadShaderSource(string path)
         => new([.. File.ReadAllText(path).Where(c => c < 128)]);
 
     public unsafe void Load(GL gl)
     {
         _gl = gl;
+
+        _instanceVbo = _gl.GenBuffer();
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
+        _gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(MaxInstances * sizeof(Matrix4x4)), null, BufferUsageARB.StreamDraw);
 
         BlockTextureAtlas = new Texture(_gl, "Assets/Textures/atlas.png");
 
@@ -148,36 +158,50 @@ public sealed class Renderer
         if (_gBuffer is null)
             return;
 
-        _gBuffer.Bind();
-        _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
-
         var view = camera.GetViewMatrix();
         var projection = camera.GetProjectionMatrix((float)_viewportSize.X / _viewportSize.Y);
         _frustum.Update(view * projection);
 
-        _gBufferShader.Use();
-        _gBufferShader.SetMatrix4x4(_gBufferShader.GetUniformLocation("view"), view);
-        _gBufferShader.SetMatrix4x4(_gBufferShader.GetUniformLocation("projection"), projection);
-
-        BlockTextureAtlas.Bind(TextureUnit.Texture0);
-
+        _visibleChunks.Clear();
+        _modelMatrices.Clear();
         lock (chunks)
         {
             foreach (var chunk in chunks)
             {
-                var mesh = chunk.Mesh;
-                if (mesh == null || mesh.IndexCount == 0 || chunk.State != ChunkState.Rendered) continue;
+                if (chunk.Mesh == null || chunk.Mesh.IndexCount == 0 || chunk.State != ChunkState.Rendered) continue;
 
                 var chunkWorldPos = chunk.Position * ChunkSize;
                 var box = new BoundingBox(chunkWorldPos, chunkWorldPos + new Vector3(ChunkSize));
                 if (!_frustum.Intersects(box))
                     continue;
 
-                mesh.Bind();
-                var model = Matrix4x4.CreateTranslation(chunkWorldPos);
-                _gBufferShader.SetMatrix4x4(_gBufferShader.GetUniformLocation("model"), model);
+                _visibleChunks.Add(chunk);
+                _modelMatrices.Add(Matrix4x4.CreateTranslation(chunkWorldPos));
+            }
+        }
 
-                _gl.DrawElements(PrimitiveType.Triangles, (uint)mesh.IndexCount, DrawElementsType.UnsignedInt, null);
+        _gBuffer.Bind();
+        _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+
+        if (_visibleChunks.Count > 0)
+        {
+            _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
+            fixed (Matrix4x4* p = CollectionsMarshal.AsSpan(_modelMatrices))
+            {
+                _gl.BufferSubData(BufferTargetARB.ArrayBuffer, 0, (nuint)(_modelMatrices.Count * sizeof(Matrix4x4)), p);
+            }
+
+            _gBufferShader.Use();
+            _gBufferShader.SetMatrix4x4(_gBufferShader.GetUniformLocation("view"), view);
+            _gBufferShader.SetMatrix4x4(_gBufferShader.GetUniformLocation("projection"), projection);
+
+            BlockTextureAtlas.Bind(TextureUnit.Texture0);
+
+            for (int i = 0; i < _visibleChunks.Count; i++)
+            {
+                var chunk = _visibleChunks[i];
+                chunk.Mesh!.Bind();
+                _gl.DrawElementsInstancedBaseInstance(PrimitiveType.Triangles, (uint)chunk.Mesh.IndexCount, DrawElementsType.UnsignedInt, null, 1, (uint)i);
             }
         }
         _gBuffer.Unbind();

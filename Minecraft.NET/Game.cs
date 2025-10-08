@@ -59,7 +59,7 @@ public sealed class Game : IDisposable
             if (meshData.IndexCount > 0)
             {
                 var newMesh = new Mesh(meshData);
-                newMesh.UploadToGpu(_gl);
+                newMesh.UploadToGpu(_gl, _renderer.InstanceVbo);
                 chunk.Mesh = newMesh;
             }
             else
