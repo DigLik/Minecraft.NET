@@ -133,13 +133,20 @@ public static class ChunkMesher
     {
         if (x >= 0 && x < ChunkSize && y >= 0 && y < ChunkSize && z >= 0 && z < ChunkSize)
             return chunk.GetBlock(x, y, z);
-        var worldPos = chunk.Position * ChunkSize + new Vector3(x, y, z);
-        var neighborChunkPos = new Vector3(MathF.Floor(worldPos.X / ChunkSize), MathF.Floor(worldPos.Y / ChunkSize), MathF.Floor(worldPos.Z / ChunkSize));
+
+        var neighborChunkPos = chunk.Position;
+        int localX = x, localY = y, localZ = z;
+
+        if (x < 0) { localX += ChunkSize; neighborChunkPos.X--; }
+        else if (x >= ChunkSize) { localX -= ChunkSize; neighborChunkPos.X++; }
+
+        if (y < 0) { localY += ChunkSize; neighborChunkPos.Y--; }
+        else if (y >= ChunkSize) { localY -= ChunkSize; neighborChunkPos.Y++; }
+
+        if (z < 0) { localZ += ChunkSize; neighborChunkPos.Z--; }
+        else if (z >= ChunkSize) { localZ -= ChunkSize; neighborChunkPos.Z++; }
+
         var neighborChunk = world.GetChunk(neighborChunkPos);
-        if (neighborChunk == null) return BlockId.Air;
-        int localX = (int)worldPos.X % ChunkSize; if (localX < 0) localX += ChunkSize;
-        int localY = (int)worldPos.Y % ChunkSize; if (localY < 0) localY += ChunkSize;
-        int localZ = (int)worldPos.Z % ChunkSize; if (localZ < 0) localZ += ChunkSize;
-        return neighborChunk.GetBlock(localX, localY, localZ);
+        return neighborChunk?.GetBlock(localX, localY, localZ) ?? BlockId.Air;
     }
 }

@@ -13,6 +13,7 @@ public sealed class Renderer
 
     private Framebuffer _gBuffer = null!;
     private Shader _gBufferShader = null!;
+    private int _gBufferInverseViewLocation;
 
     private Framebuffer _ssaoFbo = null!;
     private Framebuffer _ssaoBlurFbo = null!;
@@ -32,6 +33,8 @@ public sealed class Renderer
     private readonly List<Matrix4x4> _modelMatrices = [];
     private readonly List<ChunkSection> _visibleChunks = [];
     private const int MaxInstances = 8192;
+
+    public int VisibleChunkCount { get; private set; }
 
     private static string LoadShaderSource(string path)
         => new([.. File.ReadAllText(path).Where(c => c < 128)]);
@@ -55,6 +58,7 @@ public sealed class Renderer
         _gBufferShader.SetVector2(_gBufferShader.GetUniformLocation("uTileAtlasSize"), new Vector2(Constants.AtlasWidth, Constants.AtlasHeight));
         _gBufferShader.SetFloat(_gBufferShader.GetUniformLocation("uTileSize"), Constants.TileSize);
         _gBufferShader.SetFloat(_gBufferShader.GetUniformLocation("uPixelPadding"), 0.1f);
+        _gBufferInverseViewLocation = _gBufferShader.GetUniformLocation("inverseView");
 
         string ssaoVert = LoadShaderSource("Assets/Shaders/ssao.vert");
         string ssaoFrag = LoadShaderSource("Assets/Shaders/ssao.frag");
@@ -158,9 +162,19 @@ public sealed class Renderer
         if (_gBuffer is null)
             return;
 
-        var view = camera.GetViewMatrix();
         var projection = camera.GetProjectionMatrix((float)_viewportSize.X / _viewportSize.Y);
-        _frustum.Update(view * projection);
+
+        // --- High-Precision Relative Rendering Setup ---
+        Vector3d cameraOrigin = new(Math.Floor(camera.Position.X), Math.Floor(camera.Position.Y), Math.Floor(camera.Position.Z));
+        Vector3 cameraRenderPos = (Vector3)(camera.Position - cameraOrigin);
+        var relativeViewMatrix = Matrix4x4.CreateLookAt(cameraRenderPos, cameraRenderPos + camera.Front, camera.Up);
+
+        // --- Frustum Culling Setup (also in relative space) ---
+        _frustum.Update(relativeViewMatrix * projection);
+
+        // --- World-Space Calculations (only where necessary) ---
+        var fullViewMatrix = camera.GetViewMatrix();
+        Matrix4x4.Invert(fullViewMatrix, out var inverseView);
 
         _visibleChunks.Clear();
         _modelMatrices.Clear();
@@ -170,15 +184,20 @@ public sealed class Renderer
             if (chunk.Mesh == null || chunk.Mesh.IndexCount == 0)
                 continue;
 
-            var chunkWorldPos = chunk.Position * ChunkSize;
-            var box = new BoundingBox(chunkWorldPos, chunkWorldPos + new Vector3(ChunkSize));
+            Vector3d chunkWorldPos = chunk.Position * ChunkSize;
+            Vector3 relativeChunkPos = (Vector3)(chunkWorldPos - cameraOrigin);
+
+            var box = new BoundingBox(relativeChunkPos, relativeChunkPos + new Vector3(ChunkSize));
             if (!_frustum.Intersects(box))
                 continue;
 
             _visibleChunks.Add(chunk);
-            _modelMatrices.Add(Matrix4x4.CreateTranslation(chunkWorldPos));
+            _modelMatrices.Add(Matrix4x4.CreateTranslation(relativeChunkPos));
         }
 
+        VisibleChunkCount = _visibleChunks.Count;
+
+        // --- Geometry Pass ---
         _gBuffer.Bind();
         _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
@@ -191,8 +210,9 @@ public sealed class Renderer
             }
 
             _gBufferShader.Use();
-            _gBufferShader.SetMatrix4x4(_gBufferShader.GetUniformLocation("view"), view);
+            _gBufferShader.SetMatrix4x4(_gBufferShader.GetUniformLocation("view"), relativeViewMatrix);
             _gBufferShader.SetMatrix4x4(_gBufferShader.GetUniformLocation("projection"), projection);
+            _gBufferShader.SetMatrix4x4(_gBufferInverseViewLocation, inverseView);
 
             BlockTextureAtlas.Bind(TextureUnit.Texture0);
 
@@ -205,6 +225,7 @@ public sealed class Renderer
         }
         _gBuffer.Unbind();
 
+        // --- SSAO Pass ---
         _ssaoFbo.Bind();
         _gl.Clear(ClearBufferMask.ColorBufferBit);
         _ssaoShader.Use();
@@ -224,6 +245,7 @@ public sealed class Renderer
         _gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
         _ssaoFbo.Unbind();
 
+        // --- SSAO Blur Pass ---
         _ssaoBlurFbo.Bind();
         _gl.Clear(ClearBufferMask.ColorBufferBit);
         _ssaoBlurShader.Use();
@@ -234,6 +256,7 @@ public sealed class Renderer
         _gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
         _ssaoBlurFbo.Unbind();
 
+        // --- Lighting Pass ---
         _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
         _lightingShader.Use();
         _gl.ActiveTexture(TextureUnit.Texture0);

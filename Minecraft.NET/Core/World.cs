@@ -3,11 +3,15 @@ using System.Collections.Concurrent;
 
 namespace Minecraft.NET.Core;
 
+public readonly record struct RaycastResult(Vector3d HitPosition, Vector3d PlacePosition);
+
 public sealed class World : IDisposable
 {
     private readonly ConcurrentDictionary<Vector3, ChunkSection> _chunks = new();
     private readonly WorldGenerator _generator = new();
     private readonly HashSet<ChunkSection> _renderableChunks = [];
+
+    private readonly WorldStorage _storage;
 
     private readonly ConcurrentQueue<(ChunkSection chunk, MeshData meshData, bool isNewChunk)> _generatedMeshes = new();
     private readonly ConcurrentQueue<ChunkSection> _chunksToMesh = new();
@@ -21,9 +25,15 @@ public sealed class World : IDisposable
         new(1,0,0), new(-1,0,0), new(0,1,0), new(0,-1,0), new(0,0,1), new(0,0,-1)
     ];
 
+    public World()
+    {
+        _storage = new WorldStorage("world");
+    }
+
     public void Initialize()
     {
         BlockRegistry.Initialize();
+        _storage.Load();
 
         _cancellationTokenSource = new CancellationTokenSource();
         _mesherTask = Task.Run(() => MesherLoop(_cancellationTokenSource.Token));
@@ -69,12 +79,12 @@ public sealed class World : IDisposable
         }
     }
 
-    public void Update(Vector3 playerPosition)
+    public void Update(Vector3d playerPosition)
     {
         var playerChunkPos = new Vector3(
-            MathF.Floor(playerPosition.X / ChunkSize),
-            MathF.Floor(playerPosition.Y / ChunkSize),
-            MathF.Floor(playerPosition.Z / ChunkSize)
+            (float)Math.Floor(playerPosition.X / ChunkSize),
+            (float)Math.Floor(playerPosition.Y / ChunkSize),
+            (float)Math.Floor(playerPosition.Z / ChunkSize)
         );
 
         lock (_chunkLock)
@@ -131,6 +141,8 @@ public sealed class World : IDisposable
         chunk.State = ChunkState.Generating;
         _generator.Generate(chunk);
 
+        _storage.ApplyModificationsToChunk(chunk);
+
         lock (_chunkLock)
         {
             chunk.State = ChunkState.AwaitingMesh;
@@ -151,39 +163,53 @@ public sealed class World : IDisposable
         _generatedMeshes.Enqueue((chunk, meshData, isNewChunk));
     }
 
-    public void BreakBlock(Vector3 cameraPos, Vector3 cameraDir)
+    public void BreakBlock(Vector3d cameraPos, Vector3 cameraDir)
     {
-        var result = Raycast(cameraPos, cameraDir, 6.0f);
+        var result = Raycast(cameraPos, cameraDir, 6.0);
         if (result.HasValue)
         {
-            SetBlock(result.Value, BlockId.Air);
+            SetBlock(result.Value.HitPosition, BlockId.Air);
         }
     }
 
-    private Vector3? Raycast(Vector3 origin, Vector3 direction, float maxDistance)
+    public void PlaceBlock(Vector3d cameraPos, Vector3 cameraDir)
     {
-        Vector3 pos = origin;
-        Vector3 step = Vector3.Normalize(direction) * 0.05f;
-
-        for (float dist = 0; dist < maxDistance; dist += 0.05f)
+        var result = Raycast(cameraPos, cameraDir, 6.0);
+        if (result.HasValue)
         {
-            pos += step;
-            var blockPos = new Vector3(MathF.Floor(pos.X), MathF.Floor(pos.Y), MathF.Floor(pos.Z));
+            SetBlock(result.Value.PlacePosition, BlockId.Stone);
+        }
+    }
 
-            var blockId = GetBlock(blockPos);
+    private RaycastResult? Raycast(Vector3d origin, Vector3 direction, double maxDistance)
+    {
+        Vector3d pos = origin;
+        Vector3d step = Vector3d.Normalize(direction) * 0.05;
+        Vector3d lastAirPos = Vector3d.Zero;
+
+        for (double dist = 0; dist < maxDistance; dist += 0.05)
+        {
+            var currentBlockPos = new Vector3d(Math.Floor(pos.X), Math.Floor(pos.Y), Math.Floor(pos.Z));
+
+            var blockId = GetBlock(currentBlockPos);
             if (blockId != BlockId.Air)
-                return blockPos;
+            {
+                return new RaycastResult(currentBlockPos, lastAirPos);
+            }
+
+            lastAirPos = currentBlockPos;
+            pos += step;
         }
 
         return null;
     }
 
-    public BlockId GetBlock(Vector3 worldPosition)
+    public BlockId GetBlock(Vector3d worldPosition)
     {
         var chunkPos = new Vector3(
-            MathF.Floor(worldPosition.X / ChunkSize),
-            MathF.Floor(worldPosition.Y / ChunkSize),
-            MathF.Floor(worldPosition.Z / ChunkSize)
+            (float)Math.Floor(worldPosition.X / ChunkSize),
+            (float)Math.Floor(worldPosition.Y / ChunkSize),
+            (float)Math.Floor(worldPosition.Z / ChunkSize)
         );
 
         if (!_chunks.TryGetValue(chunkPos, out var chunk))
@@ -196,12 +222,12 @@ public sealed class World : IDisposable
         return chunk.GetBlock(localX, localY, localZ);
     }
 
-    public void SetBlock(Vector3 worldPosition, BlockId id)
+    public void SetBlock(Vector3d worldPosition, BlockId id)
     {
         var chunkPos = new Vector3(
-            MathF.Floor(worldPosition.X / ChunkSize),
-            MathF.Floor(worldPosition.Y / ChunkSize),
-            MathF.Floor(worldPosition.Z / ChunkSize)
+            (float)Math.Floor(worldPosition.X / ChunkSize),
+            (float)Math.Floor(worldPosition.Y / ChunkSize),
+            (float)Math.Floor(worldPosition.Z / ChunkSize)
         );
 
         if (!_chunks.TryGetValue(chunkPos, out var chunk))
@@ -212,6 +238,7 @@ public sealed class World : IDisposable
         int localZ = (int)(worldPosition.Z - chunkPos.Z * ChunkSize);
 
         chunk.SetBlock(localX, localY, localZ, id);
+        _storage.RecordModification(chunkPos, localX, localY, localZ, id);
 
         lock (_chunkLock)
         {
@@ -276,6 +303,7 @@ public sealed class World : IDisposable
         _cancellationTokenSource.Cancel();
         _mesherTask.Wait();
         _cancellationTokenSource.Dispose();
+        _storage.Save();
         foreach (var chunk in _chunks.Values)
             chunk.Dispose();
     }

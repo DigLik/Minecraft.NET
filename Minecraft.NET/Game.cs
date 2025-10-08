@@ -15,15 +15,16 @@ public sealed class Game : IDisposable
     private readonly World _world;
     private readonly Renderer _renderer;
 
-    private readonly FPSCounter _fpsCounter = new();
+    private readonly GameStatsUpdater _statsUpdater;
 
     public Game(IWindow window)
     {
         _window = window;
-        _camera = new Camera(new Vector3(8, 40, 8));
+        _camera = new Camera(new Vector3d(0, 40, 0));
         _world = new World();
         _renderer = new Renderer();
         _inputManager = new InputManager(_window, _camera, _world);
+        _statsUpdater = new GameStatsUpdater(_window, _camera, _world, _renderer);
 
         _window.Load += OnLoad;
         _window.Update += OnUpdate;
@@ -48,6 +49,7 @@ public sealed class Game : IDisposable
     {
         _inputManager.Update((float)deltaTime);
         _world.Update(_camera.Position);
+        _statsUpdater.UpdateTitle(deltaTime);
 
         while (_world.TryDequeueGeneratedMesh(out var result))
         {
@@ -70,46 +72,48 @@ public sealed class Game : IDisposable
 
             chunk.State = ChunkState.Rendered;
             if (isNewChunk && newMesh != null)
-            {
                 _world.AddRenderableChunk(chunk);
-            }
         }
-
-        _window.Title = $"FPS: {_fpsCounter.FPS:F0} | Chunks: {_world.GetLoadedChunkCount()} | Renderables: {_world.GetRenderableChunkCount()} | Position: {_camera.Position}";
     }
 
     private void OnRender(double deltaTime)
     {
-        _fpsCounter.Update(deltaTime);
+        _statsUpdater.IncrementFrameCount();
         _renderer.Render(_world.GetRenderableChunksSnapshot(), _camera);
     }
 
     private void OnFramebufferResize(Vector2D<int> newSize)
-    {
-        _renderer.OnFramebufferResize(newSize);
-    }
+        => _renderer.OnFramebufferResize(newSize);
 
     private void OnClose() => _world.Dispose();
 
     public void Dispose() => _window.Dispose();
 
-    private class FPSCounter(double updateInterval = 1.0f)
+    private class GameStatsUpdater(IWindow window, Camera camera, World world, Renderer renderer, double updateInterval = 1.0)
     {
+        private readonly IWindow _window = window;
         private int _frameCount;
-        private double _elapsedTime;
+        private double _titleUpdateTimer;
+        private double _fps;
 
-        public readonly double UpdateInterval = updateInterval;
+        public void IncrementFrameCount() => _frameCount++;
 
-        public double FPS { get; private set; }
-
-        public void Update(double deltaTime)
+        public void UpdateTitle(double deltaTime)
         {
-            _frameCount++;
-            _elapsedTime += deltaTime;
-            if (_elapsedTime >= UpdateInterval)
+            _titleUpdateTimer += deltaTime;
+            if (_titleUpdateTimer >= updateInterval)
             {
-                FPS = _frameCount / _elapsedTime;
-                _elapsedTime -= UpdateInterval;
+                _fps = _frameCount / _titleUpdateTimer;
+
+                var pos = camera.Position;
+                var posString = $"X: {pos.X:F1} Y: {pos.Y:F1} Z: {pos.Z:F1}";
+                _window.Title =
+                    $"Minecraft.NET " +
+                    $"| FPS: {_fps:F0} | " +
+                    $"Chunks (Visible/Meshed/Loaded): {renderer.VisibleChunkCount}/{world.GetRenderableChunkCount()}/{world.GetLoadedChunkCount()} | " +
+                    $"{posString}";
+
+                _titleUpdateTimer = 0;
                 _frameCount = 0;
             }
         }

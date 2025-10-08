@@ -1,8 +1,10 @@
-﻿namespace Minecraft.NET.Graphics;
+﻿using Minecraft.NET.Core;
+
+namespace Minecraft.NET.Graphics;
 
 public class Camera
 {
-    public Vector3 Position { get; set; }
+    public Vector3d Position { get; set; }
     public Vector3 Front { get; private set; } = -Vector3.UnitZ;
     public Vector3 Up { get; private set; } = Vector3.UnitY;
     public Vector3 Right { get; private set; } = Vector3.UnitX;
@@ -11,13 +13,17 @@ public class Camera
     public float Yaw { get; set; } = -90.0f;
     public float Fov { get; set; } = 90.0f;
 
-    public Camera(Vector3 position)
+    public Camera(Vector3d position)
     {
         Position = position;
         UpdateVectors();
     }
 
-    public Matrix4x4 GetViewMatrix() => Matrix4x4.CreateLookAt(Position, Position + Front, Up);
+    public Matrix4x4 GetViewMatrix()
+    {
+        var posF = (Vector3)Position;
+        return Matrix4x4.CreateLookAt(posF, posF + Front, Up);
+    }
 
     public Matrix4x4 GetProjectionMatrix(float aspectRatio)
     {

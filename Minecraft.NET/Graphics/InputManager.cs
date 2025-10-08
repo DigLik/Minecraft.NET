@@ -27,16 +27,22 @@ public class InputManager(IWindow window, Camera camera, World world)
 
     public void Update(float dt)
     {
-        float cameraSpeed = 50.0f;
+        double cameraSpeed = 50.0;
 
         if (_keyboard.IsKeyPressed(Key.ControlLeft)) cameraSpeed *= 2;
 
-        if (_keyboard.IsKeyPressed(Key.W)) camera.Position += camera.Front * cameraSpeed * dt;
-        if (_keyboard.IsKeyPressed(Key.S)) camera.Position -= camera.Front * cameraSpeed * dt;
-        if (_keyboard.IsKeyPressed(Key.A)) camera.Position -= camera.Right * cameraSpeed * dt;
-        if (_keyboard.IsKeyPressed(Key.D)) camera.Position += camera.Right * cameraSpeed * dt;
-        if (_keyboard.IsKeyPressed(Key.Space)) camera.Position += Vector3.UnitY * cameraSpeed * dt;
-        if (_keyboard.IsKeyPressed(Key.ShiftLeft)) camera.Position -= Vector3.UnitY * cameraSpeed * dt;
+        var moveDir = Vector3d.Zero;
+        if (_keyboard.IsKeyPressed(Key.W)) moveDir += (Vector3d)camera.Front;
+        if (_keyboard.IsKeyPressed(Key.S)) moveDir -= (Vector3d)camera.Front;
+        if (_keyboard.IsKeyPressed(Key.A)) moveDir -= (Vector3d)camera.Right;
+        if (_keyboard.IsKeyPressed(Key.D)) moveDir += (Vector3d)camera.Right;
+        if (_keyboard.IsKeyPressed(Key.Space)) moveDir += Vector3d.UnitY;
+        if (_keyboard.IsKeyPressed(Key.ShiftLeft)) moveDir -= Vector3d.UnitY;
+
+        if (moveDir.LengthSquared() > 0)
+        {
+            camera.Position += Vector3d.Normalize(moveDir) * cameraSpeed * dt;
+        }
     }
 
     private void OnMouseDown(IMouse mouse, MouseButton button)
@@ -46,6 +52,10 @@ public class InputManager(IWindow window, Camera camera, World world)
         if (button == MouseButton.Left)
         {
             world.BreakBlock(camera.Position, camera.Front);
+        }
+        else if (button == MouseButton.Right)
+        {
+            world.PlaceBlock(camera.Position, camera.Front);
         }
     }
 
