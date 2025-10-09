@@ -16,6 +16,7 @@ public class RenderPipeline(
     private readonly List<IRenderPass> _renderPasses = [];
     private readonly SharedRenderData _sharedRenderData = new();
 
+    public ChunkRenderer ChunkRenderer { get; private set; } = null!;
     public uint InstanceVbo { get; private set; }
     public int VisibleSectionCount { get; private set; }
 
@@ -25,7 +26,9 @@ public class RenderPipeline(
         gl.BindBuffer(BufferTargetARB.ArrayBuffer, InstanceVbo);
         gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(MaxVisibleSections * sizeof(Matrix4x4)), null, BufferUsageARB.StreamDraw);
 
-        _renderPasses.Add(new GBufferPass());
+        ChunkRenderer = new ChunkRenderer(gl, InstanceVbo);
+
+        _renderPasses.Add(new GBufferPass(ChunkRenderer));
         _renderPasses.Add(new SsaoPass());
         _renderPasses.Add(new SsaoBlurPass());
         _renderPasses.Add(new LightingPass());
@@ -75,13 +78,13 @@ public class RenderPipeline(
         _sharedRenderData.ViewMatrix = camera.GetViewMatrix();
         _sharedRenderData.RelativeViewMatrix = relativeViewMatrix;
         _sharedRenderData.ProjectionMatrix = projection;
-        _sharedRenderData.VisibleMeshes = visibleScene.Meshes;
+        _sharedRenderData.VisibleGeometries = visibleScene.VisibleGeometries;
         _sharedRenderData.ModelMatrices = visibleScene.ModelMatrices;
 
         if (visibleScene.VisibleSectionCount > 0)
         {
             gl.BindBuffer(BufferTargetARB.ArrayBuffer, InstanceVbo);
-            fixed (Matrix4x4* p = CollectionsMarshal.AsSpan((List<Matrix4x4>)visibleScene.ModelMatrices))
+            fixed (Matrix4x4* p = CollectionsMarshal.AsSpan(visibleScene.ModelMatrices))
                 gl.BufferSubData(BufferTargetARB.ArrayBuffer, 0, (nuint)(visibleScene.VisibleSectionCount * sizeof(Matrix4x4)), p);
         }
 
@@ -96,6 +99,7 @@ public class RenderPipeline(
         foreach (var pass in _renderPasses)
             pass.Dispose();
 
+        ChunkRenderer?.Dispose();
         gl.DeleteBuffer(InstanceVbo);
     }
 }

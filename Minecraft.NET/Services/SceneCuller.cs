@@ -1,22 +1,20 @@
 ﻿using Minecraft.NET.Character;
 using Minecraft.NET.Core.Common;
 using Minecraft.NET.Graphics;
-using Minecraft.NET.Graphics.Models;
+using Minecraft.NET.Graphics.Rendering;
 
 namespace Minecraft.NET.Services;
 
 public class VisibleScene
 {
-    public IReadOnlyList<Mesh> Meshes { get; internal set; } = [];
-    public IReadOnlyList<Matrix4x4> ModelMatrices { get; internal set; } = [];
-    public int VisibleSectionCount => Meshes.Count;
+    public List<ChunkMeshGeometry> VisibleGeometries { get; } = new(MaxVisibleSections);
+    public List<Matrix4x4> ModelMatrices { get; } = new(MaxVisibleSections);
+    public int VisibleSectionCount => VisibleGeometries.Count;
 }
 
 public class SceneCuller(Player player, ChunkManager chunkProvider)
 {
     private readonly Frustum _frustum = new();
-    private readonly List<Matrix4x4> _modelMatrices = new(MaxVisibleSections);
-    private readonly List<Mesh> _visibleMeshes = new(MaxVisibleSections);
 
     public VisibleScene Result { get; } = new();
 
@@ -24,42 +22,62 @@ public class SceneCuller(Player player, ChunkManager chunkProvider)
     {
         _frustum.Update(relativeViewMatrix * projectionMatrix);
 
-        _visibleMeshes.Clear();
-        _modelMatrices.Clear();
+        Result.VisibleGeometries.Clear();
+        Result.ModelMatrices.Clear();
 
         var cameraOrigin = new Vector3d(Math.Floor(player.Position.X), Math.Floor(player.Position.Y), Math.Floor(player.Position.Z));
 
         var loadedChunks = chunkProvider.GetLoadedChunks();
 
-        foreach (var column in loadedChunks)
+        bool maxSectionsReached = false;
+        foreach (var chunkPair in loadedChunks)
         {
+            var column = chunkPair.Value;
             var chunkPosDouble = new Vector3d(column.Position.X, 0, column.Position.Y);
             var chunkWorldPosBase = chunkPosDouble * ChunkSize;
 
+            var relativeChunkPosBase = (Vector3)(chunkWorldPosBase - new Vector3d(cameraOrigin.X, 0, cameraOrigin.Z));
+
+            float columnMinY = (float)((0 - VerticalChunkOffset) * ChunkSize - cameraOrigin.Y);
+            float columnMaxY = (float)((WorldHeightInChunks - VerticalChunkOffset) * ChunkSize - cameraOrigin.Y);
+
+            var columnBox = new BoundingBox(
+                new Vector3(relativeChunkPosBase.X, columnMinY, relativeChunkPosBase.Z),
+                new Vector3(relativeChunkPosBase.X + ChunkSize, columnMaxY, relativeChunkPosBase.Z + ChunkSize)
+            );
+
+            if (!_frustum.Intersects(columnBox))
+            {
+                continue;
+            }
+
             for (int y = 0; y < WorldHeightInChunks; y++)
             {
-                var mesh = column.Meshes[y];
-                if (mesh == null || mesh.IndexCount == 0)
+                var geometry = column.MeshGeometries[y];
+                if (geometry is null)
                     continue;
 
-                int worldOffsetY = (y - VerticalChunkOffset) * ChunkSize;
-                var chunkWorldPos = chunkWorldPosBase + new Vector3d(0, worldOffsetY, 0);
-                var relativeChunkPosDouble = chunkWorldPos - cameraOrigin;
-                var relativeChunkPos = (Vector3)relativeChunkPosDouble;
+                float sectionRelativeY = (float)((y - VerticalChunkOffset) * ChunkSize - cameraOrigin.Y);
+                var relativeSectionPos = new Vector3(relativeChunkPosBase.X, sectionRelativeY, relativeChunkPosBase.Z);
 
-                var box = new BoundingBox(relativeChunkPos, relativeChunkPos + new Vector3(ChunkSize));
-                if (!_frustum.Intersects(box))
+                var sectionBox = new BoundingBox(relativeSectionPos, relativeSectionPos + new Vector3(ChunkSize));
+                if (!_frustum.Intersects(sectionBox))
                     continue;
 
-                if (_visibleMeshes.Count >= MaxVisibleSections)
+                if (Result.VisibleGeometries.Count >= MaxVisibleSections)
+                {
+                    maxSectionsReached = true;
                     break;
+                }
 
-                _visibleMeshes.Add(mesh);
-                _modelMatrices.Add(Matrix4x4.CreateTranslation(relativeChunkPos));
+                Result.VisibleGeometries.Add(geometry.Value);
+                Result.ModelMatrices.Add(Matrix4x4.CreateTranslation(relativeSectionPos));
+            }
+
+            if (maxSectionsReached)
+            {
+                break;
             }
         }
-
-        Result.Meshes = _visibleMeshes;
-        Result.ModelMatrices = _modelMatrices;
     }
 }

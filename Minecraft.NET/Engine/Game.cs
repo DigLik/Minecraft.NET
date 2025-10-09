@@ -51,7 +51,7 @@ public sealed class Game : IDisposable
             { GameMode.Spectator, spectatorStrategy }
         };
 
-        _chunkMesherService = new ChunkMesherService(gl);
+        _chunkMesherService = new ChunkMesherService();
         ChunkMeshRequestHandler meshRequestHandler = _chunkMesherService.QueueForMeshing;
         _chunkManager = new ChunkManager(player, _worldStorage, meshRequestHandler);
         _world = new World(_chunkManager, _worldStorage);
@@ -64,7 +64,6 @@ public sealed class Game : IDisposable
         var sceneCuller = new SceneCuller(player, _chunkManager);
 
         _renderPipeline = new RenderPipeline(gl, player, sceneCuller, _performanceMonitor);
-        _chunkMesherService.SetRenderPipeline(_renderPipeline);
 
         _gameStatsService = new GameStatsService(_window, player, _chunkManager, _renderPipeline, _performanceMonitor);
 
@@ -78,6 +77,8 @@ public sealed class Game : IDisposable
         );
 
         _renderPipeline.OnLoad();
+        _chunkMesherService.SetChunkRenderer(_renderPipeline.ChunkRenderer);
+
         _chunkMesherService.OnLoad();
         _inputManager.OnLoad();
         _world.OnLoad();

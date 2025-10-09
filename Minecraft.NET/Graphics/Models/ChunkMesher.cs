@@ -11,6 +11,13 @@ public static class ChunkMesher
         if (column.Blocks == null)
             return new MeshData(null, 0, null, 0);
 
+        // --- ОПТИМИЗАЦИЯ: Кешируем соседние чанки один раз перед циклами ---
+        var neighborColumns = new ChunkColumn?[4];
+        neighborColumns[0] = world.GetColumn(column.Position + new Vector2D<int>(1, 0));  // +X
+        neighborColumns[1] = world.GetColumn(column.Position + new Vector2D<int>(-1, 0)); // -X
+        neighborColumns[2] = world.GetColumn(column.Position + new Vector2D<int>(0, 1));  // +Z (Vector2D.Y используется как Z)
+        neighborColumns[3] = world.GetColumn(column.Position + new Vector2D<int>(0, -1)); // -Z
+
         using var builder = new MeshBuilder(initialVertexCapacity: 32768, initialIndexCapacity: 49152);
         uint vertexOffset = 0;
 
@@ -44,8 +51,9 @@ public static class ChunkMesher
                     {
                         for (x[u] = 0; x[u] < ChunkSize; x[u]++)
                         {
-                            var blockCurrent = GetBlock(column, sectionY, world, x[0], x[1], x[2]);
-                            var blockNeighbor = GetBlock(column, sectionY, world, x[0] + q[0], x[1] + q[1], x[2] + q[2]);
+                            // --- ОПТИМИЗАЦИЯ: Используем новый, быстрый GetBlock ---
+                            var blockCurrent = GetBlock(column, sectionY, x[0], x[1], x[2], neighborColumns);
+                            var blockNeighbor = GetBlock(column, sectionY, x[0] + q[0], x[1] + q[1], x[2] + q[2], neighborColumns);
 
                             bool isCurrentSolid = blockCurrent != BlockId.Air;
                             bool isNeighborSolid = blockNeighbor != BlockId.Air;
@@ -141,25 +149,43 @@ public static class ChunkMesher
         }
     }
 
-    private static BlockId GetBlock(ChunkColumn column, int sectionY, World world, int x, int y, int z)
+    private static unsafe BlockId GetBlock(ChunkColumn currentColumn, int sectionY, int x, int y, int z, ChunkColumn?[] neighborColumns)
     {
         int worldY = sectionY * ChunkSize + y;
+        if (worldY < 0 || worldY >= WorldHeightInBlocks)
+            return BlockId.Air;
+
+        ChunkColumn? targetColumn;
+        int localX = x, localZ = z;
 
         if (x >= 0 && x < ChunkSize && z >= 0 && z < ChunkSize)
         {
-            return column.GetBlock(x, worldY, z);
+            targetColumn = currentColumn;
+        }
+        else if (x < 0)
+        {
+            localX += ChunkSize;
+            targetColumn = neighborColumns[1];
+        }
+        else if (x >= ChunkSize)
+        {
+            localX -= ChunkSize;
+            targetColumn = neighborColumns[0];
+        }
+        else if (z < 0)
+        {
+            localZ += ChunkSize;
+            targetColumn = neighborColumns[3];
+        }
+        else
+        {
+            localZ -= ChunkSize;
+            targetColumn = neighborColumns[2];
         }
 
-        var neighborChunkPos = column.Position;
-        int localX = x, localZ = z;
+        if (targetColumn == null || targetColumn.Blocks == null)
+            return BlockId.Air;
 
-        if (x < 0) { localX += ChunkSize; neighborChunkPos.X--; }
-        else if (x >= ChunkSize) { localX -= ChunkSize; neighborChunkPos.X++; }
-
-        if (z < 0) { localZ += ChunkSize; neighborChunkPos.Y--; }
-        else if (z >= ChunkSize) { localZ -= ChunkSize; neighborChunkPos.Y++; }
-
-        var neighborColumn = world.GetColumn(neighborChunkPos);
-        return neighborColumn?.GetBlock(localX, worldY, localZ) ?? BlockId.Air;
+        return targetColumn.Blocks[ChunkColumn.GetIndex(localX, worldY, localZ)];
     }
 }

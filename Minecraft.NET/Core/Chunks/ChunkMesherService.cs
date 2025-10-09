@@ -6,14 +6,14 @@ using System.Collections.Concurrent;
 
 namespace Minecraft.NET.Core.Chunks;
 
-public class ChunkMesherService(GL gl) : IDisposable
+public class ChunkMesherService : IDisposable
 {
     private World _world = null!;
     private ChunkManager _chunkManager = null!;
-    private RenderPipeline? _resourceProvider;
+    private ChunkRenderer? _chunkRenderer;
 
     private readonly ConcurrentQueue<(Vector2D<int> position, int sectionY)> _chunksToMesh = new();
-    private readonly ConcurrentQueue<(ChunkColumn column, int sectionY, MeshData meshData)> _generatedMeshes = new();
+    private readonly ConcurrentQueue<(ChunkColumn column, int sectionY, MeshData? meshData)> _generatedMeshes = new();
 
     private Task _mesherTask = null!;
     private CancellationTokenSource _cancellationTokenSource = null!;
@@ -30,9 +30,9 @@ public class ChunkMesherService(GL gl) : IDisposable
         _chunkManager = chunkManager;
     }
 
-    public void SetRenderPipeline(RenderPipeline renderPipeline)
+    public void SetChunkRenderer(ChunkRenderer chunkRenderer)
     {
-        _resourceProvider = renderPipeline;
+        _chunkRenderer = chunkRenderer;
     }
 
     public void OnLoad()
@@ -66,7 +66,7 @@ public class ChunkMesherService(GL gl) : IDisposable
 
     public void OnUpdate(double _)
     {
-        if (_resourceProvider is null)
+        if (_chunkRenderer is null)
             return;
 
         while (_generatedMeshes.TryDequeue(out var result))
@@ -75,25 +75,17 @@ public class ChunkMesherService(GL gl) : IDisposable
 
             if (_chunkManager.GetColumn(column.Position) is null || column.SectionStates[sectionY] != ChunkSectionState.Meshing)
             {
-                meshData.Dispose();
+                meshData?.Dispose();
                 continue;
             }
 
-            Mesh? newMesh = null;
-            if (meshData.IndexCount > 0)
+            ChunkMeshGeometry? newGeometry = null;
+            if (meshData is not null)
             {
-                newMesh = new Mesh(meshData);
-                newMesh.UploadToGpu(gl, _resourceProvider.InstanceVbo);
-            }
-            else
-            {
-                meshData.Dispose();
+                newGeometry = _chunkRenderer.UploadChunkMesh(meshData);
             }
 
-            var oldMesh = column.Meshes[sectionY];
-            column.Meshes[sectionY] = newMesh;
-            oldMesh?.Dispose();
-
+            column.MeshGeometries[sectionY] = newGeometry;
             column.SectionStates[sectionY] = ChunkSectionState.Rendered;
         }
     }
@@ -108,7 +100,15 @@ public class ChunkMesherService(GL gl) : IDisposable
             return;
         }
 
-        _generatedMeshes.Enqueue((column, sectionY, meshData));
+        if (meshData.IndexCount == 0)
+        {
+            meshData.Dispose();
+            _generatedMeshes.Enqueue((column, sectionY, null));
+        }
+        else
+        {
+            _generatedMeshes.Enqueue((column, sectionY, meshData));
+        }
     }
 
     public void QueueForMeshing(ChunkColumn column, int sectionY)

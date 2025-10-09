@@ -16,6 +16,8 @@ public class ChunkManager(
     private readonly ConcurrentDictionary<Vector2D<int>, ChunkColumn> _chunks = new();
     private readonly List<Vector2D<int>> _chunksToRemove = [];
 
+    private Vector2D<int> _lastPlayerChunkPos = new(int.MaxValue, int.MaxValue);
+
     private static readonly Vector2D<int>[] NeighborOffsets =
     [
         new(1, 0), new(-1, 0), new(0, 1), new(0, -1)
@@ -28,8 +30,12 @@ public class ChunkManager(
             (int)Math.Floor(playerState.Position.Z / ChunkSize)
         );
 
+        if (playerChunkPos == _lastPlayerChunkPos) return;
+
         UnloadFarChunks(playerChunkPos);
         LoadCloseChunks(playerChunkPos);
+
+        _lastPlayerChunkPos = playerChunkPos;
     }
 
     private void LoadCloseChunks(Vector2D<int> playerChunkPos)
@@ -59,8 +65,9 @@ public class ChunkManager(
         _chunksToRemove.Clear();
         var unloadDistSq = (RenderDistance + 2) * (RenderDistance + 2);
 
-        foreach (var key in _chunks.Keys)
+        foreach (var chunkPair in _chunks)
         {
+            var key = chunkPair.Key;
             if ((key - playerChunkPos).LengthSquared > unloadDistSq)
             {
                 _chunksToRemove.Add(key);
@@ -75,7 +82,6 @@ public class ChunkManager(
                 {
                     removedChunk.Dispose();
 
-                    // Оповещаем соседей о необходимости перерисовки
                     foreach (var offset in NeighborOffsets)
                     {
                         if (_chunks.TryGetValue(posToRemove + offset, out var neighbor) && neighbor.IsGenerated)
@@ -127,11 +133,11 @@ public class ChunkManager(
         return chunk;
     }
 
-    public IReadOnlyCollection<ChunkColumn> GetLoadedChunks() => (IReadOnlyCollection<ChunkColumn>)_chunks.Values;
+    public ConcurrentDictionary<Vector2D<int>, ChunkColumn> GetLoadedChunks() => _chunks;
 
     public int GetLoadedChunkCount() => _chunks.Count;
 
-    public int GetMeshedSectionCount() => _chunks.Values.Sum(c => c.Meshes.Count(m => m != null));
+    public int GetMeshedSectionCount() => _chunks.Values.Sum(c => c.MeshGeometries.Count(m => m != null));
 
     public void Dispose()
     {

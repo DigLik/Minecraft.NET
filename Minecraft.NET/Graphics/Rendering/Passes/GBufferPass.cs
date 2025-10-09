@@ -1,12 +1,19 @@
-﻿namespace Minecraft.NET.Graphics.Rendering.Passes;
+﻿using System.Runtime.InteropServices;
 
-public class GBufferPass : IRenderPass
+namespace Minecraft.NET.Graphics.Rendering.Passes;
+
+public class GBufferPass(ChunkRenderer chunkRenderer) : IRenderPass
 {
     private GL _gl = null!;
     private Shader _gBufferShader = null!;
     private Texture _blockTextureAtlas = null!;
     private int _gBufferInverseViewLocation;
+    private int _gBufferViewLocation;
+    private int _gBufferProjectionLocation;
+
     public Framebuffer GBuffer { get; private set; } = null!;
+
+    private readonly List<DrawElementsIndirectCommand> _commands = new(MaxVisibleSections);
 
     public unsafe void Initialize(GL gl, uint width, uint height)
     {
@@ -20,6 +27,9 @@ public class GBufferPass : IRenderPass
         _gBufferShader.SetFloat(_gBufferShader.GetUniformLocation("uTileSize"), Constants.TileSize);
         _gBufferShader.SetFloat(_gBufferShader.GetUniformLocation("uPixelPadding"), 0.1f);
         _gBufferInverseViewLocation = _gBufferShader.GetUniformLocation("inverseView");
+        _gBufferViewLocation = _gBufferShader.GetUniformLocation("view");
+        _gBufferProjectionLocation = _gBufferShader.GetUniformLocation("projection");
+
 
         OnResize(width, height);
     }
@@ -35,23 +45,35 @@ public class GBufferPass : IRenderPass
         GBuffer.Bind();
         gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
-        if (sharedData.VisibleMeshes.Count > 0)
+        var visibleCount = sharedData.VisibleGeometries.Count;
+        if (visibleCount > 0)
         {
             Matrix4x4.Invert(sharedData.ViewMatrix, out var inverseView);
 
             _gBufferShader.Use();
-            _gBufferShader.SetMatrix4x4(_gBufferShader.GetUniformLocation("view"), sharedData.RelativeViewMatrix);
-            _gBufferShader.SetMatrix4x4(_gBufferShader.GetUniformLocation("projection"), sharedData.ProjectionMatrix);
+            _gBufferShader.SetMatrix4x4(_gBufferViewLocation, sharedData.RelativeViewMatrix);
+            _gBufferShader.SetMatrix4x4(_gBufferProjectionLocation, sharedData.ProjectionMatrix);
             _gBufferShader.SetMatrix4x4(_gBufferInverseViewLocation, inverseView);
 
             _blockTextureAtlas.Bind(TextureUnit.Texture0);
 
-            for (int i = 0; i < sharedData.VisibleMeshes.Count; i++)
+            _commands.Clear();
+            for (int i = 0; i < visibleCount; i++)
             {
-                var mesh = sharedData.VisibleMeshes[i];
-                mesh!.Bind();
-                gl.DrawElementsInstancedBaseInstance(PrimitiveType.Triangles, (uint)mesh.IndexCount, DrawElementsType.UnsignedInt, null, 1, (uint)i);
+                var geometry = sharedData.VisibleGeometries[i];
+                _commands.Add(new DrawElementsIndirectCommand(
+                    Count: geometry.IndexCount,
+                    InstanceCount: 1,
+                    FirstIndex: geometry.FirstIndex,
+                    BaseVertex: geometry.BaseVertex,
+                    BaseInstance: (uint)i
+                ));
             }
+
+            chunkRenderer.UploadIndirectCommands(_commands);
+
+            chunkRenderer.Bind();
+            chunkRenderer.Draw(visibleCount);
         }
         GBuffer.Unbind();
     }

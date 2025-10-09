@@ -47,29 +47,20 @@ public class Frustum
             vpMatrix.M44 - vpMatrix.M43));
     }
 
-    public bool Intersects(BoundingBox box)
+    public bool Intersects(in BoundingBox box)
     {
-        var corners = new Vector3[8]
-        {
-            new(box.Min.X, box.Min.Y, box.Min.Z),
-            new(box.Max.X, box.Min.Y, box.Min.Z),
-            new(box.Min.X, box.Max.Y, box.Min.Z),
-            new(box.Min.X, box.Min.Y, box.Max.Z),
-            new(box.Max.X, box.Max.Y, box.Min.Z),
-            new(box.Min.X, box.Max.Y, box.Max.Z),
-            new(box.Max.X, box.Min.Y, box.Max.Z),
-            new(box.Max.X, box.Max.Y, box.Max.Z),
-        };
-
         foreach (var plane in _planes)
         {
-            int cornersOutside = 0;
-            foreach (var corner in corners)
-                if (Plane.DotCoordinate(plane, corner) < 0)
-                    cornersOutside++;
+            Vector3 pVertex = new(
+                plane.Normal.X > 0 ? box.Max.X : box.Min.X,
+                plane.Normal.Y > 0 ? box.Max.Y : box.Min.Y,
+                plane.Normal.Z > 0 ? box.Max.Z : box.Min.Z
+            );
 
-            if (cornersOutside == 8)
+            if (Plane.DotCoordinate(plane, pVertex) < 0)
+            {
                 return false;
+            }
         }
 
         return true;

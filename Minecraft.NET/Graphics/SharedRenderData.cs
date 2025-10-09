@@ -1,4 +1,4 @@
-﻿using Minecraft.NET.Graphics.Models;
+﻿using Minecraft.NET.Graphics.Rendering;
 using Framebuffer = Minecraft.NET.Graphics.Rendering.Framebuffer;
 
 namespace Minecraft.NET.Graphics;
@@ -15,6 +15,6 @@ public class SharedRenderData
     public Framebuffer? SsaoBlurBuffer { get; set; }
     public Framebuffer? PostProcessBuffer { get; set; }
 
-    public IReadOnlyList<Mesh> VisibleMeshes { get; set; } = [];
+    public IReadOnlyList<ChunkMeshGeometry> VisibleGeometries { get; set; } = [];
     public IReadOnlyList<Matrix4x4> ModelMatrices { get; set; } = [];
 }
