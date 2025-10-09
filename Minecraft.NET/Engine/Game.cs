@@ -10,6 +10,8 @@ public sealed class Game : IDisposable
     private readonly IServiceProvider _container;
     private readonly Action<IServiceProvider> _setupAction;
 
+    private IPerformanceMonitor _performanceMonitor = null!;
+
     private ILifecycleHandler[] _lifecycleHandlers = [];
     private IUpdatable[] _updatables = [];
     private IRenderable[] _renderables = [];
@@ -41,8 +43,9 @@ public sealed class Game : IDisposable
         var gameStatsService = _container.Resolve<GameStatsService>();
         var world = _container.Resolve<IWorld>();
         var worldStorage = _container.Resolve<IWorldStorage>();
+        _performanceMonitor = _container.Resolve<IPerformanceMonitor>();
 
-        _lifecycleHandlers = [renderPipeline, chunkManager, chunkMesherService, (ILifecycleHandler)inputManager, world, worldStorage];
+        _lifecycleHandlers = [renderPipeline, chunkManager, chunkMesherService, (ILifecycleHandler)inputManager, world, worldStorage, _performanceMonitor];
         _updatables = [renderPipeline, chunkManager, chunkMesherService, (IUpdatable)inputManager, physicsService, gameStatsService];
         _renderables = [renderPipeline, gameStatsService];
         _resizeHandlers = [renderPipeline];
@@ -60,6 +63,7 @@ public sealed class Game : IDisposable
 
     private void OnUpdate(double deltaTime)
     {
+        _performanceMonitor.BeginCpuFrame();
         foreach (var service in _updatables)
             service.OnUpdate(deltaTime);
     }
@@ -68,6 +72,7 @@ public sealed class Game : IDisposable
     {
         foreach (var service in _renderables)
             service.OnRender(deltaTime);
+        _performanceMonitor.EndCpuFrame();
     }
 
     private void OnFramebufferResize(Vector2D<int> newSize)

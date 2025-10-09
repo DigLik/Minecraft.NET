@@ -1,18 +1,22 @@
 ﻿using Minecraft.NET.Abstractions;
-using Minecraft.NET.Core.Chunks;
 using Minecraft.NET.Core.Common;
-using Minecraft.NET.Graphics.Models;
 using Minecraft.NET.Graphics.Rendering.Passes;
 using Minecraft.NET.Services;
-using Silk.NET.OpenGL;
 using System.Runtime.InteropServices;
 
 namespace Minecraft.NET.Graphics.Rendering;
 
-public unsafe class RenderPipeline(GL gl, IPlayer player, SceneCuller sceneCuller) : IRenderPipeline, IChunkResourceProvider
+public unsafe class RenderPipeline(
+    GL gl,
+    IPlayer player,
+    SceneCuller sceneCuller,
+    IPerformanceMonitor performanceMonitor
+) : IRenderPipeline, IChunkResourceProvider
 {
     private readonly List<IRenderPass> _renderPasses = [];
     private readonly SharedRenderData _sharedRenderData = new();
+
+    private readonly IPerformanceMonitor _performanceMonitor = performanceMonitor;
 
     public uint InstanceVbo { get; private set; }
     public int VisibleSectionCount { get; private set; }
@@ -59,6 +63,8 @@ public unsafe class RenderPipeline(GL gl, IPlayer player, SceneCuller sceneCulle
 
     public unsafe void OnRender(double deltaTime)
     {
+        _performanceMonitor.BeginGpuFrame();
+
         var camera = player.Camera;
         var projection = camera.GetProjectionMatrix(_sharedRenderData.ViewportSize.X / _sharedRenderData.ViewportSize.Y);
 
@@ -84,9 +90,9 @@ public unsafe class RenderPipeline(GL gl, IPlayer player, SceneCuller sceneCulle
         }
 
         foreach (var pass in _renderPasses)
-        {
             pass.Execute(gl, _sharedRenderData);
-        }
+
+        _performanceMonitor.EndGpuFrame();
     }
 
     public void OnClose()

@@ -8,7 +8,8 @@ public class GameStatsService(
     IWindow window,
     IPlayer player,
     IChunkManager chunkManager,
-    IRenderPipeline renderPipeline
+    IRenderPipeline renderPipeline,
+    IPerformanceMonitor performanceMonitor
 ) : IUpdatable, IRenderable
 {
     private readonly IWindow _window = window;
@@ -28,6 +29,7 @@ public class GameStatsService(
 
             _sb.Clear();
             _sb.Append($"Minecraft.NET [{player.CurrentGameMode}] | FPS: {fps:F0} | ");
+            _sb.Append($"CPU: {performanceMonitor.CpuTimeMs:F2}ms | GPU: {performanceMonitor.GpuTimeMs:F2}ms | ");
             _sb.Append($"Sections (Visible/Meshed): {renderPipeline.VisibleSectionCount}/{chunkManager.GetMeshedSectionCount()} | ");
             _sb.Append($"Chunks: {chunkManager.GetLoadedChunkCount()} | X: {pos.X:F1} Y: {pos.Y:F1} Z: {pos.Z:F1}");
 

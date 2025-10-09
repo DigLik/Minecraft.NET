@@ -51,7 +51,7 @@ container.RegisterSingleton<IChunkProvider>(sp => sp.Resolve<ChunkManager>());
 
 container.RegisterSingleton(sp => new SceneCuller(sp.Resolve<IPlayer>(), sp.Resolve<IChunkProvider>()));
 
-container.RegisterSingleton(sp => new RenderPipeline(sp.Resolve<GL>(), sp.Resolve<IPlayer>(), sp.Resolve<SceneCuller>()));
+container.RegisterSingleton(sp => new RenderPipeline(sp.Resolve<GL>(), sp.Resolve<IPlayer>(), sp.Resolve<SceneCuller>(), sp.Resolve<IPerformanceMonitor>()));
 container.RegisterSingleton<IRenderPipeline>(sp => sp.Resolve<RenderPipeline>());
 container.RegisterSingleton<IChunkResourceProvider>(sp => sp.Resolve<RenderPipeline>());
 
@@ -81,11 +81,14 @@ container.RegisterSingleton<IPhysicsService>(sp => new PhysicsService(
 
 container.RegisterSingleton<IWorldInteractionService>(sp => new WorldInteractionService(sp.Resolve<IPlayer>(), sp.Resolve<IWorld>()));
 
+container.RegisterSingleton<IPerformanceMonitor>(sp => new PerformanceMonitor(sp.Resolve<GL>()));
+
 container.RegisterSingleton(sp => new GameStatsService(
     sp.Resolve<IWindow>(),
     sp.Resolve<IPlayer>(),
     sp.Resolve<IChunkManager>(),
-    sp.Resolve<IRenderPipeline>()
+    sp.Resolve<IRenderPipeline>(),
+    sp.Resolve<IPerformanceMonitor>()
 ));
 
 container.RegisterSingleton<IInputHandler>(sp => new InputManager(
