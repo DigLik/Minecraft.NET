@@ -1,4 +1,6 @@
-﻿namespace Minecraft.NET.Graphics;
+﻿using Plane = System.Numerics.Plane;
+
+namespace Minecraft.NET.Graphics;
 
 public readonly record struct BoundingBox(Vector3 Min, Vector3 Max);
 

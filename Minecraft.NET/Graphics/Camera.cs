@@ -1,4 +1,4 @@
-﻿using Minecraft.NET.Core;
+﻿using Minecraft.NET.Core.Common;
 
 namespace Minecraft.NET.Graphics;
 
@@ -13,24 +13,11 @@ public class Camera
     public float Yaw { get; set; } = -90.0f;
     public float Fov { get; set; } = 90.0f;
 
-    public Vector3d Velocity { get; set; } = Vector3d.Zero;
-    public bool IsOnGround { get; set; }
-
     public Camera(Vector3d position)
     {
         Position = position;
         UpdateVectors();
     }
-
-    public BoundingBox GetBoundingBox()
-    {
-        var halfWidth = PlayerWidth / 2;
-        var playerPos = Position - new Vector3d(0, PlayerEyeHeight, 0);
-        var min = new Vector3((float)(playerPos.X - halfWidth), (float)playerPos.Y, (float)(playerPos.Z - halfWidth));
-        var max = new Vector3((float)(playerPos.X + halfWidth), (float)(playerPos.Y + PlayerHeight), (float)(playerPos.Z + halfWidth));
-        return new BoundingBox(min, max);
-    }
-
 
     public Matrix4x4 GetViewMatrix()
     {
