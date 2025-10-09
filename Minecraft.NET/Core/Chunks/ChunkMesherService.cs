@@ -1,16 +1,16 @@
-﻿using Minecraft.NET.Abstractions;
+﻿using Minecraft.NET.Core.Environment;
 using Minecraft.NET.Graphics.Models;
+using Minecraft.NET.Graphics.Rendering;
+using Minecraft.NET.Services;
 using System.Collections.Concurrent;
 
 namespace Minecraft.NET.Core.Chunks;
 
-public class ChunkMesherService(GL gl, DIProvider provider) : IChunkMesherService
+public class ChunkMesherService(GL gl) : IDisposable
 {
-    private IWorld _world = null!;
-    private IChunkManager _chunkManager = null!;
-    private IChunkResourceProvider? _resourceProvider;
-
-    private readonly DIProvider _provider = provider;
+    private World _world = null!;
+    private ChunkManager _chunkManager = null!;
+    private RenderPipeline? _resourceProvider;
 
     private readonly ConcurrentQueue<(Vector2D<int> position, int sectionY)> _chunksToMesh = new();
     private readonly ConcurrentQueue<(ChunkColumn column, int sectionY, MeshData meshData)> _generatedMeshes = new();
@@ -24,10 +24,15 @@ public class ChunkMesherService(GL gl, DIProvider provider) : IChunkMesherServic
         new(1, 0), new(-1, 0), new(0, 1), new(0, -1)
     ];
 
-    public void SetDependencies(IWorld world, IChunkManager chunkManager)
+    public void SetDependencies(World world, ChunkManager chunkManager)
     {
         _world = world;
         _chunkManager = chunkManager;
+    }
+
+    public void SetRenderPipeline(RenderPipeline renderPipeline)
+    {
+        _resourceProvider = renderPipeline;
     }
 
     public void OnLoad()
@@ -59,9 +64,10 @@ public class ChunkMesherService(GL gl, DIProvider provider) : IChunkMesherServic
         }
     }
 
-    public void OnUpdate(double deltaTime)
+    public void OnUpdate(double _)
     {
-        _resourceProvider ??= _provider.Resolve<IChunkResourceProvider>();
+        if (_resourceProvider is null)
+            return;
 
         while (_generatedMeshes.TryDequeue(out var result))
         {

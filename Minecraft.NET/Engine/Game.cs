@@ -1,5 +1,10 @@
-﻿using Minecraft.NET.Abstractions;
+﻿using Minecraft.NET.Character;
+using Minecraft.NET.Character.Controllers;
+using Minecraft.NET.Core.Chunks;
+using Minecraft.NET.Core.Environment;
+using Minecraft.NET.Graphics.Rendering;
 using Minecraft.NET.Services;
+using Minecraft.NET.Services.Physics;
 using Silk.NET.Windowing;
 
 namespace Minecraft.NET.Engine;
@@ -7,23 +12,20 @@ namespace Minecraft.NET.Engine;
 public sealed class Game : IDisposable
 {
     private readonly IWindow _window;
-    private readonly IServiceProvider _container;
-    private readonly Action<IServiceProvider> _setupAction;
 
-    private IPerformanceMonitor _performanceMonitor = null!;
+    private RenderPipeline _renderPipeline = null!;
+    private ChunkManager _chunkManager = null!;
+    private ChunkMesherService _chunkMesherService = null!;
+    private InputManager _inputManager = null!;
+    private PhysicsService _physicsService = null!;
+    private GameStatsService _gameStatsService = null!;
+    private World _world = null!;
+    private WorldStorage _worldStorage = null!;
+    private PerformanceMonitor _performanceMonitor = null!;
 
-    private ILifecycleHandler[] _lifecycleHandlers = [];
-    private IUpdatable[] _updatables = [];
-    private IRenderable[] _renderables = [];
-    private IWindowResizeHandler[] _resizeHandlers = [];
-    private IDisposable[] _disposables = [];
-
-    public Game(IWindow window, IServiceProvider container, Action<IServiceProvider> setupAction)
+    public Game(IWindow window)
     {
         _window = window;
-        _container = container;
-        _setupAction = setupAction;
-
         _window.Load += OnLoad;
         _window.Update += OnUpdate;
         _window.Render += OnRender;
@@ -31,30 +33,56 @@ public sealed class Game : IDisposable
         _window.Closing += OnClose;
     }
 
-    private unsafe void OnLoad()
+    private void OnLoad()
     {
-        _setupAction(_container);
+        var gl = _window.CreateOpenGL();
+        var player = new Player(new(16, 80, 16));
+        _worldStorage = new WorldStorage("world");
+        _performanceMonitor = new PerformanceMonitor(gl);
 
-        var renderPipeline = _container.Resolve<IRenderPipeline>();
-        var chunkManager = _container.Resolve<IChunkManager>();
-        var chunkMesherService = _container.Resolve<IChunkMesherService>();
-        var inputManager = _container.Resolve<IInputHandler>();
-        var physicsService = _container.Resolve<IPhysicsService>();
-        var gameStatsService = _container.Resolve<GameStatsService>();
-        var world = _container.Resolve<IWorld>();
-        var worldStorage = _container.Resolve<IWorldStorage>();
-        _performanceMonitor = _container.Resolve<IPerformanceMonitor>();
+        var creativeController = new CreativePlayerController();
+        var spectatorController = new SpectatorPlayerController();
+        var creativeStrategy = new CreativePhysicsStrategy();
+        var spectatorStrategy = new SpectatorPhysicsStrategy();
 
-        _lifecycleHandlers = [renderPipeline, chunkManager, chunkMesherService, (ILifecycleHandler)inputManager, world, worldStorage, _performanceMonitor];
-        _updatables = [renderPipeline, chunkManager, chunkMesherService, (IUpdatable)inputManager, physicsService, gameStatsService];
-        _renderables = [renderPipeline, gameStatsService];
-        _resizeHandlers = [renderPipeline];
-        _disposables = [(IDisposable)_container];
-
-        foreach (var service in _lifecycleHandlers)
+        var physicsStrategies = new Dictionary<GameMode, IPhysicsStrategy>
         {
-            service.OnLoad();
-        }
+            { GameMode.Creative, creativeStrategy },
+            { GameMode.Spectator, spectatorStrategy }
+        };
+
+        _chunkMesherService = new ChunkMesherService(gl);
+        ChunkMeshRequestHandler meshRequestHandler = _chunkMesherService.QueueForMeshing;
+        _chunkManager = new ChunkManager(player, _worldStorage, meshRequestHandler);
+        _world = new World(_chunkManager, _worldStorage);
+
+        _chunkMesherService.SetDependencies(_world, _chunkManager);
+
+        var gameModeManager = new GameModeManager(player, _world, physicsStrategies);
+        _physicsService = new PhysicsService(player, gameModeManager);
+        var worldInteractionService = new WorldInteractionService(player, _world);
+        var sceneCuller = new SceneCuller(player, _chunkManager);
+
+        _renderPipeline = new RenderPipeline(gl, player, sceneCuller, _performanceMonitor);
+        _chunkMesherService.SetRenderPipeline(_renderPipeline);
+
+        _gameStatsService = new GameStatsService(_window, player, _chunkManager, _renderPipeline, _performanceMonitor);
+
+        _inputManager = new InputManager(
+            _window,
+            player,
+            worldInteractionService,
+            gameModeManager,
+            creativeController,
+            spectatorController
+        );
+
+        _renderPipeline.OnLoad();
+        _chunkMesherService.OnLoad();
+        _inputManager.OnLoad();
+        _world.OnLoad();
+        _worldStorage.OnLoad();
+        _performanceMonitor.OnLoad();
 
         OnFramebufferResize(_window.FramebufferSize);
     }
@@ -63,35 +91,49 @@ public sealed class Game : IDisposable
 
     private void OnUpdate(double deltaTime)
     {
+        if (_performanceMonitor is null) return;
+
         _performanceMonitor.BeginCpuFrame();
-        foreach (var service in _updatables)
-            service.OnUpdate(deltaTime);
+        _chunkManager.OnUpdate(deltaTime);
+        _chunkMesherService.OnUpdate(deltaTime);
+        _inputManager.OnUpdate(deltaTime);
+        _physicsService.OnUpdate(deltaTime);
+        _gameStatsService.OnUpdate(deltaTime);
     }
 
     private void OnRender(double deltaTime)
     {
-        foreach (var service in _renderables)
-            service.OnRender(deltaTime);
+        if (_renderPipeline is null) return;
+
+        _renderPipeline.OnRender(deltaTime);
+        _gameStatsService.OnRender(deltaTime);
         _performanceMonitor.EndCpuFrame();
     }
 
     private void OnFramebufferResize(Vector2D<int> newSize)
     {
-        foreach (var service in _resizeHandlers)
-            service.OnFramebufferResize(newSize);
+        _renderPipeline?.OnFramebufferResize(newSize);
     }
 
     private void OnClose()
     {
-        foreach (var service in _lifecycleHandlers.Reverse())
-            service.OnClose();
+        if (_performanceMonitor is null) return;
+
+        _performanceMonitor.OnClose();
+        _worldStorage.OnClose();
+        _world.OnClose();
+        _inputManager.OnClose();
+        _chunkMesherService.OnClose();
+        _renderPipeline.OnClose();
     }
 
     public void Dispose()
     {
-        for (int i = _disposables.Length - 1; i >= 0; i--)
-            _disposables[i].Dispose();
-
+        _chunkMesherService?.Dispose();
+        _world?.Dispose();
+        _chunkManager?.Dispose();
+        _performanceMonitor?.Dispose();
+        _worldStorage?.Dispose();
         _window.Dispose();
     }
 }

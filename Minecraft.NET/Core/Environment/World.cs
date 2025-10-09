@@ -1,14 +1,14 @@
-﻿using Minecraft.NET.Abstractions;
-using Minecraft.NET.Core.Blocks;
+﻿using Minecraft.NET.Core.Blocks;
 using Minecraft.NET.Core.Chunks;
 using Minecraft.NET.Core.Common;
+using Minecraft.NET.Services;
 
-namespace Minecraft.NET.Core.World;
+namespace Minecraft.NET.Core.Environment;
 
 public sealed class World(
-    IChunkManager chunkManager,
-    IWorldStorage storage
-) : IWorld, ILifecycleHandler
+    ChunkManager chunkManager,
+    WorldStorage storage
+) : IDisposable
 {
     public void OnLoad()
     {

@@ -1,18 +1,17 @@
-﻿using Minecraft.NET.Abstractions;
-using Minecraft.NET.Core.Chunks;
+﻿using Minecraft.NET.Core.Chunks;
 using Minecraft.NET.Core.Common;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Minecraft.NET.Core.World;
+namespace Minecraft.NET.Core.Environment;
 
 [JsonSerializable(typeof(Dictionary<Vector2D<int>, Dictionary<int, BlockId>>))]
 [JsonSerializable(typeof(Dictionary<string, Dictionary<int, BlockId>>))]
 [JsonSourceGenerationOptions(Converters = [typeof(Vector2DIntJsonConverter)])]
 internal partial class WorldStorageJsonContext : JsonSerializerContext { }
 
-public class WorldStorage : IWorldStorage
+public class WorldStorage : IDisposable
 {
     private readonly string _worldName;
     private readonly string _savePath;

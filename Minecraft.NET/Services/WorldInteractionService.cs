@@ -1,32 +1,24 @@
-﻿using Minecraft.NET.Abstractions;
+﻿using Minecraft.NET.Character;
 using Minecraft.NET.Core.Common;
+using Minecraft.NET.Core.Environment;
 using Minecraft.NET.Graphics;
 
 namespace Minecraft.NET.Services;
 
 public readonly record struct RaycastResult(Vector3d HitPosition, Vector3d PlacePosition);
 
-public class WorldInteractionService : IWorldInteractionService
+public class WorldInteractionService(Player player, World world)
 {
-    private readonly IPlayer _player;
-    private readonly IWorld _world;
-
-    public WorldInteractionService(IPlayer player, IWorld world)
-    {
-        _player = player;
-        _world = world;
-    }
-
     public void BreakBlock()
     {
-        var result = Raycast(_player.Position, _player.Camera.Front, 6.0);
+        var result = Raycast(player.Position, player.Camera.Front, 6.0);
         if (result.HasValue)
-            _world.SetBlock(result.Value.HitPosition, BlockId.Air);
+            world.SetBlock(result.Value.HitPosition, BlockId.Air);
     }
 
     public void PlaceBlock()
     {
-        var result = Raycast(_player.Position, _player.Camera.Front, 6.0);
+        var result = Raycast(player.Position, player.Camera.Front, 6.0);
         if (result.HasValue)
         {
             var placePosition = result.Value.PlacePosition;
@@ -35,7 +27,7 @@ public class WorldInteractionService : IWorldInteractionService
                 (Vector3)placePosition + Vector3.One
             );
 
-            var playerBox = _player.GetBoundingBox();
+            var playerBox = player.GetBoundingBox();
 
             const float Epsilon = 0.0001f;
             var collisionCheckBox = new BoundingBox(
@@ -45,7 +37,7 @@ public class WorldInteractionService : IWorldInteractionService
 
             if (Intersects(playerBox, collisionCheckBox)) return;
 
-            _world.SetBlock(placePosition, BlockId.Stone);
+            world.SetBlock(placePosition, BlockId.Stone);
         }
     }
 
@@ -63,7 +55,7 @@ public class WorldInteractionService : IWorldInteractionService
         for (double dist = 0; dist < maxDistance; dist += 0.05)
         {
             var currentBlockPos = new Vector3d(Math.Floor(pos.X), Math.Floor(pos.Y), Math.Floor(pos.Z));
-            var blockId = _world.GetBlock(currentBlockPos);
+            var blockId = world.GetBlock(currentBlockPos);
 
             if (blockId != BlockId.Air)
                 return new RaycastResult(currentBlockPos, lastAirPos);

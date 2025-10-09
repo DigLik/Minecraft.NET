@@ -1,9 +1,8 @@
-﻿using Minecraft.NET.Abstractions;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
 namespace Minecraft.NET.Services;
 
-public class PerformanceMonitor(GL gl) : IPerformanceMonitor
+public class PerformanceMonitor(GL gl) : IDisposable
 {
     private readonly Stopwatch _cpuStopwatch = new();
 

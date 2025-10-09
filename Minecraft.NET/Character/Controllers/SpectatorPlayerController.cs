@@ -1,12 +1,12 @@
-﻿using Minecraft.NET.Abstractions;
-using Minecraft.NET.Core.Common;
+﻿using Minecraft.NET.Core.Common;
+using Minecraft.NET.Engine;
 using Silk.NET.Input;
 
-namespace Minecraft.NET.Player.Controllers;
+namespace Minecraft.NET.Character.Controllers;
 
 public class SpectatorPlayerController : IPlayerController
 {
-    public void HandleInput(IInputHandler inputHandler, IPlayer player)
+    public void HandleInput(InputManager inputHandler, Player player)
     {
         double cameraSpeed = 50.0;
 

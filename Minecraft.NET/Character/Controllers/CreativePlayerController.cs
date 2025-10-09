@@ -1,12 +1,12 @@
-﻿using Minecraft.NET.Abstractions;
-using Minecraft.NET.Core.Common;
+﻿using Minecraft.NET.Core.Common;
+using Minecraft.NET.Engine;
 using Silk.NET.Input;
 
-namespace Minecraft.NET.Player.Controllers;
+namespace Minecraft.NET.Character.Controllers;
 
 public class CreativePlayerController : IPlayerController
 {
-    public void HandleInput(IInputHandler inputHandler, IPlayer player)
+    public void HandleInput(InputManager inputHandler, Player player)
     {
         var wishDir = Vector3d.Zero;
         var forward = Vector3d.Normalize(new Vector3d(player.Camera.Front.X, 0, player.Camera.Front.Z));
@@ -22,9 +22,7 @@ public class CreativePlayerController : IPlayerController
 
         double currentMaxSpeed = MaxSpeed;
         if (inputHandler.IsKeyPressed(Key.ControlLeft))
-        {
             currentMaxSpeed *= SprintSpeedMultiplier;
-        }
 
         var currentYVelocity = player.Velocity.Y;
         var horizontalVelocity = wishDir * currentMaxSpeed;

@@ -1,8 +1,8 @@
-﻿using Minecraft.NET.Abstractions;
+﻿using Minecraft.NET.Character;
 
 namespace Minecraft.NET.Services;
 
-public class PhysicsService(IPlayer player, IGameModeManager gameModeManager) : IPhysicsService
+public class PhysicsService(Player player, GameModeManager gameModeManager)
 {
     public void OnUpdate(double deltaTime)
     {

@@ -1,19 +1,20 @@
-﻿using Minecraft.NET.Abstractions;
-using Minecraft.NET.Core.Common;
+﻿using Minecraft.NET.Core.Common;
+using Minecraft.NET.Core.Environment;
+using Minecraft.NET.Services.Physics;
 
-namespace Minecraft.NET.Player;
+namespace Minecraft.NET.Character;
 
-public class GameModeManager : IGameModeManager
+public class GameModeManager
 {
-    private readonly IPlayer _player;
+    private readonly Player _player;
     private readonly IReadOnlyDictionary<GameMode, IPhysicsStrategy> _strategies;
     private readonly List<GameMode> _availableModes;
     private int _currentIndex = 0;
 
-    public IPhysicsStrategy CurrentPhysicsStrategy { get; private set; }
-    public IWorld World { get; }
+    public IPhysicsStrategy CurrentPhysicsStrategy { get; private set; } = null!;
+    public World World { get; }
 
-    public GameModeManager(IPlayer player, IWorld world, IReadOnlyDictionary<GameMode, IPhysicsStrategy> strategies)
+    public GameModeManager(Player player, World world, IReadOnlyDictionary<GameMode, IPhysicsStrategy> strategies)
     {
         _player = player;
         World = world;

@@ -1,6 +1,6 @@
 ﻿using Minecraft.NET.Core.Chunks;
 
-namespace Minecraft.NET.World;
+namespace Minecraft.NET.Core.Environment;
 
 public class WorldGenerator
 {

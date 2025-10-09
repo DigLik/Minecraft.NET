@@ -1,4 +1,5 @@
-﻿using Minecraft.NET.Abstractions;
+﻿using Minecraft.NET.Character;
+using Minecraft.NET.Graphics.Rendering;
 using Silk.NET.Windowing;
 using System.Text;
 
@@ -6,11 +7,11 @@ namespace Minecraft.NET.Services;
 
 public class GameStatsService(
     IWindow window,
-    IPlayer player,
-    IChunkManager chunkManager,
-    IRenderPipeline renderPipeline,
-    IPerformanceMonitor performanceMonitor
-) : IUpdatable, IRenderable
+    Player player,
+    ChunkManager chunkManager,
+    RenderPipeline renderPipeline,
+    PerformanceMonitor performanceMonitor
+)
 {
     private readonly IWindow _window = window;
     private int _frameCount;
@@ -40,5 +41,5 @@ public class GameStatsService(
         }
     }
 
-    public void OnRender(double deltaTime) => _frameCount++;
+    public void OnRender(double _) => _frameCount++;
 }

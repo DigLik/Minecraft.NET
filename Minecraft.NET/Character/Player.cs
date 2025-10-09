@@ -1,12 +1,11 @@
-﻿using Minecraft.NET.Abstractions;
-using Minecraft.NET.Core.Common;
+﻿using Minecraft.NET.Core.Common;
 using Minecraft.NET.Graphics;
 
-namespace Minecraft.NET.Player;
+namespace Minecraft.NET.Character;
 
 public enum GameMode { Creative, Spectator }
 
-public class Player(Vector3d initialPosition) : IPlayer
+public class Player(Vector3d initialPosition)
 {
     public Vector3d Position
     {

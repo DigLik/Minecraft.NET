@@ -1,10 +1,10 @@
-﻿using Minecraft.NET.Abstractions;
+﻿using Minecraft.NET.Character;
 using Silk.NET.Input;
 using Silk.NET.Windowing;
 
 namespace Minecraft.NET.Engine;
 
-public class SystemInputHandler(IWindow window, IGameModeManager gameModeManager, IMouse mouse)
+public class SystemInputHandler(IWindow window, GameModeManager gameModeManager, IMouse mouse)
 {
     private readonly IWindow _window = window;
 

@@ -1,6 +1,4 @@
-﻿using Minecraft.NET.Graphics;
-
-namespace Minecraft.NET.Abstractions;
+﻿namespace Minecraft.NET.Graphics.Rendering.Passes;
 
 public interface IRenderPass : IDisposable
 {

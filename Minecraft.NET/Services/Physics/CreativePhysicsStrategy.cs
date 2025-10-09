@@ -1,13 +1,13 @@
-﻿using Minecraft.NET.Abstractions;
+﻿using Minecraft.NET.Character;
 using Minecraft.NET.Core.Common;
+using Minecraft.NET.Core.Environment;
 using Minecraft.NET.Graphics;
-using Minecraft.NET.Player;
 
 namespace Minecraft.NET.Services.Physics;
 
 public class CreativePhysicsStrategy : IPhysicsStrategy
 {
-    public void Update(IPlayer player, IWorld world, double deltaTime)
+    public void Update(Player player, World world, double deltaTime)
     {
         player.Velocity -= new Vector3d(0, Gravity * deltaTime, 0);
 
@@ -19,7 +19,7 @@ public class CreativePhysicsStrategy : IPhysicsStrategy
             player.Velocity = player.Velocity with { Y = 0 };
     }
 
-    private static (Vector3d newPosition, bool onGround) MoveAndSlide(IPlayer player, IWorld world, Vector3d position, ref Vector3d velocity, float dt)
+    private static (Vector3d newPosition, bool onGround) MoveAndSlide(Player player, World world, Vector3d position, ref Vector3d velocity, float dt)
     {
         var initialVelocity = velocity;
         var totalDisplacement = velocity * dt;
@@ -30,7 +30,7 @@ public class CreativePhysicsStrategy : IPhysicsStrategy
         {
             var tempPos = player.Position;
             tempPos.Y -= 0.01;
-            var playerBox = Player.Player.GetBoundingBoxForPosition(tempPos);
+            var playerBox = Player.GetBoundingBoxForPosition(tempPos);
             return (position, CheckCollision(world, playerBox));
         }
 
@@ -45,7 +45,7 @@ public class CreativePhysicsStrategy : IPhysicsStrategy
             const int maxResolutionAttempts = 5;
             for (int j = 0; j < maxResolutionAttempts; j++)
             {
-                var playerBox = Player.Player.GetBoundingBoxForPosition(position);
+                var playerBox = Player.GetBoundingBoxForPosition(position);
                 var (collided, mtv) = FindCollisionMTV(world, playerBox);
 
                 if (!collided) break;
@@ -63,7 +63,7 @@ public class CreativePhysicsStrategy : IPhysicsStrategy
         return (position, isOnGround);
     }
 
-    private static (bool, Vector3d) FindCollisionMTV(IWorld world, BoundingBox playerBox)
+    private static (bool, Vector3d) FindCollisionMTV(World world, BoundingBox playerBox)
     {
         Vector3d overallMtv = Vector3d.Zero;
 
@@ -119,7 +119,7 @@ public class CreativePhysicsStrategy : IPhysicsStrategy
         }
     }
 
-    private static bool CheckCollision(IWorld world, BoundingBox box)
+    private static bool CheckCollision(World world, BoundingBox box)
     {
         var min = new Vector3d(Math.Floor(box.Min.X), Math.Floor(box.Min.Y), Math.Floor(box.Min.Z));
         var max = new Vector3d(Math.Floor(box.Max.X), Math.Floor(box.Max.Y), Math.Floor(box.Max.Z));

@@ -1,4 +1,4 @@
-﻿using Minecraft.NET.Abstractions;
+﻿using Minecraft.NET.Character;
 using Minecraft.NET.Core.Common;
 using Minecraft.NET.Graphics;
 using Minecraft.NET.Graphics.Models;
@@ -12,7 +12,7 @@ public class VisibleScene
     public int VisibleSectionCount => Meshes.Count;
 }
 
-public class SceneCuller(IPlayer player, IChunkProvider chunkProvider)
+public class SceneCuller(Player player, ChunkManager chunkProvider)
 {
     private readonly Frustum _frustum = new();
     private readonly List<Matrix4x4> _modelMatrices = new(MaxVisibleSections);

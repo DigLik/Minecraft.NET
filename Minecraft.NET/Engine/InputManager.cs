@@ -1,15 +1,15 @@
-﻿using Minecraft.NET.Abstractions;
-using Minecraft.NET.Player;
-using Minecraft.NET.Player.Controllers;
+﻿using Minecraft.NET.Character;
+using Minecraft.NET.Character.Controllers;
+using Minecraft.NET.Services;
 using Silk.NET.Input;
 using Silk.NET.Windowing;
 
 namespace Minecraft.NET.Engine;
 
-public class InputManager : IInputHandler, ILifecycleHandler, IUpdatable
+public class InputManager
 {
-    private readonly IPlayer _player;
-    private readonly IWorldInteractionService _worldInteractionService;
+    private readonly Player _player;
+    private readonly WorldInteractionService _worldInteractionService;
     private readonly Dictionary<GameMode, IPlayerController> _controllers;
     private readonly SystemInputHandler _systemInputHandler;
 
@@ -24,11 +24,11 @@ public class InputManager : IInputHandler, ILifecycleHandler, IUpdatable
 
     public InputManager(
         IWindow window,
-        IPlayer player,
-        IWorldInteractionService worldInteraction,
-        IGameModeManager gameModeManager,
-        IPlayerController creative,
-        IPlayerController spectator
+        Player player,
+        WorldInteractionService worldInteraction,
+        GameModeManager gameModeManager,
+        CreativePlayerController creative,
+        SpectatorPlayerController spectator
     )
     {
         _player = player;
@@ -106,6 +106,9 @@ public class InputManager : IInputHandler, ILifecycleHandler, IUpdatable
     private void OnKeyDown(IKeyboard keyboard, Key key, int _)
         => _systemInputHandler.HandleKeyDown(key);
 
-    public void OnClose() { }
-    public void Dispose() { }
+    public void OnClose()
+    {
+        _mouse.MouseMove -= OnMouseMove;
+        _keyboard.KeyDown -= OnKeyDown;
+    }
 }

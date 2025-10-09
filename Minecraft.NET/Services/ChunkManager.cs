@@ -1,28 +1,27 @@
-﻿using Minecraft.NET.Abstractions;
+﻿using Minecraft.NET.Character;
 using Minecraft.NET.Core.Chunks;
-using Minecraft.NET.World;
+using Minecraft.NET.Core.Environment;
 using System.Collections.Concurrent;
 
 namespace Minecraft.NET.Services;
 
+public delegate void ChunkMeshRequestHandler(ChunkColumn column, int sectionY);
+
 public class ChunkManager(
-    IPlayerStateProvider playerState,
-    IWorldStorage storage,
+    Player playerState,
+    WorldStorage storage,
     ChunkMeshRequestHandler meshRequestHandler
-) : IChunkManager, IChunkProvider
+) : IDisposable
 {
     private readonly ConcurrentDictionary<Vector2D<int>, ChunkColumn> _chunks = new();
+    private readonly List<Vector2D<int>> _chunksToRemove = [];
 
     private static readonly Vector2D<int>[] NeighborOffsets =
     [
         new(1, 0), new(-1, 0), new(0, 1), new(0, -1)
     ];
 
-    public void OnLoad()
-    {
-    }
-
-    public void OnUpdate(double deltaTime)
+    public void OnUpdate(double _)
     {
         var playerChunkPos = new Vector2D<int>(
             (int)Math.Floor(playerState.Position.X / ChunkSize),
@@ -57,25 +56,26 @@ public class ChunkManager(
 
     private void UnloadFarChunks(Vector2D<int> playerChunkPos)
     {
-        List<Vector2D<int>> chunksToRemove;
-        lock (_chunks)
+        _chunksToRemove.Clear();
+        var unloadDistSq = (RenderDistance + 2) * (RenderDistance + 2);
+
+        foreach (var key in _chunks.Keys)
         {
-            chunksToRemove = [.. _chunks.Keys.Where(pos =>
-                (pos - playerChunkPos).LengthSquared > (RenderDistance + 2) * (RenderDistance + 2)
-            )];
+            if ((key - playerChunkPos).LengthSquared > unloadDistSq)
+            {
+                _chunksToRemove.Add(key);
+            }
         }
 
-        if (chunksToRemove.Count > 0)
+        if (_chunksToRemove.Count > 0)
         {
-            foreach (var posToRemove in chunksToRemove)
+            foreach (var posToRemove in _chunksToRemove)
             {
                 if (_chunks.TryRemove(posToRemove, out var removedChunk))
                 {
                     removedChunk.Dispose();
-                }
 
-                if (removedChunk != null)
-                {
+                    // Оповещаем соседей о необходимости перерисовки
                     foreach (var offset in NeighborOffsets)
                     {
                         if (_chunks.TryGetValue(posToRemove + offset, out var neighbor) && neighbor.IsGenerated)
@@ -133,7 +133,6 @@ public class ChunkManager(
 
     public int GetMeshedSectionCount() => _chunks.Values.Sum(c => c.Meshes.Count(m => m != null));
 
-    public void OnClose() { }
     public void Dispose()
     {
         lock (_chunks)

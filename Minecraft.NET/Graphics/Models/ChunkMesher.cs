@@ -1,12 +1,12 @@
-﻿using Minecraft.NET.Abstractions;
-using Minecraft.NET.Core.Blocks;
+﻿using Minecraft.NET.Core.Blocks;
 using Minecraft.NET.Core.Chunks;
+using Minecraft.NET.Core.Environment;
 
 namespace Minecraft.NET.Graphics.Models;
 
 public static class ChunkMesher
 {
-    public static unsafe MeshData GenerateMesh(ChunkColumn column, int sectionY, IWorld world, CancellationToken token)
+    public static unsafe MeshData GenerateMesh(ChunkColumn column, int sectionY, World world, CancellationToken token)
     {
         if (column.Blocks == null)
             return new MeshData(null, 0, null, 0);
@@ -141,7 +141,7 @@ public static class ChunkMesher
         }
     }
 
-    private static BlockId GetBlock(ChunkColumn column, int sectionY, IWorld world, int x, int y, int z)
+    private static BlockId GetBlock(ChunkColumn column, int sectionY, World world, int x, int y, int z)
     {
         int worldY = sectionY * ChunkSize + y;
 

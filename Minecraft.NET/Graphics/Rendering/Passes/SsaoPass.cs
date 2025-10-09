@@ -1,5 +1,4 @@
-﻿using Minecraft.NET.Abstractions;
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 
 namespace Minecraft.NET.Graphics.Rendering.Passes;
 

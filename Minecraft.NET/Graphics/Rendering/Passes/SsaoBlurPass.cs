@@ -1,6 +1,4 @@
-﻿using Minecraft.NET.Abstractions;
-
-namespace Minecraft.NET.Graphics.Rendering.Passes;
+﻿namespace Minecraft.NET.Graphics.Rendering.Passes;
 
 public class SsaoBlurPass : IRenderPass
 {

@@ -1,4 +1,4 @@
-﻿using Minecraft.NET.Abstractions;
+﻿using Minecraft.NET.Character;
 using Minecraft.NET.Core.Common;
 using Minecraft.NET.Graphics.Rendering.Passes;
 using Minecraft.NET.Services;
@@ -6,22 +6,20 @@ using System.Runtime.InteropServices;
 
 namespace Minecraft.NET.Graphics.Rendering;
 
-public unsafe class RenderPipeline(
+public class RenderPipeline(
     GL gl,
-    IPlayer player,
+    Player player,
     SceneCuller sceneCuller,
-    IPerformanceMonitor performanceMonitor
-) : IRenderPipeline, IChunkResourceProvider
+    PerformanceMonitor performanceMonitor
+)
 {
     private readonly List<IRenderPass> _renderPasses = [];
     private readonly SharedRenderData _sharedRenderData = new();
 
-    private readonly IPerformanceMonitor _performanceMonitor = performanceMonitor;
-
     public uint InstanceVbo { get; private set; }
     public int VisibleSectionCount { get; private set; }
 
-    public void OnLoad()
+    public unsafe void OnLoad()
     {
         InstanceVbo = gl.GenBuffer();
         gl.BindBuffer(BufferTargetARB.ArrayBuffer, InstanceVbo);
@@ -59,11 +57,9 @@ public unsafe class RenderPipeline(
         _sharedRenderData.PostProcessBuffer = lightingPass.PostProcessFbo;
     }
 
-    public void OnUpdate(double deltaTime) { }
-
     public unsafe void OnRender(double deltaTime)
     {
-        _performanceMonitor.BeginGpuFrame();
+        performanceMonitor.BeginGpuFrame();
 
         var camera = player.Camera;
         var projection = camera.GetProjectionMatrix(_sharedRenderData.ViewportSize.X / _sharedRenderData.ViewportSize.Y);
@@ -92,7 +88,7 @@ public unsafe class RenderPipeline(
         foreach (var pass in _renderPasses)
             pass.Execute(gl, _sharedRenderData);
 
-        _performanceMonitor.EndGpuFrame();
+        performanceMonitor.EndGpuFrame();
     }
 
     public void OnClose()
@@ -102,6 +98,4 @@ public unsafe class RenderPipeline(
 
         gl.DeleteBuffer(InstanceVbo);
     }
-
-    public void Dispose() { }
 }
