@@ -7,10 +7,10 @@ uniform sampler2D gPosition;
 uniform sampler2D gNormal;
 uniform sampler2D texNoise;
 
-uniform vec3 samples[64];
+uniform vec3 samples[16];
 uniform mat4 projection;
 
-int kernelSize = 64;
+int kernelSize = 16;
 float radius = 1.5;
 float bias = 0.05;
 

@@ -36,42 +36,51 @@ public class WorldGenerator
         _caveNoiseY.SetFrequency(0.02f);
     }
 
-    public static void Generate(ChunkColumn column)
+    public static unsafe void Generate(ChunkColumn column)
     {
-        float caveRadiusSq = CaveRadius * CaveRadius;
-
-        for (int x = 0; x < ChunkSize; x++)
+        column.DataLock.EnterWriteLock();
+        try
         {
-            for (int z = 0; z < ChunkSize; z++)
+            float caveRadiusSq = CaveRadius * CaveRadius;
+            BlockId* blocks = column.Blocks;
+            if (blocks == null) return;
+
+            for (int x = 0; x < ChunkSize; x++)
             {
-                float worldX = column.Position.X * ChunkSize + x;
-                float worldZ = column.Position.Y * ChunkSize + z;
-
-                float noiseValue = _noise.GetNoise(worldX, worldZ);
-                int terrainHeight = (int)(BaseHeight + noiseValue * Amplitude);
-
-                for (int y = 0; y < WorldHeightInBlocks; y++)
+                for (int z = 0; z < ChunkSize; z++)
                 {
-                    int worldY = y - VerticalChunkOffset * ChunkSize;
+                    float worldX = column.Position.X * ChunkSize + x;
+                    float worldZ = column.Position.Y * ChunkSize + z;
 
-                    if (worldY > terrainHeight)
-                        continue;
+                    float noiseValue = _noise.GetNoise(worldX, worldZ);
+                    int terrainHeight = (int)(BaseHeight + noiseValue * Amplitude);
 
-                    float noiseValX = _caveNoiseX.GetNoise(worldX, (float)worldY, worldZ);
-                    float noiseValY = _caveNoiseY.GetNoise(worldX, (float)worldY, worldZ);
+                    for (int y = 0; y < WorldHeightInBlocks; y++)
+                    {
+                        int worldY = y - VerticalChunkOffset * ChunkSize;
+                        if (worldY > terrainHeight)
+                            continue;
 
-                    float distFromCenterSq = noiseValX * noiseValX + noiseValY * noiseValY;
+                        float noiseValX = _caveNoiseX.GetNoise(worldX, worldY, worldZ);
+                        float noiseValY = _caveNoiseY.GetNoise(worldX, worldY, worldZ);
+                        float distFromCenterSq = noiseValX * noiseValX + noiseValY * noiseValY;
+                        if (distFromCenterSq < caveRadiusSq) continue;
 
-                    if (distFromCenterSq < caveRadiusSq) continue;
+                        int index = ChunkColumn.GetIndex(x, y, z);
 
-                    if (worldY == terrainHeight)
-                        column.SetBlock(x, y, z, BlockId.Grass);
-                    else if (worldY > terrainHeight - 4)
-                        column.SetBlock(x, y, z, BlockId.Dirt);
-                    else
-                        column.SetBlock(x, y, z, BlockId.Stone);
+                        if (worldY == terrainHeight)
+                            blocks[index] = BlockId.Grass;
+                        else if (worldY > terrainHeight - 4)
+                            blocks[index] = BlockId.Dirt;
+                        else
+                            blocks[index] = BlockId.Stone;
+                    }
                 }
             }
+        }
+        finally
+        {
+            column.DataLock.ExitWriteLock();
         }
     }
 }

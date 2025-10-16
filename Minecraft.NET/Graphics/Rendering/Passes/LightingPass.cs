@@ -10,32 +10,36 @@ public class LightingPass : IRenderPass
     public unsafe void Initialize(GL gl, uint width, uint height)
     {
         _gl = gl;
-        _lightingShader = new Shader(gl, Shader.LoadFromFile("Assets/Shaders/lighting.vert"), Shader.LoadFromFile("Assets/Shaders/lighting.frag"));
-        _lightingShader.Use();
-        _lightingShader.SetInt(_lightingShader.GetUniformLocation("gAlbedo"), 0);
-        _lightingShader.SetInt(_lightingShader.GetUniformLocation("ssao"), 1);
-        _lightingShader.SetInt(_lightingShader.GetUniformLocation("gPosition"), 2);
-        _lightingShader.SetVector3(_lightingShader.GetUniformLocation("u_fogColor"), new Vector3(0.53f, 0.81f, 0.92f));
-        _lightingShader.SetFloat(_lightingShader.GetUniformLocation("u_fogStart"), RenderDistance * ChunkSize * 0.5f);
-        _lightingShader.SetFloat(_lightingShader.GetUniformLocation("u_fogEnd"), RenderDistance * ChunkSize * 0.95f);
 
-        float[] quadVertices =
-        [
-            -1.0f,  1.0f, 0.0f, 1.0f,
-            -1.0f, -1.0f, 0.0f, 0.0f,
-             1.0f,  1.0f, 1.0f, 1.0f,
-             1.0f, -1.0f, 1.0f, 0.0f,
-        ];
-        _quadVao = gl.GenVertexArray();
-        _quadVbo = gl.GenBuffer();
-        gl.BindVertexArray(_quadVao);
-        gl.BindBuffer(BufferTargetARB.ArrayBuffer, _quadVbo);
-        fixed (float* p = quadVertices)
-            gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(quadVertices.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
-        gl.EnableVertexAttribArray(0);
-        gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 4 * sizeof(float), (void*)0);
-        gl.EnableVertexAttribArray(1);
-        gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+        if (_lightingShader == null)
+        {
+            _lightingShader = new Shader(gl, Shader.LoadFromFile("Assets/Shaders/lighting.vert"), Shader.LoadFromFile("Assets/Shaders/lighting.frag"));
+            _lightingShader.Use();
+            _lightingShader.SetInt(_lightingShader.GetUniformLocation("gAlbedo"), 0);
+            _lightingShader.SetInt(_lightingShader.GetUniformLocation("ssao"), 1);
+            _lightingShader.SetInt(_lightingShader.GetUniformLocation("gPosition"), 2);
+            _lightingShader.SetVector3(_lightingShader.GetUniformLocation("u_fogColor"), new Vector3(0.53f, 0.81f, 0.92f));
+            _lightingShader.SetFloat(_lightingShader.GetUniformLocation("u_fogStart"), RenderDistance * ChunkSize * 0.5f);
+            _lightingShader.SetFloat(_lightingShader.GetUniformLocation("u_fogEnd"), RenderDistance * ChunkSize * 0.95f);
+
+            float[] quadVertices =
+            [
+                -1.0f,  1.0f, 0.0f, 1.0f,
+                -1.0f, -1.0f, 0.0f, 0.0f,
+                 1.0f,  1.0f, 1.0f, 1.0f,
+                 1.0f, -1.0f, 1.0f, 0.0f,
+            ];
+            _quadVao = gl.GenVertexArray();
+            _quadVbo = gl.GenBuffer();
+            gl.BindVertexArray(_quadVao);
+            gl.BindBuffer(BufferTargetARB.ArrayBuffer, _quadVbo);
+            fixed (float* p = quadVertices)
+                gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(quadVertices.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
+            gl.EnableVertexAttribArray(0);
+            gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 4 * sizeof(float), (void*)0);
+            gl.EnableVertexAttribArray(1);
+            gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+        }
 
         OnResize(width, height);
     }

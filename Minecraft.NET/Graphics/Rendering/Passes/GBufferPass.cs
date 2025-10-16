@@ -1,6 +1,4 @@
-﻿using System.Runtime.InteropServices;
-
-namespace Minecraft.NET.Graphics.Rendering.Passes;
+﻿namespace Minecraft.NET.Graphics.Rendering.Passes;
 
 public class GBufferPass(ChunkRenderer chunkRenderer) : IRenderPass
 {
@@ -18,18 +16,20 @@ public class GBufferPass(ChunkRenderer chunkRenderer) : IRenderPass
     public unsafe void Initialize(GL gl, uint width, uint height)
     {
         _gl = gl;
-        _blockTextureAtlas = new Texture(gl, "Assets/Textures/atlas.png");
 
-        _gBufferShader = new Shader(gl, Shader.LoadFromFile("Assets/Shaders/g_buffer.vert"), Shader.LoadFromFile("Assets/Shaders/g_buffer.frag"));
-        _gBufferShader.Use();
-        _gBufferShader.SetInt(_gBufferShader.GetUniformLocation("uTexture"), 0);
-        _gBufferShader.SetVector2(_gBufferShader.GetUniformLocation("uTileAtlasSize"), new Vector2(Constants.AtlasWidth, Constants.AtlasHeight));
-        _gBufferShader.SetFloat(_gBufferShader.GetUniformLocation("uTileSize"), Constants.TileSize);
-        _gBufferShader.SetFloat(_gBufferShader.GetUniformLocation("uPixelPadding"), 0.1f);
-        _gBufferInverseViewLocation = _gBufferShader.GetUniformLocation("inverseView");
-        _gBufferViewLocation = _gBufferShader.GetUniformLocation("view");
-        _gBufferProjectionLocation = _gBufferShader.GetUniformLocation("projection");
-
+        if (_gBufferShader == null)
+        {
+            _blockTextureAtlas = new Texture(gl, "Assets/Textures/atlas.png");
+            _gBufferShader = new Shader(gl, Shader.LoadFromFile("Assets/Shaders/g_buffer.vert"), Shader.LoadFromFile("Assets/Shaders/g_buffer.frag"));
+            _gBufferShader.Use();
+            _gBufferShader.SetInt(_gBufferShader.GetUniformLocation("uTexture"), 0);
+            _gBufferShader.SetVector2(_gBufferShader.GetUniformLocation("uTileAtlasSize"), new Vector2(Constants.AtlasWidth, Constants.AtlasHeight));
+            _gBufferShader.SetFloat(_gBufferShader.GetUniformLocation("uTileSize"), Constants.TileSize);
+            _gBufferShader.SetFloat(_gBufferShader.GetUniformLocation("uPixelPadding"), 0.1f);
+            _gBufferInverseViewLocation = _gBufferShader.GetUniformLocation("inverseView");
+            _gBufferViewLocation = _gBufferShader.GetUniformLocation("view");
+            _gBufferProjectionLocation = _gBufferShader.GetUniformLocation("projection");
+        }
 
         OnResize(width, height);
     }

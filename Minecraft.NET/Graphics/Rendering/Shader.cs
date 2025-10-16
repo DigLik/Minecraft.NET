@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace Minecraft.NET.Graphics.Rendering;
 
@@ -6,6 +7,8 @@ public sealed class Shader : IDisposable
 {
     private readonly GL _gl;
     public readonly uint Handle;
+
+    private readonly ConcurrentDictionary<string, int> _uniformLocationCache = new();
 
     public Shader(GL gl, string vertexSource, string fragmentSource)
     {
@@ -29,15 +32,21 @@ public sealed class Shader : IDisposable
         _gl.DeleteShader(fragmentShader);
     }
 
-    public static string LoadFromFile(string path) => new([.. File.ReadAllText(path).Where(c => c < 128)]);
+    public static string LoadFromFile(string path)
+        => new([.. File.ReadAllText(path).Where(c => c < 128)]);
 
     public void Use() => _gl.UseProgram(Handle);
 
     public int GetUniformLocation(string name)
     {
-        int location = _gl.GetUniformLocation(Handle, name);
+        if (_uniformLocationCache.TryGetValue(name, out int location))
+            return location;
+
+        location = _gl.GetUniformLocation(Handle, name);
         if (location == -1)
             Debug.WriteLine($"[WARNING] Uniform '{name}' not found.");
+
+        _uniformLocationCache[name] = location;
         return location;
     }
 

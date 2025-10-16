@@ -3,14 +3,17 @@
 public static class Constants
 {
     public const int ChunkSize = 16;
+    public const int ChunkShift = 4; // 2^4 = 16
+    public const int ChunkMask = ChunkSize - 1; // 15 или 0xF
     public const int BlocksInChunk = ChunkSize * ChunkSize * ChunkSize;
 
     public const int RenderDistance = 16;
-    public const int MaxVisibleSections = RenderDistance * 2 * RenderDistance * 2 * WorldHeightInChunks;
 
     public const int WorldHeightInChunks = 16;
     public const int WorldHeightInBlocks = ChunkSize * WorldHeightInChunks;
     public const int VerticalChunkOffset = WorldHeightInChunks / 2;
+
+    public const int MaxVisibleSections = (RenderDistance * 2 + 1) * (RenderDistance * 2 + 1) * WorldHeightInChunks;
 
     public const float TileSize = 16.0f;
     public const float AtlasWidth = 1024.0f;

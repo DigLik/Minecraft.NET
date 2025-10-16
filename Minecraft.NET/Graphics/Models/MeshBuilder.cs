@@ -4,7 +4,7 @@ namespace Minecraft.NET.Graphics.Models;
 
 public unsafe class MeshBuilder : IDisposable
 {
-    private float* _vertices;
+    private Half* _vertices;
     private uint* _indices;
 
     private int _vertexCapacity;
@@ -17,7 +17,7 @@ public unsafe class MeshBuilder : IDisposable
     {
         _vertexCapacity = initialVertexCapacity;
         _indexCapacity = initialIndexCapacity;
-        _vertices = (float*)NativeMemory.Alloc((nuint)_vertexCapacity, sizeof(float));
+        _vertices = (Half*)NativeMemory.Alloc((nuint)_vertexCapacity, (nuint)sizeof(Half));
         _indices = (uint*)NativeMemory.Alloc((nuint)_indexCapacity, sizeof(uint));
     }
 
@@ -27,17 +27,17 @@ public unsafe class MeshBuilder : IDisposable
         if (VertexCount + vertexSize > _vertexCapacity)
         {
             _vertexCapacity *= 2;
-            _vertices = (float*)NativeMemory.Realloc(_vertices, (nuint)_vertexCapacity * sizeof(float));
+            _vertices = (Half*)NativeMemory.Realloc(_vertices, (nuint)_vertexCapacity * (nuint)sizeof(Half));
         }
 
         int currentOffset = VertexCount;
-        _vertices[currentOffset + 0] = x;
-        _vertices[currentOffset + 1] = y;
-        _vertices[currentOffset + 2] = z;
-        _vertices[currentOffset + 3] = tx;
-        _vertices[currentOffset + 4] = ty;
-        _vertices[currentOffset + 5] = u;
-        _vertices[currentOffset + 6] = v;
+        _vertices[currentOffset + 0] = (Half)x;
+        _vertices[currentOffset + 1] = (Half)y;
+        _vertices[currentOffset + 2] = (Half)z;
+        _vertices[currentOffset + 3] = (Half)tx;
+        _vertices[currentOffset + 4] = (Half)ty;
+        _vertices[currentOffset + 5] = (Half)u;
+        _vertices[currentOffset + 6] = (Half)v;
         VertexCount += vertexSize;
     }
 
@@ -58,7 +58,7 @@ public unsafe class MeshBuilder : IDisposable
 
     public MeshData Build()
     {
-        var data = new MeshData(_vertices, VertexCount, _indices, IndexCount);
+        var data = new MeshData((nint)_vertices, VertexCount, _indices, IndexCount);
         _vertices = null;
         _indices = null;
         return data;

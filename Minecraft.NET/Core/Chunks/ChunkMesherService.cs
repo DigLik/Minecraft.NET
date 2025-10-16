@@ -79,11 +79,16 @@ public class ChunkMesherService : IDisposable
                 continue;
             }
 
+            var oldGeometry = column.MeshGeometries[sectionY];
+            if (oldGeometry.HasValue && _chunkRenderer != null)
+            {
+                _chunkRenderer.FreeChunkMesh(oldGeometry.Value);
+                column.MeshGeometries[sectionY] = null;
+            }
+
             ChunkMeshGeometry? newGeometry = null;
             if (meshData is not null)
-            {
-                newGeometry = _chunkRenderer.UploadChunkMesh(meshData);
-            }
+                newGeometry = _chunkRenderer?.UploadChunkMesh(meshData);
 
             column.MeshGeometries[sectionY] = newGeometry;
             column.SectionStates[sectionY] = ChunkSectionState.Rendered;

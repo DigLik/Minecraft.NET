@@ -40,6 +40,17 @@ public sealed class Game : IDisposable
         _worldStorage = new WorldStorage("world");
         _performanceMonitor = new PerformanceMonitor(gl);
 
+        // 1. Инициализация ChunkManager (без обработчиков рендеринга)
+        _chunkManager = new ChunkManager(player, _worldStorage);
+
+        // 2. Инициализация World (зависит от ChunkManager)
+        _world = new World(_chunkManager, _worldStorage);
+
+        // 3. Инициализация ChunkMesherService и установка его зависимостей
+        _chunkMesherService = new ChunkMesherService();
+        _chunkMesherService.SetDependencies(_world, _chunkManager);
+
+        // 4. Физика и Контроллеры (зависит от World)
         var creativeController = new CreativePlayerController();
         var spectatorController = new SpectatorPlayerController();
         var creativeStrategy = new CreativePhysicsStrategy();
@@ -51,22 +62,25 @@ public sealed class Game : IDisposable
             { GameMode.Spectator, spectatorStrategy }
         };
 
-        _chunkMesherService = new ChunkMesherService();
-        ChunkMeshRequestHandler meshRequestHandler = _chunkMesherService.QueueForMeshing;
-        _chunkManager = new ChunkManager(player, _worldStorage, meshRequestHandler);
-        _world = new World(_chunkManager, _worldStorage);
-
-        _chunkMesherService.SetDependencies(_world, _chunkManager);
-
         var gameModeManager = new GameModeManager(player, _world, physicsStrategies);
         _physicsService = new PhysicsService(player, gameModeManager);
         var worldInteractionService = new WorldInteractionService(player, _world);
+
+        // 5. Инициализация Рендеринга (SceneCuller зависит от ChunkManager)
         var sceneCuller = new SceneCuller(player, _chunkManager);
-
         _renderPipeline = new RenderPipeline(gl, player, sceneCuller, _performanceMonitor);
+        _renderPipeline.OnLoad(); // Создает ChunkRenderer
 
+        // 6. Связывание обработчиков (ChunkManager <-> ChunkRenderer/MesherService)
+        Action<ChunkMeshGeometry> meshFreeHandler = _renderPipeline.ChunkRenderer.FreeChunkMesh;
+        ChunkMeshRequestHandler meshRequestHandler = _chunkMesherService.QueueForMeshing;
+
+        // Устанавливаем обработчики в уже созданный ChunkManager
+        _chunkManager.SetHandlers(meshRequestHandler, meshFreeHandler);
+        _chunkMesherService.SetChunkRenderer(_renderPipeline.ChunkRenderer);
+
+        // 7. Оставшиеся сервисы
         _gameStatsService = new GameStatsService(_window, player, _chunkManager, _renderPipeline, _performanceMonitor);
-
         _inputManager = new InputManager(
             _window,
             player,
@@ -76,13 +90,10 @@ public sealed class Game : IDisposable
             spectatorController
         );
 
-        _renderPipeline.OnLoad();
-        _chunkMesherService.SetChunkRenderer(_renderPipeline.ChunkRenderer);
-
+        // 8. Запуск систем
         _chunkMesherService.OnLoad();
         _inputManager.OnLoad();
         _world.OnLoad();
-        _worldStorage.OnLoad();
         _performanceMonitor.OnLoad();
 
         OnFramebufferResize(_window.FramebufferSize);
@@ -92,7 +103,7 @@ public sealed class Game : IDisposable
 
     private void OnUpdate(double deltaTime)
     {
-        if (_performanceMonitor is null) return;
+        if (_performanceMonitor is null || _chunkManager is null || _physicsService is null) return;
 
         _performanceMonitor.BeginCpuFrame();
         _chunkManager.OnUpdate(deltaTime);
@@ -104,7 +115,7 @@ public sealed class Game : IDisposable
 
     private void OnRender(double deltaTime)
     {
-        if (_renderPipeline is null) return;
+        if (_renderPipeline is null || _performanceMonitor is null) return;
 
         _renderPipeline.OnRender(deltaTime);
         _gameStatsService.OnRender(deltaTime);
@@ -121,11 +132,10 @@ public sealed class Game : IDisposable
         if (_performanceMonitor is null) return;
 
         _performanceMonitor.OnClose();
-        _worldStorage.OnClose();
-        _world.OnClose();
-        _inputManager.OnClose();
-        _chunkMesherService.OnClose();
-        _renderPipeline.OnClose();
+        _world?.OnClose();
+        _inputManager?.OnClose();
+        _chunkMesherService?.OnClose();
+        _renderPipeline?.OnClose();
     }
 
     public void Dispose()

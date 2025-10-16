@@ -2,9 +2,9 @@
 
 namespace Minecraft.NET.Graphics.Models;
 
-public unsafe sealed class MeshData(float* vertices, int vertexCount, uint* indices, int indexCount) : IDisposable
+public unsafe sealed class MeshData(nint vertices, int vertexCount, uint* indices, int indexCount) : IDisposable
 {
-    public float* Vertices { get; } = vertices;
+    public nint Vertices { get; } = vertices;
     public uint* Indices { get; } = indices;
     public int VertexCount { get; } = vertexCount;
     public int IndexCount { get; } = indexCount;
@@ -15,7 +15,7 @@ public unsafe sealed class MeshData(float* vertices, int vertexCount, uint* indi
     {
         if (_isDisposed) return;
 
-        if (Vertices != null) NativeMemory.Free(Vertices);
+        if (Vertices != 0) NativeMemory.Free((void*)Vertices);
         if (Indices != null) NativeMemory.Free(Indices);
 
         _isDisposed = true;

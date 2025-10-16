@@ -2,6 +2,7 @@
 using Minecraft.NET.Core.Chunks;
 using Minecraft.NET.Core.Common;
 using Minecraft.NET.Services;
+using System.Runtime.CompilerServices;
 
 namespace Minecraft.NET.Core.Environment;
 
@@ -16,63 +17,69 @@ public sealed class World(
         storage.OnLoad();
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public BlockId GetBlock(Vector3d worldPosition)
     {
+        int worldX_i = (int)Math.Floor(worldPosition.X);
+        int worldY_i = (int)Math.Floor(worldPosition.Y);
+        int worldZ_i = (int)Math.Floor(worldPosition.Z);
+
         var chunkPos = new Vector2D<int>(
-            (int)Math.Floor(worldPosition.X / ChunkSize),
-            (int)Math.Floor(worldPosition.Z / ChunkSize)
+            worldX_i >> ChunkShift,
+            worldZ_i >> ChunkShift
         );
 
         var column = chunkManager.GetColumn(chunkPos);
-        if (column is null)
-            return BlockId.Air;
+        if (column is null) return BlockId.Air;
 
-        int localX = (int)(worldPosition.X - (double)chunkPos.X * ChunkSize);
-        if (localX < 0) localX += ChunkSize;
-        int localZ = (int)(worldPosition.Z - (double)chunkPos.Y * ChunkSize);
-        if (localZ < 0) localZ += ChunkSize;
+        int localX = worldX_i & ChunkMask;
+        int localZ = worldZ_i & ChunkMask;
 
-        int worldY = (int)Math.Floor(worldPosition.Y) + VerticalChunkOffset * ChunkSize;
+        int worldY = worldY_i + (VerticalChunkOffset << ChunkShift);
 
         return column.GetBlock(localX, worldY, localZ);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void SetBlock(Vector3d worldPosition, BlockId id)
     {
+        int worldX_i = (int)Math.Floor(worldPosition.X);
+        int worldY_i = (int)Math.Floor(worldPosition.Y);
+        int worldZ_i = (int)Math.Floor(worldPosition.Z);
+
         var chunkPos = new Vector2D<int>(
-            (int)Math.Floor(worldPosition.X / ChunkSize),
-            (int)Math.Floor(worldPosition.Z / ChunkSize)
+            worldX_i >> ChunkShift,
+            worldZ_i >> ChunkShift
         );
 
         var column = chunkManager.GetColumn(chunkPos);
         if (column is null)
             return;
 
-        int localX = (int)(worldPosition.X - (double)chunkPos.X * ChunkSize);
-        if (localX < 0) localX += ChunkSize;
-        int localZ = (int)(worldPosition.Z - (double)chunkPos.Y * ChunkSize);
-        if (localZ < 0) localZ += ChunkSize;
+        int localX = worldX_i & ChunkMask;
+        int localZ = worldZ_i & ChunkMask;
 
-        int worldY = (int)Math.Floor(worldPosition.Y) + VerticalChunkOffset * ChunkSize;
+        int worldY = worldY_i + (VerticalChunkOffset << ChunkShift);
+
         if (worldY < 0 || worldY >= WorldHeightInBlocks)
             return;
 
         column.SetBlock(localX, worldY, localZ, id);
         storage.RecordModification(chunkPos, localX, worldY, localZ, id);
 
-        int sectionY = worldY / ChunkSize;
-        int localY = worldY % ChunkSize;
+        int sectionY = worldY >> ChunkShift;
+        int localY = worldY & ChunkMask;
 
         chunkManager.MarkSectionForRemeshing(column, sectionY);
 
         if (localY == 0 && sectionY > 0) chunkManager.MarkSectionForRemeshing(column, sectionY - 1);
-        if (localY == ChunkSize - 1 && sectionY < WorldHeightInChunks - 1) chunkManager.MarkSectionForRemeshing(column, sectionY + 1);
+        if (localY == ChunkMask && sectionY < WorldHeightInChunks - 1) chunkManager.MarkSectionForRemeshing(column, sectionY + 1);
 
         if (localX == 0 && chunkManager.GetColumn(chunkPos - new Vector2D<int>(1, 0)) is { } nXN) chunkManager.MarkSectionForRemeshing(nXN, sectionY);
-        if (localX == ChunkSize - 1 && chunkManager.GetColumn(chunkPos + new Vector2D<int>(1, 0)) is { } nXP) chunkManager.MarkSectionForRemeshing(nXP, sectionY);
+        if (localX == ChunkMask && chunkManager.GetColumn(chunkPos + new Vector2D<int>(1, 0)) is { } nXP) chunkManager.MarkSectionForRemeshing(nXP, sectionY);
 
         if (localZ == 0 && chunkManager.GetColumn(chunkPos - new Vector2D<int>(0, 1)) is { } nZN) chunkManager.MarkSectionForRemeshing(nZN, sectionY);
-        if (localZ == ChunkSize - 1 && chunkManager.GetColumn(chunkPos + new Vector2D<int>(0, 1)) is { } nZP) chunkManager.MarkSectionForRemeshing(nZP, sectionY);
+        if (localZ == ChunkMask && chunkManager.GetColumn(chunkPos + new Vector2D<int>(0, 1)) is { } nZP) chunkManager.MarkSectionForRemeshing(nZP, sectionY);
     }
 
     public ChunkColumn? GetColumn(Vector2D<int> position) => chunkManager.GetColumn(position);

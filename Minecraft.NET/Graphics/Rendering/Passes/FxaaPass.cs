@@ -8,28 +8,31 @@ public class FxaaPass : IRenderPass
 
     public unsafe void Initialize(GL gl, uint width, uint height)
     {
-        _fxaaShader = new Shader(gl, Shader.LoadFromFile("Assets/Shaders/fxaa.vert"), Shader.LoadFromFile("Assets/Shaders/fxaa.frag"));
-        _fxaaShader.Use();
-        _fxaaShader.SetInt(_fxaaShader.GetUniformLocation("uTexture"), 0);
-        _fxaaInverseScreenSizeLocation = _fxaaShader.GetUniformLocation("u_inverseScreenSize");
+        if (_fxaaShader == null)
+        {
+            _fxaaShader = new Shader(gl, Shader.LoadFromFile("Assets/Shaders/fxaa.vert"), Shader.LoadFromFile("Assets/Shaders/fxaa.frag"));
+            _fxaaShader.Use();
+            _fxaaShader.SetInt(_fxaaShader.GetUniformLocation("uTexture"), 0);
+            _fxaaInverseScreenSizeLocation = _fxaaShader.GetUniformLocation("u_inverseScreenSize");
 
-        float[] quadVertices =
-        [
-            -1.0f,  1.0f, 0.0f, 1.0f,
-            -1.0f, -1.0f, 0.0f, 0.0f,
-             1.0f,  1.0f, 1.0f, 1.0f,
-             1.0f, -1.0f, 1.0f, 0.0f,
-        ];
-        _quadVao = gl.GenVertexArray();
-        _quadVbo = gl.GenBuffer();
-        gl.BindVertexArray(_quadVao);
-        gl.BindBuffer(BufferTargetARB.ArrayBuffer, _quadVbo);
-        fixed (float* p = quadVertices)
-            gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(quadVertices.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
-        gl.EnableVertexAttribArray(0);
-        gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 4 * sizeof(float), (void*)0);
-        gl.EnableVertexAttribArray(1);
-        gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+            float[] quadVertices =
+            [
+                -1.0f,  1.0f, 0.0f, 1.0f,
+                -1.0f, -1.0f, 0.0f, 0.0f,
+                 1.0f,  1.0f, 1.0f, 1.0f,
+                 1.0f, -1.0f, 1.0f, 0.0f,
+            ];
+            _quadVao = gl.GenVertexArray();
+            _quadVbo = gl.GenBuffer();
+            gl.BindVertexArray(_quadVao);
+            gl.BindBuffer(BufferTargetARB.ArrayBuffer, _quadVbo);
+            fixed (float* p = quadVertices)
+                gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(quadVertices.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
+            gl.EnableVertexAttribArray(0);
+            gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 4 * sizeof(float), (void*)0);
+            gl.EnableVertexAttribArray(1);
+            gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+        }
     }
 
     public void Execute(GL gl, SharedRenderData sharedData)
@@ -47,8 +50,5 @@ public class FxaaPass : IRenderPass
 
     public void OnResize(uint width, uint height) { }
 
-    public void Dispose()
-    {
-        _fxaaShader?.Dispose();
-    }
+    public void Dispose() => _fxaaShader?.Dispose();
 }

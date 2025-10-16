@@ -81,7 +81,7 @@ public class RenderPipeline(
         _sharedRenderData.VisibleGeometries = visibleScene.VisibleGeometries;
         _sharedRenderData.ModelMatrices = visibleScene.ModelMatrices;
 
-        if (visibleScene.VisibleSectionCount > 0)
+        if (VisibleSectionCount > 0)
         {
             gl.BindBuffer(BufferTargetARB.ArrayBuffer, InstanceVbo);
             fixed (Matrix4x4* p = CollectionsMarshal.AsSpan(visibleScene.ModelMatrices))
