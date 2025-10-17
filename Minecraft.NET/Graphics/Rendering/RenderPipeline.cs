@@ -29,8 +29,6 @@ public class RenderPipeline(
         ChunkRenderer = new ChunkRenderer(gl, InstanceVbo);
 
         _renderPasses.Add(new GBufferPass(ChunkRenderer));
-        _renderPasses.Add(new SsaoPass());
-        _renderPasses.Add(new SsaoBlurPass());
         _renderPasses.Add(new LightingPass());
         _renderPasses.Add(new FxaaPass());
 
@@ -50,13 +48,9 @@ public class RenderPipeline(
         }
 
         var gBufferPass = _renderPasses.OfType<GBufferPass>().First();
-        var ssaoPass = _renderPasses.OfType<SsaoPass>().First();
-        var ssaoBlurPass = _renderPasses.OfType<SsaoBlurPass>().First();
         var lightingPass = _renderPasses.OfType<LightingPass>().First();
 
         _sharedRenderData.GBuffer = gBufferPass.GBuffer;
-        _sharedRenderData.SsaoBuffer = ssaoPass.SsaoFbo;
-        _sharedRenderData.SsaoBlurBuffer = ssaoBlurPass.SsaoBlurFbo;
         _sharedRenderData.PostProcessBuffer = lightingPass.PostProcessFbo;
     }
 

@@ -11,8 +11,6 @@ public class SharedRenderData
     public Vector2 ViewportSize { get; set; }
 
     public Framebuffer? GBuffer { get; set; }
-    public Framebuffer? SsaoBuffer { get; set; }
-    public Framebuffer? SsaoBlurBuffer { get; set; }
     public Framebuffer? PostProcessBuffer { get; set; }
 
     public IReadOnlyList<ChunkMeshGeometry> VisibleGeometries { get; set; } = [];
