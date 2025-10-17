@@ -6,10 +6,11 @@ public class SsaoPass : IRenderPass
 {
     private GL _gl = null!;
     private Shader _ssaoShader = null!;
-    public Framebuffer SsaoFbo { get; private set; } = null!;
     private uint _ssaoNoiseTexture;
     private readonly List<Vector3> _ssaoKernel = [];
     private uint _quadVao, _quadVbo;
+
+    public Framebuffer SsaoFbo { get; private set; } = null!;
 
     public unsafe void Initialize(GL gl, uint width, uint height)
     {
@@ -24,16 +25,17 @@ public class SsaoPass : IRenderPass
             _ssaoShader.SetInt(_ssaoShader.GetUniformLocation("texNoise"), 2);
 
             var random = new Random();
-            for (int i = 0; i < 64; ++i)
+            for (int i = 0; i < 16; ++i)
             {
                 var sample = new Vector3(
                     (float)random.NextDouble() * 2.0f - 1.0f,
                     (float)random.NextDouble() * 2.0f - 1.0f,
+
                     (float)random.NextDouble()
                 );
                 sample = Vector3.Normalize(sample);
                 sample *= (float)random.NextDouble();
-                float scale = (float)i / 64.0f;
+                float scale = (float)i / 16.0f;
                 scale = 0.1f + scale * scale * (1.0f - 0.1f);
                 sample *= scale;
                 _ssaoKernel.Add(sample);
@@ -45,7 +47,8 @@ public class SsaoPass : IRenderPass
                     (float)random.NextDouble() * 2.0f - 1.0f,
                     (float)random.NextDouble() * 2.0f - 1.0f,
                     0.0f
-                ));
+
+                 ));
 
             _ssaoNoiseTexture = gl.GenTexture();
             gl.BindTexture(TextureTarget.Texture2D, _ssaoNoiseTexture);
@@ -81,18 +84,22 @@ public class SsaoPass : IRenderPass
     public void OnResize(uint width, uint height)
     {
         SsaoFbo?.Dispose();
-        SsaoFbo = new Framebuffer(_gl, width, height, true);
+        SsaoFbo = new Framebuffer(_gl, width / 2, height / 2, true);
     }
 
     public void Execute(GL gl, SharedRenderData sharedData)
     {
+        var halfWidth = (uint)sharedData.ViewportSize.X / 2;
+        var halfHeight = (uint)sharedData.ViewportSize.Y / 2;
+
+        gl.Viewport(0, 0, halfWidth, halfHeight);
         SsaoFbo.Bind();
         gl.Clear(ClearBufferMask.ColorBufferBit);
         _ssaoShader.Use();
-        for (int i = 0; i < 64; ++i)
+        for (int i = 0; i < 16; ++i)
             _ssaoShader.SetVector3(_ssaoShader.GetUniformLocation($"samples[{i}]"), _ssaoKernel[i]);
         _ssaoShader.SetMatrix4x4(_ssaoShader.GetUniformLocation("projection"), sharedData.ProjectionMatrix);
-        _ssaoShader.SetVector2(_ssaoShader.GetUniformLocation("u_ScreenSize"), new Vector2(sharedData.ViewportSize.X, sharedData.ViewportSize.Y));
+        _ssaoShader.SetVector2(_ssaoShader.GetUniformLocation("u_ScreenSize"), new Vector2(halfWidth, halfHeight));
 
         gl.ActiveTexture(TextureUnit.Texture0);
         gl.BindTexture(TextureTarget.Texture2D, sharedData.GBuffer!.ColorAttachments[0]);
@@ -104,6 +111,7 @@ public class SsaoPass : IRenderPass
         gl.BindVertexArray(_quadVao);
         gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
         SsaoFbo.Unbind();
+        gl.Viewport(0, 0, (uint)sharedData.ViewportSize.X, (uint)sharedData.ViewportSize.Y);
     }
 
     public void Dispose()

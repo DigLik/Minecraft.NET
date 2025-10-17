@@ -4,8 +4,9 @@ public class SsaoBlurPass : IRenderPass
 {
     private GL _gl = null!;
     private Shader _ssaoBlurShader = null!;
-    public Framebuffer SsaoBlurFbo { get; private set; } = null!;
     private uint _quadVao, _quadVbo;
+
+    public Framebuffer SsaoBlurFbo { get; private set; } = null!;
 
     public unsafe void Initialize(GL gl, uint width, uint height)
     {
@@ -24,7 +25,8 @@ public class SsaoBlurPass : IRenderPass
                 -1.0f, -1.0f, 0.0f, 0.0f,
                  1.0f,  1.0f, 1.0f, 1.0f,
                  1.0f, -1.0f, 1.0f, 0.0f,
-            ];
+
+           ];
             _quadVao = gl.GenVertexArray();
             _quadVbo = gl.GenBuffer();
             gl.BindVertexArray(_quadVao);
@@ -43,11 +45,12 @@ public class SsaoBlurPass : IRenderPass
     public void OnResize(uint width, uint height)
     {
         SsaoBlurFbo?.Dispose();
-        SsaoBlurFbo = new Framebuffer(_gl, width, height, true);
+        SsaoBlurFbo = new Framebuffer(_gl, width / 2, height / 2, true);
     }
 
     public void Execute(GL gl, SharedRenderData sharedData)
     {
+        gl.Viewport(0, 0, (uint)sharedData.ViewportSize.X / 2, (uint)sharedData.ViewportSize.Y / 2);
         SsaoBlurFbo.Bind();
         gl.Clear(ClearBufferMask.ColorBufferBit);
         _ssaoBlurShader.Use();
@@ -60,6 +63,7 @@ public class SsaoBlurPass : IRenderPass
         gl.BindVertexArray(_quadVao);
         gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
         SsaoBlurFbo.Unbind();
+        gl.Viewport(0, 0, (uint)sharedData.ViewportSize.X, (uint)sharedData.ViewportSize.Y);
     }
 
     public void Dispose()
