@@ -70,19 +70,19 @@ public sealed unsafe class ChunkRenderer : IDisposable
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, instanceVbo);
 
         uint matrixSize = (uint)sizeof(Matrix4x4);
-        _gl.EnableVertexAttribArray(3);
-        _gl.VertexAttribPointer(3, 4, VertexAttribPointerType.Float, false, matrixSize, 0);
         _gl.EnableVertexAttribArray(4);
-        _gl.VertexAttribPointer(4, 4, VertexAttribPointerType.Float, false, matrixSize, sizeof(Vector4));
+        _gl.VertexAttribPointer(4, 4, VertexAttribPointerType.Float, false, matrixSize, 0);
         _gl.EnableVertexAttribArray(5);
-        _gl.VertexAttribPointer(5, 4, VertexAttribPointerType.Float, false, matrixSize, 2 * sizeof(Vector4));
+        _gl.VertexAttribPointer(5, 4, VertexAttribPointerType.Float, false, matrixSize, sizeof(Vector4));
         _gl.EnableVertexAttribArray(6);
-        _gl.VertexAttribPointer(6, 4, VertexAttribPointerType.Float, false, matrixSize, 3 * sizeof(Vector4));
+        _gl.VertexAttribPointer(6, 4, VertexAttribPointerType.Float, false, matrixSize, 2 * sizeof(Vector4));
+        _gl.EnableVertexAttribArray(7);
+        _gl.VertexAttribPointer(7, 4, VertexAttribPointerType.Float, false, matrixSize, 3 * sizeof(Vector4));
 
-        _gl.VertexAttribDivisor(3, 1);
         _gl.VertexAttribDivisor(4, 1);
         _gl.VertexAttribDivisor(5, 1);
         _gl.VertexAttribDivisor(6, 1);
+        _gl.VertexAttribDivisor(7, 1);
 
         _gl.BindVertexArray(0);
     }

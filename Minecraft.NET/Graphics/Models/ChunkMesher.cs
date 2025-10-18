@@ -120,10 +120,10 @@ public static class ChunkMesher
     {
         uint baseIndex = (uint)builder.VertexCount;
 
-        builder.AddVertex(new ChunkVertex(v1_bl, texCoords, new Vector2(0, h)));
-        builder.AddVertex(new ChunkVertex(v2_br, texCoords, new Vector2(w, h)));
-        builder.AddVertex(new ChunkVertex(v4_tr, texCoords, new Vector2(w, 0)));
-        builder.AddVertex(new ChunkVertex(v3_tl, texCoords, new Vector2(0, 0)));
+        builder.AddVertex(new ChunkVertex(v1_bl, texCoords, new Vector2(0, h), 1));
+        builder.AddVertex(new ChunkVertex(v2_br, texCoords, new Vector2(w, h), 1));
+        builder.AddVertex(new ChunkVertex(v4_tr, texCoords, new Vector2(w, 0), 1));
+        builder.AddVertex(new ChunkVertex(v3_tl, texCoords, new Vector2(0, 0), 1));
 
         if (reversed)
         {

@@ -6,6 +6,7 @@ layout (location = 2) out vec4 gAlbedo;
 in vec3 v_viewPos;
 in vec2 v_texIndex;
 in vec2 v_uv;
+in float v_ao;
 
 uniform sampler2D uTexture;
 uniform vec2 uTileAtlasSize; 
@@ -31,5 +32,6 @@ void main()
     vec2 FinalTexCoord = UV_Start + TileRel * UV_Span;
     
     gAlbedo = texture(uTexture, FinalTexCoord);
+    gAlbedo.rgb *= v_ao;
     if (gAlbedo.a < 0.1) discard;
 }

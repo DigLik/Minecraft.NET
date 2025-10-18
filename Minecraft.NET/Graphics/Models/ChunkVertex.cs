@@ -10,7 +10,7 @@ internal readonly record struct VertexAttributeDescriptor(
 );
 
 [StructLayout(LayoutKind.Sequential)]
-public readonly unsafe struct ChunkVertex(Vector3 position, Vector2 texIndex, Vector2 uv)
+public readonly unsafe struct ChunkVertex(Vector3 position, Vector2 texIndex, Vector2 uv, float ao)
 {
     private readonly Half Px = (Half)position.X;
     private readonly Half Py = (Half)position.Y;
@@ -22,11 +22,14 @@ public readonly unsafe struct ChunkVertex(Vector3 position, Vector2 texIndex, Ve
     private readonly Half U = (Half)uv.X;
     private readonly Half V = (Half)uv.Y;
 
+    private readonly Half AO = (Half)ao;
+
     private static readonly VertexAttributeDescriptor[] Layout =
     [
         new(Location: 0, ComponentCount: 3, Type: VertexAttribPointerType.HalfFloat, FieldName: nameof(Px)),
         new(Location: 1, ComponentCount: 2, Type: VertexAttribPointerType.HalfFloat, FieldName: nameof(TexX)),
         new(Location: 2, ComponentCount: 2, Type: VertexAttribPointerType.HalfFloat, FieldName: nameof(U)),
+        new(Location: 3, ComponentCount: 1, Type: VertexAttribPointerType.HalfFloat, FieldName: nameof(AO)),
     ];
 
     public static readonly uint Stride = (uint)sizeof(ChunkVertex);

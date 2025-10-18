@@ -2,11 +2,13 @@
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec2 aTexIndex;
 layout (location = 2) in vec2 aUV;
-layout (location = 3) in mat4 aModel;
+layout (location = 3) in float aAO;
+layout (location = 4) in mat4 aModel;
 
 out vec3 v_viewPos;
 out vec2 v_texIndex;
 out vec2 v_uv;
+out float v_ao;
 
 uniform mat4 view;
 uniform mat4 projection;
@@ -19,6 +21,7 @@ void main()
     v_viewPos = viewPos.xyz;
     v_texIndex = aTexIndex;
     v_uv = aUV;
+    v_ao = aAO;
 
     gl_Position = projection * viewPos;
 }
