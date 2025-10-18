@@ -4,7 +4,7 @@ namespace Minecraft.NET.Graphics.Models;
 
 public unsafe class MeshBuilder : IDisposable
 {
-    private Half* _vertices;
+    private ChunkVertex* _vertices;
     private uint* _indices;
 
     private int _vertexCapacity;
@@ -17,28 +17,19 @@ public unsafe class MeshBuilder : IDisposable
     {
         _vertexCapacity = initialVertexCapacity;
         _indexCapacity = initialIndexCapacity;
-        _vertices = (Half*)NativeMemory.Alloc((nuint)_vertexCapacity, (nuint)sizeof(Half));
+        _vertices = (ChunkVertex*)NativeMemory.Alloc((nuint)_vertexCapacity, (nuint)sizeof(ChunkVertex));
         _indices = (uint*)NativeMemory.Alloc((nuint)_indexCapacity, sizeof(uint));
     }
 
-    public void AddVertex(float x, float y, float z, float tx, float ty, float u, float v)
+    public void AddVertex(in ChunkVertex vertex)
     {
-        const int vertexSize = 7;
-        if (VertexCount + vertexSize > _vertexCapacity)
+        if (VertexCount + 1 > _vertexCapacity)
         {
             _vertexCapacity *= 2;
-            _vertices = (Half*)NativeMemory.Realloc(_vertices, (nuint)_vertexCapacity * (nuint)sizeof(Half));
+            _vertices = (ChunkVertex*)NativeMemory.Realloc(_vertices, (nuint)_vertexCapacity * (nuint)sizeof(ChunkVertex));
         }
 
-        int currentOffset = VertexCount;
-        _vertices[currentOffset + 0] = (Half)x;
-        _vertices[currentOffset + 1] = (Half)y;
-        _vertices[currentOffset + 2] = (Half)z;
-        _vertices[currentOffset + 3] = (Half)tx;
-        _vertices[currentOffset + 4] = (Half)ty;
-        _vertices[currentOffset + 5] = (Half)u;
-        _vertices[currentOffset + 6] = (Half)v;
-        VertexCount += vertexSize;
+        _vertices[VertexCount++] = vertex;
     }
 
     public void AddIndices(uint i1, uint i2, uint i3)

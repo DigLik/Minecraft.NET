@@ -31,9 +31,10 @@ public sealed unsafe class ChunkRenderer : IDisposable
     private readonly MemoryAllocator _indexAllocator = null!;
 
     private readonly nuint VertexElementSize = (nuint)sizeof(Half);
+    private readonly nuint ComponentsPerVertex = (nuint)(sizeof(ChunkVertex) / sizeof(Half));
 
-    private const nuint VertexCapacity = MaxVisibleSections * 12000;
-    private const nuint IndexCapacity = MaxVisibleSections * 20000;
+    private const nuint VertexCapacity = (nuint)MaxVisibleSections * 12000;
+    private const nuint IndexCapacity = (nuint)MaxVisibleSections * 20000;
 
     public ChunkRenderer(GL gl, uint instanceVbo)
     {
@@ -47,7 +48,7 @@ public sealed unsafe class ChunkRenderer : IDisposable
         // Инициализация EBO
         _ebo = _gl.GenBuffer();
         _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
-        _gl.BufferData(BufferTargetARB.ElementArrayBuffer, IndexCapacity * sizeof(uint), null, BufferUsageARB.DynamicDraw);
+        _gl.BufferData(BufferTargetARB.ElementArrayBuffer, unchecked(IndexCapacity * sizeof(uint)), null, BufferUsageARB.DynamicDraw);
 
         // Инициализация Indirect Buffer
         _indirectBuffer = _gl.GenBuffer();
@@ -64,17 +65,7 @@ public sealed unsafe class ChunkRenderer : IDisposable
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
         _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
 
-        uint stride = (uint)(7 * sizeof(Half));
-        var dataType = VertexAttribPointerType.HalfFloat;
-
-        _gl.VertexAttribPointer(0, 3, dataType, false, stride, (void*)0);
-        _gl.EnableVertexAttribArray(0);
-
-        _gl.VertexAttribPointer(1, 2, dataType, false, stride, (void*)(3 * sizeof(Half)));
-        _gl.EnableVertexAttribArray(1);
-
-        _gl.VertexAttribPointer(2, 2, dataType, false, stride, (void*)(5 * sizeof(Half)));
-        _gl.EnableVertexAttribArray(2);
+        ChunkVertex.SetVertexAttribPointers(_gl);
 
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, instanceVbo);
 
@@ -100,10 +91,11 @@ public sealed unsafe class ChunkRenderer : IDisposable
     {
         if (meshData.IndexCount == 0) { meshData.Dispose(); return null; }
 
-        nuint vertexDataSize = (nuint)meshData.VertexCount * VertexElementSize;
-        nuint indexDataSize = (nuint)meshData.IndexCount * sizeof(uint);
+        nuint numComponentsToAllocate = (nuint)meshData.VertexCount * ComponentsPerVertex;
+        nuint vertexDataSizeInBytes = (nuint)meshData.VertexCount * (nuint)sizeof(ChunkVertex);
+        nuint indexDataSizeInBytes = (nuint)meshData.IndexCount * sizeof(uint);
 
-        bool vertexAllocated = _vertexAllocator.TryAllocate((nuint)meshData.VertexCount, out nuint vertexOffset);
+        bool vertexAllocated = _vertexAllocator.TryAllocate(numComponentsToAllocate, out nuint componentOffset);
 
         if (!vertexAllocated)
         {
@@ -115,19 +107,19 @@ public sealed unsafe class ChunkRenderer : IDisposable
         if (!_indexAllocator.TryAllocate((nuint)meshData.IndexCount, out nuint indexOffset))
         {
             Console.WriteLine("Chunk renderer out of index memory (or fragmented)!");
-            _vertexAllocator.Free(vertexOffset);
+            _vertexAllocator.Free(componentOffset);
             meshData.Dispose();
             return null;
         }
 
-        int baseVertex = (int)(vertexOffset / 7);
+        int baseVertex = (int)(componentOffset / ComponentsPerVertex);
         uint firstIndex = (uint)indexOffset;
 
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
-        _gl.BufferSubData(BufferTargetARB.ArrayBuffer, (nint)(vertexOffset * VertexElementSize), vertexDataSize, (void*)meshData.Vertices);
+        _gl.BufferSubData(BufferTargetARB.ArrayBuffer, (nint)(componentOffset * (nuint)sizeof(Half)), vertexDataSizeInBytes, (void*)meshData.Vertices);
 
         _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
-        _gl.BufferSubData(BufferTargetARB.ElementArrayBuffer, (nint)(indexOffset * sizeof(uint)), indexDataSize, meshData.Indices);
+        _gl.BufferSubData(BufferTargetARB.ElementArrayBuffer, (nint)(indexOffset * sizeof(uint)), indexDataSizeInBytes, meshData.Indices);
 
         var geometry = new ChunkMeshGeometry((uint)meshData.IndexCount, firstIndex, baseVertex);
 
@@ -146,14 +138,11 @@ public sealed unsafe class ChunkRenderer : IDisposable
 
     public void FreeChunkMesh(ChunkMeshGeometry geometry)
     {
-        _vertexAllocator.Free((nuint)(geometry.BaseVertex * 7));
+        _vertexAllocator.Free((nuint)geometry.BaseVertex * ComponentsPerVertex);
         _indexAllocator.Free(geometry.FirstIndex);
     }
 
-    public void Bind()
-    {
-        _gl.BindVertexArray(_vao);
-    }
+    public void Bind() => _gl.BindVertexArray(_vao);
 
     public unsafe void Draw(int commandCount)
     {

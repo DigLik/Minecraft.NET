@@ -149,7 +149,6 @@ public class ChunkMesherService : IDisposable
         _isDisposed = true;
 
         _cancellationTokenSource?.Cancel();
-        _mesherTask?.Wait();
         _cancellationTokenSource?.Dispose();
 
         GC.SuppressFinalize(this);

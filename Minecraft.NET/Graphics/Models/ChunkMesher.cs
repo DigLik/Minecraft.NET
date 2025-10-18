@@ -1,7 +1,6 @@
 ﻿using Minecraft.NET.Core.Blocks;
 using Minecraft.NET.Core.Chunks;
 using Minecraft.NET.Core.Environment;
-using System; // <-- Добавьте это
 
 namespace Minecraft.NET.Graphics.Models;
 
@@ -30,7 +29,6 @@ public static class ChunkMesher
              .TryCopyBlocks(new Span<BlockId>(neighborBlocksZN, numBlocksInColumn)); // -Z
 
         using var builder = new MeshBuilder(initialVertexCapacity: 32768, initialIndexCapacity: 49152);
-        uint vertexOffset = 0;
         const int maskSize = ChunkSize * ChunkSize;
         BlockId* mask = stackalloc BlockId[maskSize];
 
@@ -102,8 +100,7 @@ public static class ChunkMesher
                                 var v4 = new Vector3(x[0] + du[0] + dv[0], x[1] + du[1] + dv[1], x[2] + du[2] + dv[2]);
                                 bool reversed = dir == 0;
                                 if (axis == 2) { reversed = !reversed; }
-                                AddQuad(builder, v1, v2, v3, v4, w, h, reversed, texCoords, ref vertexOffset);
-                                vertexOffset += 4;
+                                AddQuad(builder, v1, v2, v3, v4, w, h, reversed, texCoords);
                                 for (int l = 0; l < h; l++) for (int k = 0; k < w; k++) mask[n + k + l * ChunkSize] = BlockId.Air;
                                 i += w; n += w;
                             }
@@ -119,14 +116,15 @@ public static class ChunkMesher
     private static void AddQuad(
         MeshBuilder builder,
         Vector3 v1_bl, Vector3 v2_br, Vector3 v3_tl, Vector3 v4_tr,
-        int w, int h, bool reversed, Vector2 texCoords, ref uint vertexOffset)
+        int w, int h, bool reversed, Vector2 texCoords)
     {
-        uint baseIndex = vertexOffset;
-        float tx = texCoords.X, ty = texCoords.Y;
-        builder.AddVertex(v1_bl.X, v1_bl.Y, v1_bl.Z, tx, ty, 0, h);
-        builder.AddVertex(v2_br.X, v2_br.Y, v2_br.Z, tx, ty, w, h);
-        builder.AddVertex(v4_tr.X, v4_tr.Y, v4_tr.Z, tx, ty, w, 0);
-        builder.AddVertex(v3_tl.X, v3_tl.Y, v3_tl.Z, tx, ty, 0, 0);
+        uint baseIndex = (uint)builder.VertexCount;
+
+        builder.AddVertex(new ChunkVertex(v1_bl, texCoords, new Vector2(0, h)));
+        builder.AddVertex(new ChunkVertex(v2_br, texCoords, new Vector2(w, h)));
+        builder.AddVertex(new ChunkVertex(v4_tr, texCoords, new Vector2(w, 0)));
+        builder.AddVertex(new ChunkVertex(v3_tl, texCoords, new Vector2(0, 0)));
+
         if (reversed)
         {
             builder.AddIndices(baseIndex + 0, baseIndex + 1, baseIndex + 2);
