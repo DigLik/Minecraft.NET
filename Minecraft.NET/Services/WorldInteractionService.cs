@@ -48,20 +48,74 @@ public class WorldInteractionService(Player player, World world)
 
     private RaycastResult? Raycast(Vector3d origin, Vector3 direction, double maxDistance)
     {
-        Vector3d pos = origin;
-        Vector3d step = Vector3d.Normalize(direction) * 0.05;
-        Vector3d lastAirPos = Vector3d.Zero;
+        Vector3d dir = Vector3d.Normalize((Vector3d)direction);
 
-        for (double dist = 0; dist < maxDistance; dist += 0.05)
+        int x = (int)Math.Floor(origin.X);
+        int y = (int)Math.Floor(origin.Y);
+        int z = (int)Math.Floor(origin.Z);
+
+        int stepX = Math.Sign(dir.X);
+        int stepY = Math.Sign(dir.Y);
+        int stepZ = Math.Sign(dir.Z);
+
+        double tDeltaX = stepX != 0 ? Math.Abs(1.0 / dir.X) : double.MaxValue;
+        double tDeltaY = stepY != 0 ? Math.Abs(1.0 / dir.Y) : double.MaxValue;
+        double tDeltaZ = stepZ != 0 ? Math.Abs(1.0 / dir.Z) : double.MaxValue;
+
+        double tMaxX = (stepX > 0) ? (Math.Floor(origin.X) + 1.0 - origin.X) * tDeltaX : (origin.X - Math.Floor(origin.X)) * tDeltaX;
+        double tMaxY = (stepY > 0) ? (Math.Floor(origin.Y) + 1.0 - origin.Y) * tDeltaY : (origin.Y - Math.Floor(origin.Y)) * tDeltaY;
+        double tMaxZ = (stepZ > 0) ? (Math.Floor(origin.Z) + 1.0 - origin.Z) * tDeltaZ : (origin.Z - Math.Floor(origin.Z)) * tDeltaZ;
+
+        int lastX = x;
+        int lastY = y;
+        int lastZ = z;
+
+        int maxSteps = (int)(maxDistance * 2) + 10;
+
+        for (int i = 0; i < maxSteps; i++)
         {
-            var currentBlockPos = new Vector3d(Math.Floor(pos.X), Math.Floor(pos.Y), Math.Floor(pos.Z));
-            var blockId = world.GetBlock(currentBlockPos);
+            var currentBlockPos = new Vector3d(x, y, z);
+            if (y >= 0 && y < WorldHeightInBlocks)
+            {
+                var blockId = world.GetBlock(currentBlockPos);
+                if (blockId != BlockId.Air)
+                    return new RaycastResult(currentBlockPos, new Vector3d(lastX, lastY, lastZ));
+            }
 
-            if (blockId != BlockId.Air)
-                return new RaycastResult(currentBlockPos, lastAirPos);
+            lastX = x;
+            lastY = y;
+            lastZ = z;
 
-            lastAirPos = currentBlockPos;
-            pos += step;
+            if (tMaxX < tMaxY)
+            {
+                if (tMaxX < tMaxZ)
+                {
+                    if (tMaxX > maxDistance) break;
+                    x += stepX;
+                    tMaxX += tDeltaX;
+                }
+                else
+                {
+                    if (tMaxZ > maxDistance) break;
+                    z += stepZ;
+                    tMaxZ += tDeltaZ;
+                }
+            }
+            else
+            {
+                if (tMaxY < tMaxZ)
+                {
+                    if (tMaxY > maxDistance) break;
+                    y += stepY;
+                    tMaxY += tDeltaY;
+                }
+                else
+                {
+                    if (tMaxZ > maxDistance) break;
+                    z += stepZ;
+                    tMaxZ += tDeltaZ;
+                }
+            }
         }
 
         return null;
