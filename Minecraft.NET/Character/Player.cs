@@ -3,7 +3,7 @@ using Minecraft.NET.Graphics;
 
 namespace Minecraft.NET.Character;
 
-public enum GameMode { Creative, Spectator }
+public enum GameMode : byte { Creative, Spectator }
 
 public class Player(Vector3d initialPosition)
 {
@@ -19,9 +19,7 @@ public class Player(Vector3d initialPosition)
     public GameMode CurrentGameMode { get; set; } = GameMode.Creative;
 
     public BoundingBox GetBoundingBox()
-    {
-        return GetBoundingBoxForPosition(Position);
-    }
+        => GetBoundingBoxForPosition(Position);
 
     public static BoundingBox GetBoundingBoxForPosition(Vector3d position)
     {
