@@ -75,7 +75,8 @@ public class ChunkMesherService : IDisposable
 
             if (_chunkManager.GetColumn(column.Position) is null || column.SectionStates[sectionY] != ChunkSectionState.Meshing)
             {
-                meshData?.Dispose();
+                if (meshData.HasValue)
+                    meshData.Value.Dispose();
                 continue;
             }
 
@@ -87,8 +88,9 @@ public class ChunkMesherService : IDisposable
             }
 
             ChunkMeshGeometry? newGeometry = null;
+
             if (meshData is not null)
-                newGeometry = _chunkRenderer?.UploadChunkMesh(meshData);
+                newGeometry = _chunkRenderer?.UploadChunkMesh(meshData.Value);
 
             column.MeshGeometries[sectionY] = newGeometry;
             column.SectionStates[sectionY] = ChunkSectionState.Rendered;

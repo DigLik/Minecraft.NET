@@ -8,10 +8,7 @@ namespace Minecraft.NET.Services;
 
 public delegate void ChunkMeshRequestHandler(ChunkColumn column, int sectionY);
 
-public class ChunkManager(
-    Player playerState,
-    WorldStorage storage
-) : IDisposable
+public class ChunkManager(Player playerState, WorldStorage storage) : IDisposable
 {
     private Action<ChunkMeshGeometry>? _meshFreeHandler = null;
     private ChunkMeshRequestHandler? _meshRequestHandler = null;
@@ -19,8 +16,9 @@ public class ChunkManager(
     private readonly ConcurrentDictionary<Vector2D<int>, ChunkColumn> _chunks = new();
     private readonly List<Vector2D<int>> _chunksToRemove = [];
 
-    private Vector2D<int> _lastPlayerChunkPos = new(int.MaxValue, int.MaxValue);
+    private readonly ConcurrentStack<ChunkColumn> _chunkPool = new();
 
+    private Vector2D<int> _lastPlayerChunkPos = new(int.MaxValue, int.MaxValue);
     private static readonly Vector2D<int>[] NeighborOffsets =
     [
         new(1, 0), new(-1, 0), new(0, 1), new(0, -1)
@@ -30,25 +28,20 @@ public class ChunkManager(
     {
         _meshRequestHandler = meshRequestHandler;
         _meshFreeHandler = meshFreeHandler;
-
-        foreach (var column in _chunks.Values)
-            column.OnFreeMeshGeometry = _meshFreeHandler;
+        foreach (var column in _chunks.Values) column.OnFreeMeshGeometry = _meshFreeHandler;
     }
 
     public void OnUpdate(double _)
     {
         if (_meshRequestHandler is null) return;
-
         var playerChunkPos = new Vector2D<int>(
             (int)Math.Floor(playerState.Position.X) >> ChunkShift,
             (int)Math.Floor(playerState.Position.Z) >> ChunkShift
         );
-
         if (playerChunkPos == _lastPlayerChunkPos) return;
 
         UnloadFarChunks(playerChunkPos);
         LoadCloseChunks(playerChunkPos);
-
         _lastPlayerChunkPos = playerChunkPos;
     }
 
@@ -59,16 +52,16 @@ public class ChunkManager(
             {
                 var offset = new Vector2D<int>(x, z);
                 var targetPos = playerChunkPos + offset;
-
                 var distSq = offset.LengthSquared;
                 if (distSq > RenderDistance * RenderDistance) continue;
 
                 if (!_chunks.ContainsKey(targetPos))
                 {
-                    var newChunk = new ChunkColumn(targetPos)
-                    {
-                        OnFreeMeshGeometry = _meshFreeHandler
-                    };
+                    if (!_chunkPool.TryPop(out var newChunk))
+                        newChunk = new ChunkColumn();
+
+                    newChunk.Reset(targetPos);
+                    newChunk.OnFreeMeshGeometry = _meshFreeHandler;
 
                     if (_chunks.TryAdd(targetPos, newChunk))
                         Task.Run(() => GenerateChunkData(newChunk));
@@ -83,11 +76,8 @@ public class ChunkManager(
 
         foreach (var chunkPair in _chunks)
         {
-            var key = chunkPair.Key;
-            if ((key - playerChunkPos).LengthSquared > unloadDistSq)
-            {
-                _chunksToRemove.Add(key);
-            }
+            if ((chunkPair.Key - playerChunkPos).LengthSquared > unloadDistSq)
+                _chunksToRemove.Add(chunkPair.Key);
         }
 
         if (_chunksToRemove.Count > 0)
@@ -96,12 +86,8 @@ public class ChunkManager(
             {
                 if (_chunks.TryRemove(posToRemove, out var removedChunk))
                 {
-                    removedChunk.Dispose();
-
-                    foreach (var offset in NeighborOffsets)
-                        if (_chunks.TryGetValue(posToRemove + offset, out var neighbor) && neighbor.IsGenerated)
-                            for (int y = 0; y < WorldHeightInChunks; y++)
-                                MarkSectionForRemeshing(neighbor, y);
+                    removedChunk.Reset(Vector2D<int>.Zero);
+                    _chunkPool.Push(removedChunk);
                 }
             }
         }
@@ -115,7 +101,6 @@ public class ChunkManager(
 
         for (int y = 0; y < WorldHeightInChunks; y++)
             MarkSectionForRemeshing(column, y);
-
         foreach (var offset in NeighborOffsets)
             if (_chunks.TryGetValue(column.Position + offset, out var neighbor) && neighbor.IsGenerated)
                 for (int y = 0; y < WorldHeightInChunks; y++)
@@ -125,10 +110,8 @@ public class ChunkManager(
     public void MarkSectionForRemeshing(ChunkColumn column, int sectionY)
     {
         if (_meshRequestHandler is null) return;
-
         if (column.SectionStates[sectionY] == ChunkSectionState.Rendered || column.SectionStates[sectionY] == ChunkSectionState.Empty)
             column.SectionStates[sectionY] = ChunkSectionState.AwaitingMesh;
-
         if (column.SectionStates[sectionY] == ChunkSectionState.AwaitingMesh)
             _meshRequestHandler(column, sectionY);
     }
@@ -140,21 +123,18 @@ public class ChunkManager(
     }
 
     public ConcurrentDictionary<Vector2D<int>, ChunkColumn> GetLoadedChunks() => _chunks;
-
     public int GetLoadedChunkCount() => _chunks.Count;
-
     public int GetMeshedSectionCount() => _chunks.Values.Sum(c => c.MeshGeometries.Count(m => m != null));
 
     public void Dispose()
     {
         lock (_chunks)
         {
-            foreach (var chunk in _chunks.Values)
-                chunk.Dispose();
-
+            foreach (var chunk in _chunks.Values) chunk.Dispose();
+            foreach (var chunk in _chunkPool) chunk.Dispose();
             _chunks.Clear();
+            _chunkPool.Clear();
         }
-
         GC.SuppressFinalize(this);
     }
 }

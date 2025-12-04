@@ -14,9 +14,12 @@ public class LightingPass : IRenderPass
         if (_lightingShader == null)
         {
             _lightingShader = new Shader(gl, Shader.LoadFromFile("Assets/Shaders/lighting.vert"), Shader.LoadFromFile("Assets/Shaders/lighting.frag"));
+
             _lightingShader.Use();
-            _lightingShader.SetInt(_lightingShader.GetUniformLocation("gAlbedo"), 0);
-            _lightingShader.SetInt(_lightingShader.GetUniformLocation("gPosition"), 1);
+            _lightingShader.SetInt(_lightingShader.GetUniformLocation("gNormal"), 0);
+            _lightingShader.SetInt(_lightingShader.GetUniformLocation("gAlbedo"), 1);
+            _lightingShader.SetInt(_lightingShader.GetUniformLocation("gDepth"), 2);
+
             _lightingShader.SetVector3(_lightingShader.GetUniformLocation("u_fogColor"), new Vector3(0.53f, 0.81f, 0.92f));
             _lightingShader.SetFloat(_lightingShader.GetUniformLocation("u_fogStart"), RenderDistance * ChunkSize * 0.5f);
             _lightingShader.SetFloat(_lightingShader.GetUniformLocation("u_fogEnd"), RenderDistance * ChunkSize * 0.95f);
@@ -28,12 +31,14 @@ public class LightingPass : IRenderPass
                  1.0f,  1.0f, 1.0f, 1.0f,
                  1.0f, -1.0f, 1.0f, 0.0f,
             ];
+
             _quadVao = gl.GenVertexArray();
             _quadVbo = gl.GenBuffer();
             gl.BindVertexArray(_quadVao);
             gl.BindBuffer(BufferTargetARB.ArrayBuffer, _quadVbo);
             fixed (float* p = quadVertices)
                 gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(quadVertices.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
+
             gl.EnableVertexAttribArray(0);
             gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 4 * sizeof(float), (void*)0);
             gl.EnableVertexAttribArray(1);
@@ -53,16 +58,27 @@ public class LightingPass : IRenderPass
     {
         PostProcessFbo.Bind();
         gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+
         _lightingShader.Use();
 
+        Matrix4x4.Invert(sharedData.RelativeViewMatrix, out var invView);
+        Matrix4x4.Invert(sharedData.ProjectionMatrix, out var invProj);
+
+        _lightingShader.SetMatrix4x4(_lightingShader.GetUniformLocation("u_inverseView"), invView);
+        _lightingShader.SetMatrix4x4(_lightingShader.GetUniformLocation("u_inverseProjection"), invProj);
+
         gl.ActiveTexture(TextureUnit.Texture0);
-        gl.BindTexture(TextureTarget.Texture2D, sharedData.GBuffer!.ColorAttachments[2]);
+        gl.BindTexture(TextureTarget.Texture2D, sharedData.GBuffer!.ColorAttachments[0]); // Normal
 
         gl.ActiveTexture(TextureUnit.Texture1);
-        gl.BindTexture(TextureTarget.Texture2D, sharedData.GBuffer!.ColorAttachments[0]);
+        gl.BindTexture(TextureTarget.Texture2D, sharedData.GBuffer!.ColorAttachments[1]); // Albedo
+
+        gl.ActiveTexture(TextureUnit.Texture2);
+        gl.BindTexture(TextureTarget.Texture2D, sharedData.GBuffer!.DepthAttachment); // Depth
 
         gl.BindVertexArray(_quadVao);
         gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
+
         PostProcessFbo.Unbind();
     }
 

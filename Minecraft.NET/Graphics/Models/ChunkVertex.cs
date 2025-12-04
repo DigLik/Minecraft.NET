@@ -6,33 +6,29 @@ internal readonly record struct VertexAttributeDescriptor(
     uint Location,
     int ComponentCount,
     VertexAttribPointerType Type,
+    bool Normalized,
     string FieldName
 );
 
-[StructLayout(LayoutKind.Sequential)]
-public readonly unsafe struct ChunkVertex(Vector3 position, Vector2 texIndex, Vector2 uv, float ao)
+[StructLayout(LayoutKind.Sequential, Pack = 1)]
+public readonly unsafe struct ChunkVertex(Vector3 pos, Vector2 texIndex, Vector2 uv, float ao)
 {
-    private readonly Half Px = (Half)position.X;
-    private readonly Half Py = (Half)position.Y;
-    private readonly Half Pz = (Half)position.Z;
+    public readonly sbyte X = (sbyte)pos.X, Y = (sbyte)pos.Y, Z = (sbyte)pos.Z;
 
-    private readonly Half TexX = (Half)texIndex.X;
-    private readonly Half TexY = (Half)texIndex.Y;
+    public readonly byte AO = (byte)(ao * 255);
 
-    private readonly Half U = (Half)uv.X;
-    private readonly Half V = (Half)uv.Y;
+    public readonly byte TexX = (byte)texIndex.X, TexY = (byte)texIndex.Y;
 
-    private readonly Half AO = (Half)ao;
-
+    public readonly sbyte U = (sbyte)uv.X, V = (sbyte)uv.Y;
     private static readonly VertexAttributeDescriptor[] Layout =
     [
-        new(Location: 0, ComponentCount: 3, Type: VertexAttribPointerType.HalfFloat, FieldName: nameof(Px)),
-        new(Location: 1, ComponentCount: 2, Type: VertexAttribPointerType.HalfFloat, FieldName: nameof(TexX)),
-        new(Location: 2, ComponentCount: 2, Type: VertexAttribPointerType.HalfFloat, FieldName: nameof(U)),
-        new(Location: 3, ComponentCount: 1, Type: VertexAttribPointerType.HalfFloat, FieldName: nameof(AO)),
+        new(0, 3, VertexAttribPointerType.Byte, false, nameof(X)), 
+        new(1, 2, VertexAttribPointerType.Byte, false, nameof(TexX)),
+        new(2, 2, VertexAttribPointerType.Byte, false, nameof(U)),
+        new(3, 1, VertexAttribPointerType.UnsignedByte, true, nameof(AO)),
     ];
 
-    public static readonly uint Stride = (uint)sizeof(ChunkVertex);
+    public static readonly uint Stride = 8;
 
     public static unsafe void SetVertexAttribPointers(GL gl)
     {
@@ -43,7 +39,7 @@ public readonly unsafe struct ChunkVertex(Vector3 position, Vector2 texIndex, Ve
                 index: attribute.Location,
                 size: attribute.ComponentCount,
                 type: attribute.Type,
-                normalized: false,
+                normalized: attribute.Normalized,
                 stride: Stride,
                 pointer: (void*)Marshal.OffsetOf<ChunkVertex>(attribute.FieldName)
             );

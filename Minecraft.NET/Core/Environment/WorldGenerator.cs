@@ -6,11 +6,9 @@ public class WorldGenerator
 {
     private const int BaseHeight = 0;
     private const float Amplitude = 50.0f;
-
     private const float CaveRadius = 0.18f;
 
     private static readonly FastNoiseLite _noise;
-
     private static readonly FastNoiseLite _caveNoiseX;
     private static readonly FastNoiseLite _caveNoiseY;
 
@@ -38,49 +36,54 @@ public class WorldGenerator
 
     public static unsafe void Generate(ChunkColumn column)
     {
-        column.DataLock.EnterWriteLock();
-        try
+        float caveRadiusSq = CaveRadius * CaveRadius;
+        int offset = VerticalChunkOffset * ChunkSize;
+
+        int safeStoneLevel = (offset - 32) >> ChunkShift;
+        for (int sy = 0; sy < safeStoneLevel; sy++)
+            column.FillSection(sy, BlockId.Stone);
+
+        for (int x = 0; x < ChunkSize; x++)
         {
-            float caveRadiusSq = CaveRadius * CaveRadius;
-            BlockId* blocks = column.Blocks;
-            if (blocks == null) return;
-
-            for (int x = 0; x < ChunkSize; x++)
+            for (int z = 0; z < ChunkSize; z++)
             {
-                for (int z = 0; z < ChunkSize; z++)
+                float worldX = column.Position.X * ChunkSize + x;
+                float worldZ = column.Position.Y * ChunkSize + z;
+
+                float noiseValue = _noise.GetNoise(worldX, worldZ);
+                int terrainHeight = (int)(BaseHeight + noiseValue * Amplitude);
+                int storageHeight = terrainHeight + offset;
+
+                if (storageHeight >= WorldHeightInBlocks) storageHeight = WorldHeightInBlocks - 1;
+                if (storageHeight < 0) storageHeight = 0;
+
+                for (int y = 0; y <= storageHeight; y++)
                 {
-                    float worldX = column.Position.X * ChunkSize + x;
-                    float worldZ = column.Position.Y * ChunkSize + z;
+                    int worldY = y - offset;
 
-                    float noiseValue = _noise.GetNoise(worldX, worldZ);
-                    int terrainHeight = (int)(BaseHeight + noiseValue * Amplitude);
+                    int sectionIndex = y >> ChunkShift;
+                    bool isSafeStoneZone = sectionIndex < safeStoneLevel;
 
-                    for (int y = 0; y < WorldHeightInBlocks; y++)
+                    float noiseValX = _caveNoiseX.GetNoise(worldX, worldY, worldZ);
+                    float noiseValY = _caveNoiseY.GetNoise(worldX, worldY, worldZ);
+                    float distFromCenterSq = noiseValX * noiseValX + noiseValY * noiseValY;
+
+                    if (distFromCenterSq < caveRadiusSq)
                     {
-                        int worldY = y - VerticalChunkOffset * ChunkSize;
-                        if (worldY > terrainHeight)
-                            continue;
-
-                        float noiseValX = _caveNoiseX.GetNoise(worldX, worldY, worldZ);
-                        float noiseValY = _caveNoiseY.GetNoise(worldX, worldY, worldZ);
-                        float distFromCenterSq = noiseValX * noiseValX + noiseValY * noiseValY;
-                        if (distFromCenterSq < caveRadiusSq) continue;
-
-                        int index = ChunkColumn.GetIndex(x, y, z);
-
-                        if (worldY == terrainHeight)
-                            blocks[index] = BlockId.Grass;
-                        else if (worldY > terrainHeight - 4)
-                            blocks[index] = BlockId.Dirt;
-                        else
-                            blocks[index] = BlockId.Stone;
+                        column.SetBlock(x, y, z, BlockId.Air);
+                        continue;
                     }
+
+                    if (isSafeStoneZone) continue;
+
+                    BlockId blockToSet;
+                    if (y == storageHeight) blockToSet = BlockId.Grass;
+                    else if (y > storageHeight - 4) blockToSet = BlockId.Dirt;
+                    else blockToSet = BlockId.Stone;
+
+                    column.SetBlock(x, y, z, blockToSet);
                 }
             }
-        }
-        finally
-        {
-            column.DataLock.ExitWriteLock();
         }
     }
 }

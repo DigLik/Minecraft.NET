@@ -1,6 +1,5 @@
 ﻿using Minecraft.NET.Graphics.Rendering;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 
 namespace Minecraft.NET.Core.Chunks;
 
@@ -9,55 +8,44 @@ public enum ChunkSectionState : byte { Empty, AwaitingMesh, Meshing, Rendered }
 public unsafe sealed class ChunkColumn : IDisposable
 {
     public readonly ReaderWriterLockSlim DataLock = new(LockRecursionPolicy.NoRecursion);
-
     public Action<ChunkMeshGeometry>? OnFreeMeshGeometry;
-
-    public readonly Vector2D<int> Position;
-    public BlockId* Blocks { get; private set; }
-
+    public Vector2D<int> Position;
+    public readonly ChunkSection[] Sections;
     public ChunkMeshGeometry?[] MeshGeometries { get; }
     public ChunkSectionState[] SectionStates { get; }
-
     public volatile bool IsGenerated;
     private volatile bool _isDisposed;
 
-    private const int FullChunkSizeInBytes = ChunkSize * WorldHeightInBlocks * ChunkSize * sizeof(BlockId);
-
-    public ChunkColumn(Vector2D<int> position)
+    public ChunkColumn()
     {
-        Position = position;
-
         MeshGeometries = new ChunkMeshGeometry?[WorldHeightInChunks];
         SectionStates = new ChunkSectionState[WorldHeightInChunks];
-        Array.Fill(SectionStates, ChunkSectionState.Empty);
-
-        Blocks = (BlockId*)NativeMemory.Alloc(ChunkSize * WorldHeightInBlocks * ChunkSize, sizeof(BlockId));
-        NativeMemory.Clear(Blocks, ChunkSize * WorldHeightInBlocks * ChunkSize * sizeof(BlockId));
+        Sections = new ChunkSection[WorldHeightInChunks];
     }
 
-    public bool TryCopyBlocks(Span<BlockId> buffer)
+    public void Reset(Vector2D<int> newPosition)
     {
-        if (buffer.Length * sizeof(BlockId) < FullChunkSizeInBytes)
-            return false; // Буфер слишком мал
+        Position = newPosition;
+        IsGenerated = false;
+        Array.Clear(SectionStates);
 
-        DataLock.EnterReadLock();
-        try
+        if (OnFreeMeshGeometry != null)
         {
-            if (_isDisposed || Blocks == null)
-                return false;
-
-            var sourceSpan = new Span<BlockId>(Blocks, ChunkSize * WorldHeightInBlocks * ChunkSize);
-            sourceSpan.CopyTo(buffer);
-            return true;
+            for (int i = 0; i < MeshGeometries.Length; i++)
+            {
+                if (MeshGeometries[i].HasValue)
+                {
+                    OnFreeMeshGeometry(MeshGeometries[i]!.Value);
+                    MeshGeometries[i] = null;
+                }
+            }
         }
-        finally
+
+        for (int i = 0; i < Sections.Length; i++)
         {
-            DataLock.ExitReadLock();
+            Sections[i].Reset();
         }
     }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static int GetIndex(int x, int y, int z) => x + (z << ChunkShift) + (y << (ChunkShift * 2));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void SetBlock(int x, int y, int z, BlockId id)
@@ -65,8 +53,12 @@ public unsafe sealed class ChunkColumn : IDisposable
         DataLock.EnterWriteLock();
         try
         {
-            if (_isDisposed || y < 0 || y >= WorldHeightInBlocks) return;
-            Blocks[GetIndex(x, y, z)] = id;
+            if (y < 0 || y >= WorldHeightInBlocks) return;
+
+            int sectionIndex = y >> ChunkShift;
+            int localY = y & ChunkMask;
+
+            Sections[sectionIndex].SetBlock(x, localY, z, id);
         }
         finally
         {
@@ -75,13 +67,22 @@ public unsafe sealed class ChunkColumn : IDisposable
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void FillSection(int sectionY, BlockId id)
+    {
+        if (sectionY < 0 || sectionY >= WorldHeightInChunks) return;
+        Sections[sectionY].Fill(id);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public BlockId GetBlock(int x, int y, int z)
     {
         DataLock.EnterReadLock();
         try
         {
-            if (_isDisposed || y < 0 || y >= WorldHeightInBlocks || Blocks == null) return BlockId.Air;
-            return Blocks[GetIndex(x, y, z)];
+            if (y < 0 || y >= WorldHeightInBlocks) return BlockId.Air;
+            int sectionIndex = y >> ChunkShift;
+            int localY = y & ChunkMask;
+            return Sections[sectionIndex].GetBlock(x, localY, z);
         }
         finally
         {
@@ -92,39 +93,9 @@ public unsafe sealed class ChunkColumn : IDisposable
     public void Dispose()
     {
         if (_isDisposed) return;
-
-        DataLock.EnterWriteLock();
-        try
-        {
-            if (_isDisposed) return;
-            _isDisposed = true;
-
-            if (OnFreeMeshGeometry != null)
-            {
-                for (int i = 0; i < MeshGeometries.Length; i++)
-                {
-                    if (MeshGeometries[i].HasValue)
-                    {
-                        OnFreeMeshGeometry(MeshGeometries[i]!.Value);
-                        MeshGeometries[i] = null;
-                    }
-                }
-            }
-
-            if (Blocks != null)
-            {
-                NativeMemory.Free(Blocks);
-                Blocks = null;
-            }
-        }
-        finally
-        {
-            DataLock.ExitWriteLock();
-        }
-
+        Reset(Vector2D<int>.Zero);
         DataLock.Dispose();
+        _isDisposed = true;
         GC.SuppressFinalize(this);
     }
-
-    ~ChunkColumn() => Dispose();
 }

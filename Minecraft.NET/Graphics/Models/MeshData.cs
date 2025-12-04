@@ -2,23 +2,19 @@
 
 namespace Minecraft.NET.Graphics.Models;
 
-public unsafe sealed class MeshData(nint vertices, int vertexCount, uint* indices, int indexCount) : IDisposable
+public unsafe readonly struct MeshData(nint vertices, int vertexCount, uint* indices, int indexCount) : IDisposable
 {
-    public nint Vertices { get; } = vertices;
-    public uint* Indices { get; } = indices;
-    public int VertexCount { get; } = vertexCount;
-    public int IndexCount { get; } = indexCount;
-
-    private bool _isDisposed = false;
+    public readonly nint Vertices = vertices;
+    public readonly uint* Indices = indices;
+    public readonly int VertexCount = vertexCount;
+    public readonly int IndexCount = indexCount;
 
     public void Dispose()
     {
-        if (_isDisposed) return;
+        if (Vertices != 0)
+            NativeMemory.Free((void*)Vertices);
 
-        if (Vertices != 0) NativeMemory.Free((void*)Vertices);
-        if (Indices != null) NativeMemory.Free(Indices);
-
-        _isDisposed = true;
-        GC.SuppressFinalize(this);
+        if (Indices != null)
+            NativeMemory.Free(Indices);
     }
 }

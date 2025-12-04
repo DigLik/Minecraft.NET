@@ -11,27 +11,17 @@ public static class ChunkMesher
 
     public static unsafe MeshData GenerateMesh(ChunkColumn column, int sectionY, World world, CancellationToken token)
     {
-        const int numBlocksInColumn = ChunkSize * WorldHeightInBlocks * ChunkSize;
+        ref var section = ref column.Sections[sectionY];
+        if (section.IsEmpty)
+            return default;
 
-        BlockId* localBlocks = stackalloc BlockId[numBlocksInColumn];
-        if (!column.TryCopyBlocks(new Span<BlockId>(localBlocks, numBlocksInColumn)))
-            return new MeshData((nint)null, 0, null, 0);
+        var pos = column.Position;
+        var colXP = world.GetColumn(pos + new Vector2D<int>(1, 0));
+        var colXN = world.GetColumn(pos + new Vector2D<int>(-1, 0));
+        var colZP = world.GetColumn(pos + new Vector2D<int>(0, 1));
+        var colZN = world.GetColumn(pos + new Vector2D<int>(0, -1));
 
-        BlockId* neighborBlocksXN = stackalloc BlockId[numBlocksInColumn];
-        BlockId* neighborBlocksXP = stackalloc BlockId[numBlocksInColumn];
-        BlockId* neighborBlocksZN = stackalloc BlockId[numBlocksInColumn];
-        BlockId* neighborBlocksZP = stackalloc BlockId[numBlocksInColumn];
-
-        world.GetColumn(column.Position + new Vector2D<int>(1, 0))?
-             .TryCopyBlocks(new Span<BlockId>(neighborBlocksXP, numBlocksInColumn));
-        world.GetColumn(column.Position + new Vector2D<int>(-1, 0))?
-             .TryCopyBlocks(new Span<BlockId>(neighborBlocksXN, numBlocksInColumn));
-        world.GetColumn(column.Position + new Vector2D<int>(0, 1))?
-             .TryCopyBlocks(new Span<BlockId>(neighborBlocksZP, numBlocksInColumn));
-        world.GetColumn(column.Position + new Vector2D<int>(0, -1))?
-             .TryCopyBlocks(new Span<BlockId>(neighborBlocksZN, numBlocksInColumn));
-
-        using var builder = new MeshBuilder(initialVertexCapacity: 32768, initialIndexCapacity: 49152);
+        using var builder = new MeshBuilder(initialVertexCapacity: 4096, initialIndexCapacity: 6144);
 
         const int maskSize = ChunkSize * ChunkSize;
         BlockId* mask = stackalloc BlockId[maskSize];
@@ -67,8 +57,8 @@ public static class ChunkMesher
                     {
                         for (x[u] = 0; x[u] < ChunkSize; x[u]++)
                         {
-                            var blockCurrent = GetBlockSafe(sectionY, x[0], x[1], x[2], localBlocks, neighborBlocksXP, neighborBlocksXN, neighborBlocksZP, neighborBlocksZN);
-                            var blockNeighbor = GetBlockSafe(sectionY, x[0] + q[0], x[1] + q[1], x[2] + q[2], localBlocks, neighborBlocksXP, neighborBlocksXN, neighborBlocksZP, neighborBlocksZN);
+                            var blockCurrent = GetBlockSafeSmart(sectionY, x[0], x[1], x[2], column, colXP, colXN, colZP, colZN);
+                            var blockNeighbor = GetBlockSafeSmart(sectionY, x[0] + q[0], x[1] + q[1], x[2] + q[2], column, colXP, colXN, colZP, colZN);
 
                             bool isCurrentSolid = blockCurrent != BlockId.Air;
                             bool isNeighborSolid = blockNeighbor != BlockId.Air;
@@ -77,27 +67,21 @@ public static class ChunkMesher
 
                             if (dir == 1)
                             {
-                                if (isCurrentSolid && !isNeighborSolid)
-                                    faceBlockId = blockCurrent;
+                                if (isCurrentSolid && !isNeighborSolid) faceBlockId = blockCurrent;
                             }
                             else
                             {
-                                if (!isCurrentSolid && isNeighborSolid)
-                                    faceBlockId = blockNeighbor;
+                                if (!isCurrentSolid && isNeighborSolid) faceBlockId = blockNeighbor;
                             }
 
                             if (faceBlockId != BlockId.Air)
                             {
-                                int bx = (dir == 1) ? x[0] : x[0] + q[0];
-                                int by = (dir == 1) ? x[1] : x[1] + q[1];
-                                int bz = (dir == 1) ? x[2] : x[2] + q[2];
-
                                 int neighborX = (dir == 1) ? x[0] + q[0] : x[0];
                                 int neighborY = (dir == 1) ? x[1] + q[1] : x[1];
                                 int neighborZ = (dir == 1) ? x[2] + q[2] : x[2];
 
                                 aoData = CalculateFaceAO(axis, neighborX, neighborY, neighborZ, sectionY,
-                                    localBlocks, neighborBlocksXP, neighborBlocksXN, neighborBlocksZP, neighborBlocksZN);
+                                    column, colXP, colXN, colZP, colZN);
                             }
 
                             mask[n] = faceBlockId;
@@ -107,8 +91,8 @@ public static class ChunkMesher
                     }
 
                     x[d]++;
-
                     n = 0;
+
                     for (int j = 0; j < ChunkSize; j++)
                     {
                         for (int i = 0; i < ChunkSize;)
@@ -120,8 +104,7 @@ public static class ChunkMesher
                                 int w, h;
 
                                 for (w = 1; i + w < ChunkSize; w++)
-                                    if (mask[n + w] != blockId || maskAO[n + w] != aoData)
-                                        break;
+                                    if (mask[n + w] != blockId || maskAO[n + w] != aoData) break;
 
                                 bool done = false;
                                 for (h = 1; j + h < ChunkSize; h++)
@@ -143,21 +126,23 @@ public static class ChunkMesher
                                 var du = new int[3]; du[u] = w;
                                 var dv = new int[3]; dv[v] = h;
 
-                                var blockDef = BlockRegistry.Definitions[blockId];
-                                Vector2 texCoords;
-                                if (axis == 0) texCoords = blockDef.Textures.Side;
-                                else if (axis == 1) texCoords = (dir == 0) ? blockDef.Textures.Bottom : blockDef.Textures.Top;
-                                else texCoords = blockDef.Textures.Side;
+                                if (BlockRegistry.Definitions.TryGetValue(blockId, out var blockDef))
+                                {
+                                    Vector2 texCoords;
+                                    if (axis == 0) texCoords = blockDef.Textures.Side;
+                                    else if (axis == 1) texCoords = (dir == 0) ? blockDef.Textures.Bottom : blockDef.Textures.Top;
+                                    else texCoords = blockDef.Textures.Side;
 
-                                var v1 = new Vector3(x[0], x[1], x[2]);
-                                var v2 = new Vector3(x[0] + du[0], x[1] + du[1], x[2] + du[2]);
-                                var v3 = new Vector3(x[0] + dv[0], x[1] + dv[1], x[2] + dv[2]);
-                                var v4 = new Vector3(x[0] + du[0] + dv[0], x[1] + du[1] + dv[1], x[2] + du[2] + dv[2]);
+                                    var v1 = new Vector3(x[0], x[1], x[2]);
+                                    var v2 = new Vector3(x[0] + du[0], x[1] + du[1], x[2] + du[2]);
+                                    var v3 = new Vector3(x[0] + dv[0], x[1] + dv[1], x[2] + dv[2]);
+                                    var v4 = new Vector3(x[0] + du[0] + dv[0], x[1] + du[1] + dv[1], x[2] + du[2] + dv[2]);
 
-                                bool reversed = dir == 0;
-                                if (axis == 2) reversed = !reversed;
+                                    bool reversed = dir == 0;
+                                    if (axis == 2) reversed = !reversed;
 
-                                AddQuad(builder, v1, v2, v3, v4, w, h, reversed, texCoords, aoData);
+                                    AddQuad(builder, v1, v2, v3, v4, w, h, reversed, texCoords, aoData);
+                                }
 
                                 for (int l = 0; l < h; l++)
                                 {
@@ -168,12 +153,10 @@ public static class ChunkMesher
                                     }
                                 }
 
-                                i += w; n += w;
+                                i += w;
+                                n += w;
                             }
-                            else
-                            {
-                                i++; n++;
-                            }
+                            else { i++; n++; }
                         }
                     }
                 }
@@ -183,8 +166,49 @@ public static class ChunkMesher
         return builder.Build();
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static unsafe BlockId GetBlockSafeSmart(int centerSectionY, int x, int y, int z,
+        ChunkColumn cur, ChunkColumn? xp, ChunkColumn? xn, ChunkColumn? zp, ChunkColumn? zn)
+    {
+        ChunkColumn? targetColumn = cur;
+        int localX = x;
+        int localZ = z;
+
+        if (x < 0) { targetColumn = xn; localX += ChunkSize; }
+        else if (x >= ChunkSize) { targetColumn = xp; localX -= ChunkSize; }
+
+        if (z < 0) { targetColumn = zn; localZ += ChunkSize; }
+        else if (z >= ChunkSize) { targetColumn = zp; localZ -= ChunkSize; }
+
+        if (targetColumn == null) return BlockId.Air;
+
+        int absoluteSectionIndex = centerSectionY;
+        int localY = y;
+
+        if (y < 0)
+        {
+            absoluteSectionIndex--;
+            localY += ChunkSize;
+        }
+        else if (y >= ChunkSize)
+        {
+            absoluteSectionIndex++;
+            localY -= ChunkSize;
+        }
+
+        if (absoluteSectionIndex < 0 || absoluteSectionIndex >= WorldHeightInChunks)
+            return BlockId.Air;
+
+        ref var section = ref targetColumn.Sections[absoluteSectionIndex];
+
+        if (!section.IsAllocated)
+            return section.UniformId;
+
+        return section.Blocks[ChunkSection.GetIndex(localX, localY, localZ)];
+    }
+
     private static unsafe uint CalculateFaceAO(int axis, int x, int y, int z, int sectionY,
-        BlockId* cur, BlockId* xp, BlockId* xn, BlockId* zp, BlockId* zn)
+        ChunkColumn cur, ChunkColumn? xp, ChunkColumn? xn, ChunkColumn? zp, ChunkColumn? zn)
     {
         int ux = 0, uy = 0, uz = 0;
         int vx = 0, vy = 0, vz = 0;
@@ -197,7 +221,6 @@ public static class ChunkMesher
         int b = GetOpacity(sectionY, x - vx, y - vy, z - vz, cur, xp, xn, zp, zn);
         int r = GetOpacity(sectionY, x + ux, y + uy, z + uz, cur, xp, xn, zp, zn);
         int l = GetOpacity(sectionY, x - ux, y - uy, z - uz, cur, xp, xn, zp, zn);
-
         int tr = GetOpacity(sectionY, x + ux + vx, y + uy + vy, z + uz + vz, cur, xp, xn, zp, zn);
         int tl = GetOpacity(sectionY, x - ux + vx, y - uy + vy, z - uz + vz, cur, xp, xn, zp, zn);
         int br = GetOpacity(sectionY, x + ux - vx, y + uy - vy, z + uz - vz, cur, xp, xn, zp, zn);
@@ -220,9 +243,9 @@ public static class ChunkMesher
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static unsafe int GetOpacity(int sectionY, int x, int y, int z,
-        BlockId* cur, BlockId* xp, BlockId* xn, BlockId* zp, BlockId* zn)
+        ChunkColumn cur, ChunkColumn? xp, ChunkColumn? xn, ChunkColumn? zp, ChunkColumn? zn)
     {
-        BlockId id = GetBlockSafe(sectionY, x, y, z, cur, xp, xn, zp, zn);
+        BlockId id = GetBlockSafeSmart(sectionY, x, y, z, cur, xp, xn, zp, zn);
         return id == BlockId.Air ? 0 : 1;
     }
 
@@ -253,32 +276,5 @@ public static class ChunkMesher
             builder.AddIndices(baseIndex + 0, baseIndex + 2, baseIndex + 1);
             builder.AddIndices(baseIndex + 0, baseIndex + 3, baseIndex + 2);
         }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static unsafe BlockId GetBlockSafe(int sectionY, int x, int y, int z,
-        BlockId* currentBlocks, BlockId* nXP, BlockId* nXN, BlockId* nZP, BlockId* nZN)
-    {
-        int worldY = sectionY * ChunkSize + y;
-
-        if (worldY < 0 || worldY >= WorldHeightInBlocks)
-            return BlockId.Air;
-
-        BlockId* targetBuffer;
-        int localX = x, localZ = z;
-
-        if (x >= 0 && x < ChunkSize && z >= 0 && z < ChunkSize)
-        {
-            targetBuffer = currentBlocks;
-        }
-        else if (x < 0) { localX += ChunkSize; targetBuffer = nXN; }
-        else if (x >= ChunkSize) { localX -= ChunkSize; targetBuffer = nXP; }
-        else if (z < 0) { localZ += ChunkSize; targetBuffer = nZN; }
-        else { localZ -= ChunkSize; targetBuffer = nZP; }
-
-        if (targetBuffer == null)
-            return BlockId.Air;
-
-        return targetBuffer[ChunkColumn.GetIndex(localX, worldY, localZ)];
     }
 }

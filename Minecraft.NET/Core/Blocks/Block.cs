@@ -1,6 +1,6 @@
 ﻿namespace Minecraft.NET.Core.Blocks;
 
-public enum BlockId : ushort
+public enum BlockId : byte
 {
     Air = 0,
     Stone = 1,
@@ -13,7 +13,7 @@ public readonly record struct BlockDefinition(BlockId Id, string Name, BlockFace
 
 public static class BlockRegistry
 {
-    public static readonly Dictionary<BlockId, BlockDefinition> Definitions = [];
+    public static Dictionary<BlockId, BlockDefinition> Definitions { get; } = [];
 
     public static void Initialize()
     {

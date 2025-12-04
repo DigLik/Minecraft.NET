@@ -22,42 +22,45 @@ public sealed unsafe class ChunkRenderer : IDisposable
 {
     private readonly GL _gl;
 
-    private readonly uint _vao;
-    private readonly uint _vbo;
-    private readonly uint _ebo;
+    private uint _vao;
+    private uint _vbo;
+    private uint _ebo;
     private readonly uint _indirectBuffer;
+    private readonly uint _instanceVbo;
 
-    private readonly MemoryAllocator _vertexAllocator = null!;
-    private readonly MemoryAllocator _indexAllocator = null!;
+    private readonly MemoryAllocator _vertexAllocator;
+    private readonly MemoryAllocator _indexAllocator;
 
-    private readonly nuint VertexElementSize = (nuint)sizeof(Half);
-    private readonly nuint ComponentsPerVertex = (nuint)(sizeof(ChunkVertex) / sizeof(Half));
-
-    private const nuint VertexCapacity = (nuint)MaxVisibleSections * 12000;
-    private const nuint IndexCapacity = (nuint)MaxVisibleSections * 20000;
+    // 2 МБ вершин и 4 МБ индексов для старта.
+    private nuint _currentVertexCapacity = 1024 * 256;
+    private nuint _currentIndexCapacity = 1024 * 512;
 
     public ChunkRenderer(GL gl, uint instanceVbo)
     {
         _gl = gl;
+        _instanceVbo = instanceVbo;
 
-        // Инициализация VBO
         _vbo = _gl.GenBuffer();
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
-        _gl.BufferData(BufferTargetARB.ArrayBuffer, VertexCapacity * VertexElementSize, null, BufferUsageARB.DynamicDraw);
+        _gl.BufferData(BufferTargetARB.ArrayBuffer, _currentVertexCapacity * ChunkVertex.Stride, null, BufferUsageARB.DynamicDraw);
 
-        // Инициализация EBO
         _ebo = _gl.GenBuffer();
         _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
-        _gl.BufferData(BufferTargetARB.ElementArrayBuffer, unchecked(IndexCapacity * sizeof(uint)), null, BufferUsageARB.DynamicDraw);
+        _gl.BufferData(BufferTargetARB.ElementArrayBuffer, _currentIndexCapacity * sizeof(uint), null, BufferUsageARB.DynamicDraw);
 
-        // Инициализация Indirect Buffer
         _indirectBuffer = _gl.GenBuffer();
         _gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, _indirectBuffer);
         _gl.BufferData(BufferTargetARB.DrawIndirectBuffer, (nuint)(MaxVisibleSections * sizeof(DrawElementsIndirectCommand)), null, BufferUsageARB.StreamDraw);
 
-        // Инициализация аллокаторов
-        _vertexAllocator = new MemoryAllocator(VertexCapacity);
-        _indexAllocator = new MemoryAllocator(IndexCapacity);
+        _vertexAllocator = new MemoryAllocator(_currentVertexCapacity);
+        _indexAllocator = new MemoryAllocator(_currentIndexCapacity);
+
+        SetupVao();
+    }
+
+    private void SetupVao()
+    {
+        if (_vao != 0) _gl.DeleteVertexArray(_vao);
 
         _vao = _gl.GenVertexArray();
         _gl.BindVertexArray(_vao);
@@ -67,22 +70,16 @@ public sealed unsafe class ChunkRenderer : IDisposable
 
         ChunkVertex.SetVertexAttribPointers(_gl);
 
-        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, instanceVbo);
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
 
         uint matrixSize = (uint)sizeof(Matrix4x4);
-        _gl.EnableVertexAttribArray(4);
-        _gl.VertexAttribPointer(4, 4, VertexAttribPointerType.Float, false, matrixSize, 0);
-        _gl.EnableVertexAttribArray(5);
-        _gl.VertexAttribPointer(5, 4, VertexAttribPointerType.Float, false, matrixSize, sizeof(Vector4));
-        _gl.EnableVertexAttribArray(6);
-        _gl.VertexAttribPointer(6, 4, VertexAttribPointerType.Float, false, matrixSize, 2 * sizeof(Vector4));
-        _gl.EnableVertexAttribArray(7);
-        _gl.VertexAttribPointer(7, 4, VertexAttribPointerType.Float, false, matrixSize, 3 * sizeof(Vector4));
-
-        _gl.VertexAttribDivisor(4, 1);
-        _gl.VertexAttribDivisor(5, 1);
-        _gl.VertexAttribDivisor(6, 1);
-        _gl.VertexAttribDivisor(7, 1);
+        for (uint i = 0; i < 4; i++)
+        {
+            uint loc = 4 + i;
+            _gl.EnableVertexAttribArray(loc);
+            _gl.VertexAttribPointer(loc, 4, VertexAttribPointerType.Float, false, matrixSize, (void*)(i * sizeof(Vector4)));
+            _gl.VertexAttribDivisor(loc, 1);
+        }
 
         _gl.BindVertexArray(0);
     }
@@ -91,35 +88,29 @@ public sealed unsafe class ChunkRenderer : IDisposable
     {
         if (meshData.IndexCount == 0) { meshData.Dispose(); return null; }
 
-        nuint numComponentsToAllocate = (nuint)meshData.VertexCount * ComponentsPerVertex;
-        nuint vertexDataSizeInBytes = (nuint)meshData.VertexCount * (nuint)sizeof(ChunkVertex);
-        nuint indexDataSizeInBytes = (nuint)meshData.IndexCount * sizeof(uint);
-
-        bool vertexAllocated = _vertexAllocator.TryAllocate(numComponentsToAllocate, out nuint componentOffset);
-
-        if (!vertexAllocated)
+        if (!_vertexAllocator.TryAllocate((nuint)meshData.VertexCount, out nuint vertexOffset))
         {
-            Console.WriteLine("Chunk renderer out of vertex memory!");
-            meshData.Dispose();
-            return null;
+            ResizeVertexBuffer((nuint)meshData.VertexCount);
+            _vertexAllocator.TryAllocate((nuint)meshData.VertexCount, out vertexOffset);
         }
 
         if (!_indexAllocator.TryAllocate((nuint)meshData.IndexCount, out nuint indexOffset))
         {
-            Console.WriteLine("Chunk renderer out of index memory (or fragmented)!");
-            _vertexAllocator.Free(componentOffset);
-            meshData.Dispose();
-            return null;
+            ResizeIndexBuffer((nuint)meshData.IndexCount);
+            _indexAllocator.TryAllocate((nuint)meshData.IndexCount, out indexOffset);
         }
 
-        int baseVertex = (int)(componentOffset / ComponentsPerVertex);
+        int baseVertex = (int)vertexOffset;
         uint firstIndex = (uint)indexOffset;
 
+        nuint vertexSizeInBytes = (nuint)meshData.VertexCount * ChunkVertex.Stride;
+        nuint indexSizeInBytes = (nuint)meshData.IndexCount * sizeof(uint);
+
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
-        _gl.BufferSubData(BufferTargetARB.ArrayBuffer, (nint)(componentOffset * (nuint)sizeof(Half)), vertexDataSizeInBytes, (void*)meshData.Vertices);
+        _gl.BufferSubData(BufferTargetARB.ArrayBuffer, (nint)(vertexOffset * ChunkVertex.Stride), vertexSizeInBytes, (void*)meshData.Vertices);
 
         _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
-        _gl.BufferSubData(BufferTargetARB.ElementArrayBuffer, (nint)(indexOffset * sizeof(uint)), indexDataSizeInBytes, meshData.Indices);
+        _gl.BufferSubData(BufferTargetARB.ElementArrayBuffer, (nint)(indexOffset * sizeof(uint)), indexSizeInBytes, meshData.Indices);
 
         var geometry = new ChunkMeshGeometry((uint)meshData.IndexCount, firstIndex, baseVertex);
 
@@ -127,10 +118,49 @@ public sealed unsafe class ChunkRenderer : IDisposable
         return geometry;
     }
 
+    private void ResizeVertexBuffer(nuint requiredExtraSize)
+    {
+        nuint newCapacity = Math.Max(_currentVertexCapacity * 2, _currentVertexCapacity + requiredExtraSize + 1024);
+
+        uint newVbo = _gl.GenBuffer();
+        _gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, newVbo);
+        _gl.BufferData(BufferTargetARB.CopyWriteBuffer, newCapacity * ChunkVertex.Stride, null, BufferUsageARB.DynamicDraw);
+
+        _gl.BindBuffer(BufferTargetARB.CopyReadBuffer, _vbo);
+        _gl.CopyBufferSubData(CopyBufferSubDataTarget.CopyReadBuffer, CopyBufferSubDataTarget.CopyWriteBuffer, 0, 0, _currentVertexCapacity * ChunkVertex.Stride);
+
+        _gl.DeleteBuffer(_vbo);
+        _vbo = newVbo;
+
+        _vertexAllocator.Grow(newCapacity);
+        _currentVertexCapacity = newCapacity;
+
+        SetupVao();
+    }
+
+    private void ResizeIndexBuffer(nuint requiredExtraSize)
+    {
+        nuint newCapacity = Math.Max(_currentIndexCapacity * 2, _currentIndexCapacity + requiredExtraSize + 1024);
+
+        uint newEbo = _gl.GenBuffer();
+        _gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, newEbo);
+        _gl.BufferData(BufferTargetARB.CopyWriteBuffer, newCapacity * sizeof(uint), null, BufferUsageARB.DynamicDraw);
+
+        _gl.BindBuffer(BufferTargetARB.CopyReadBuffer, _ebo);
+        _gl.CopyBufferSubData(CopyBufferSubDataTarget.CopyReadBuffer, CopyBufferSubDataTarget.CopyWriteBuffer, 0, 0, _currentIndexCapacity * sizeof(uint));
+
+        _gl.DeleteBuffer(_ebo);
+        _ebo = newEbo;
+
+        _indexAllocator.Grow(newCapacity);
+        _currentIndexCapacity = newCapacity;
+
+        SetupVao();
+    }
+
     public void UploadIndirectCommands(List<DrawElementsIndirectCommand> commands)
     {
         if (commands.Count == 0) return;
-
         _gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, _indirectBuffer);
         fixed (DrawElementsIndirectCommand* ptr = CollectionsMarshal.AsSpan(commands))
             _gl.BufferSubData(BufferTargetARB.DrawIndirectBuffer, 0, (nuint)(commands.Count * sizeof(DrawElementsIndirectCommand)), ptr);
@@ -138,16 +168,15 @@ public sealed unsafe class ChunkRenderer : IDisposable
 
     public void FreeChunkMesh(ChunkMeshGeometry geometry)
     {
-        _vertexAllocator.Free((nuint)geometry.BaseVertex * ComponentsPerVertex);
+        _vertexAllocator.Free((nuint)geometry.BaseVertex);
         _indexAllocator.Free(geometry.FirstIndex);
     }
 
     public void Bind() => _gl.BindVertexArray(_vao);
 
-    public unsafe void Draw(int commandCount)
+    public void Draw(int commandCount)
     {
         if (commandCount == 0) return;
-
         _gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, _indirectBuffer);
         _gl.MultiDrawElementsIndirect(PrimitiveType.Triangles, DrawElementsType.UnsignedInt, null, (uint)commandCount, 0);
     }

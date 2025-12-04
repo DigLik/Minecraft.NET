@@ -10,15 +10,21 @@ public class MemoryAllocator
 
     private readonly LinkedList<FreeBlock> _freeList = new();
     private readonly Dictionary<nuint, nuint> _allocations = [];
+    public nuint Capacity { get; private set; }
 
-    public MemoryAllocator(nuint capacity)
+    public MemoryAllocator(nuint initialCapacity)
     {
-        _freeList.AddFirst(new LinkedListNode<FreeBlock>(new FreeBlock(0, capacity)));
+        Capacity = initialCapacity;
+        _freeList.AddFirst(new LinkedListNode<FreeBlock>(new FreeBlock(0, Capacity)));
     }
 
     public bool TryAllocate(nuint size, out nuint offset)
     {
-        if (size == 0) { offset = 0; return false; }
+        if (size == 0)
+        {
+            offset = 0;
+            return false;
+        }
 
         var node = _freeList.First;
         while (node != null)
@@ -69,10 +75,22 @@ public class MemoryAllocator
         Coalesce(newNode);
     }
 
+    public void Grow(nuint newCapacity)
+    {
+        if (newCapacity <= Capacity) return;
+
+        nuint addedSize = newCapacity - Capacity;
+        nuint oldCapacity = Capacity;
+        Capacity = newCapacity;
+
+        var newNode = _freeList.AddLast(new FreeBlock(oldCapacity, addedSize));
+
+        Coalesce(newNode);
+    }
+
     private void Coalesce(LinkedListNode<FreeBlock> node)
     {
         var block = node.Value;
-
         var prevNode = node.Previous;
         if (prevNode != null)
         {
