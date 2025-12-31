@@ -2,7 +2,7 @@
 using Minecraft.NET.Core.Common;
 using Minecraft.NET.Graphics.Rendering.Passes;
 using Minecraft.NET.Services;
-using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 
 namespace Minecraft.NET.Graphics.Rendering;
 
@@ -24,7 +24,7 @@ public class RenderPipeline(
     {
         InstanceVbo = gl.GenBuffer();
         gl.BindBuffer(BufferTargetARB.ArrayBuffer, InstanceVbo);
-        gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(MaxVisibleSections * sizeof(Matrix4x4)), null, BufferUsageARB.StreamDraw);
+        gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(MaxVisibleSections * sizeof(Vector3)), null, BufferUsageARB.StreamDraw);
 
         ChunkRenderer = new ChunkRenderer(gl, InstanceVbo);
 
@@ -72,14 +72,27 @@ public class RenderPipeline(
         _sharedRenderData.ViewMatrix = camera.GetViewMatrix();
         _sharedRenderData.RelativeViewMatrix = relativeViewMatrix;
         _sharedRenderData.ProjectionMatrix = projection;
-        _sharedRenderData.VisibleGeometries = visibleScene.VisibleGeometries;
-        _sharedRenderData.ModelMatrices = visibleScene.ModelMatrices;
+
+        _sharedRenderData.IndirectCommands = visibleScene.IndirectCommands;
+        _sharedRenderData.ChunkOffsets = visibleScene.ChunkOffsets;
+        _sharedRenderData.VisibleCount = visibleScene.VisibleSectionCount;
 
         if (VisibleSectionCount > 0)
         {
             gl.BindBuffer(BufferTargetARB.ArrayBuffer, InstanceVbo);
-            fixed (Matrix4x4* p = CollectionsMarshal.AsSpan(visibleScene.ModelMatrices))
-                gl.BufferSubData(BufferTargetARB.ArrayBuffer, 0, (nuint)(visibleScene.VisibleSectionCount * sizeof(Matrix4x4)), p);
+
+            nuint sizeInBytes = (nuint)(visibleScene.VisibleSectionCount * sizeof(Vector3));
+            gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(MaxVisibleSections * sizeof(Vector3)), null, BufferUsageARB.StreamDraw);
+
+            void* ptr = gl.MapBufferRange(BufferTargetARB.ArrayBuffer, 0, sizeInBytes,
+                (uint)(MapBufferAccessMask.WriteBit | MapBufferAccessMask.InvalidateBufferBit | MapBufferAccessMask.UnsynchronizedBit));
+
+            if (ptr != null)
+            {
+                fixed (Vector3* source = visibleScene.ChunkOffsets)
+                    Unsafe.CopyBlock(ptr, source, (uint)sizeInBytes);
+                gl.UnmapBuffer(BufferTargetARB.ArrayBuffer);
+            }
         }
 
         foreach (var pass in _renderPasses)

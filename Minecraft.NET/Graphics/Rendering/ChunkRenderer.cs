@@ -31,7 +31,6 @@ public sealed unsafe class ChunkRenderer : IDisposable
     private readonly MemoryAllocator _vertexAllocator;
     private readonly MemoryAllocator _indexAllocator;
 
-    // 2 МБ вершин и 4 МБ индексов для старта.
     private nuint _currentVertexCapacity = 1024 * 256;
     private nuint _currentIndexCapacity = 1024 * 512;
 
@@ -72,21 +71,18 @@ public sealed unsafe class ChunkRenderer : IDisposable
 
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
 
-        uint matrixSize = (uint)sizeof(Matrix4x4);
-        for (uint i = 0; i < 4; i++)
-        {
-            uint loc = 4 + i;
-            _gl.EnableVertexAttribArray(loc);
-            _gl.VertexAttribPointer(loc, 4, VertexAttribPointerType.Float, false, matrixSize, (void*)(i * sizeof(Vector4)));
-            _gl.VertexAttribDivisor(loc, 1);
-        }
+        uint vec3Size = (uint)sizeof(Vector3);
+        uint loc = 4;
+        _gl.EnableVertexAttribArray(loc);
+        _gl.VertexAttribPointer(loc, 3, VertexAttribPointerType.Float, false, vec3Size, (void*)0);
+        _gl.VertexAttribDivisor(loc, 1);
 
         _gl.BindVertexArray(0);
     }
 
-    public ChunkMeshGeometry? UploadChunkMesh(MeshData meshData)
+    public ChunkMeshGeometry UploadChunkMesh(MeshData meshData)
     {
-        if (meshData.IndexCount == 0) { meshData.Dispose(); return null; }
+        if (meshData.IndexCount == 0) { meshData.Dispose(); return default; }
 
         if (!_vertexAllocator.TryAllocate((nuint)meshData.VertexCount, out nuint vertexOffset))
         {
@@ -158,12 +154,17 @@ public sealed unsafe class ChunkRenderer : IDisposable
         SetupVao();
     }
 
-    public void UploadIndirectCommands(List<DrawElementsIndirectCommand> commands)
+    public unsafe void UploadIndirectCommands(DrawElementsIndirectCommand* commands, int count)
     {
-        if (commands.Count == 0) return;
+        if (count == 0) return;
+
         _gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, _indirectBuffer);
-        fixed (DrawElementsIndirectCommand* ptr = CollectionsMarshal.AsSpan(commands))
-            _gl.BufferSubData(BufferTargetARB.DrawIndirectBuffer, 0, (nuint)(commands.Count * sizeof(DrawElementsIndirectCommand)), ptr);
+        _gl.BufferSubData(
+            BufferTargetARB.DrawIndirectBuffer,
+            0,
+            (nuint)(count * sizeof(DrawElementsIndirectCommand)),
+            commands
+        );
     }
 
     public void FreeChunkMesh(ChunkMeshGeometry geometry)

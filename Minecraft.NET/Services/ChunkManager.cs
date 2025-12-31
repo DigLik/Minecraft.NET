@@ -14,6 +14,7 @@ public class ChunkManager(Player playerState, WorldStorage storage) : IDisposabl
     private ChunkMeshRequestHandler? _meshRequestHandler = null;
 
     private readonly ConcurrentDictionary<Vector2D<int>, ChunkColumn> _chunks = new();
+    public List<ChunkColumn> RenderChunks { get; } = [];
     private readonly List<Vector2D<int>> _chunksToRemove = [];
 
     private readonly ConcurrentStack<ChunkColumn> _chunkPool = new();
@@ -64,7 +65,11 @@ public class ChunkManager(Player playerState, WorldStorage storage) : IDisposabl
                     newChunk.OnFreeMeshGeometry = _meshFreeHandler;
 
                     if (_chunks.TryAdd(targetPos, newChunk))
+                    {
+                        lock (RenderChunks)
+                            RenderChunks.Add(newChunk);
                         Task.Run(() => GenerateChunkData(newChunk));
+                    }
                 }
             }
     }
@@ -82,14 +87,16 @@ public class ChunkManager(Player playerState, WorldStorage storage) : IDisposabl
 
         if (_chunksToRemove.Count > 0)
         {
-            foreach (var posToRemove in _chunksToRemove)
-            {
-                if (_chunks.TryRemove(posToRemove, out var removedChunk))
+            lock (RenderChunks)
+                foreach (var posToRemove in _chunksToRemove)
                 {
-                    removedChunk.Reset(Vector2D<int>.Zero);
-                    _chunkPool.Push(removedChunk);
+                    if (_chunks.TryRemove(posToRemove, out var removedChunk))
+                    {
+                        RenderChunks.Remove(removedChunk);
+                        removedChunk.Reset(Vector2D<int>.Zero);
+                        _chunkPool.Push(removedChunk);
+                    }
                 }
-            }
         }
     }
 
@@ -122,7 +129,6 @@ public class ChunkManager(Player playerState, WorldStorage storage) : IDisposabl
         return chunk;
     }
 
-    public ConcurrentDictionary<Vector2D<int>, ChunkColumn> GetLoadedChunks() => _chunks;
     public int GetLoadedChunkCount() => _chunks.Count;
     public int GetMeshedSectionCount() => _chunks.Values.Sum(c => c.MeshGeometries.Count(m => m != null));
 

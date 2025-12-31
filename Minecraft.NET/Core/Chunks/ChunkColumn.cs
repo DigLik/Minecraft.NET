@@ -11,14 +11,16 @@ public unsafe sealed class ChunkColumn : IDisposable
     public Action<ChunkMeshGeometry>? OnFreeMeshGeometry;
     public Vector2D<int> Position;
     public readonly ChunkSection[] Sections;
-    public ChunkMeshGeometry?[] MeshGeometries { get; }
+    public ChunkMeshGeometry[] MeshGeometries { get; }
     public ChunkSectionState[] SectionStates { get; }
     public volatile bool IsGenerated;
+    public ushort ActiveMask;
+
     private volatile bool _isDisposed;
 
     public ChunkColumn()
     {
-        MeshGeometries = new ChunkMeshGeometry?[WorldHeightInChunks];
+        MeshGeometries = new ChunkMeshGeometry[WorldHeightInChunks];
         SectionStates = new ChunkSectionState[WorldHeightInChunks];
         Sections = new ChunkSection[WorldHeightInChunks];
     }
@@ -30,21 +32,23 @@ public unsafe sealed class ChunkColumn : IDisposable
         Array.Clear(SectionStates);
 
         if (OnFreeMeshGeometry != null)
-        {
-            for (int i = 0; i < MeshGeometries.Length; i++)
+            while (ActiveMask != 0)
             {
-                if (MeshGeometries[i].HasValue)
+                int i = BitOperations.TrailingZeroCount(ActiveMask);
+
+                if (MeshGeometries[i].IndexCount > 0)
                 {
-                    OnFreeMeshGeometry(MeshGeometries[i]!.Value);
-                    MeshGeometries[i] = null;
+                    OnFreeMeshGeometry(MeshGeometries[i]);
+                    MeshGeometries[i] = default;
                 }
+
+                ActiveMask &= (ushort)~(1 << i);
             }
-        }
+
+        ActiveMask = 0;
 
         for (int i = 0; i < Sections.Length; i++)
-        {
             Sections[i].Reset();
-        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

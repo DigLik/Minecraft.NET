@@ -10,7 +10,7 @@ public class ChunkMesherService : IDisposable
 {
     private World _world = null!;
     private ChunkManager _chunkManager = null!;
-    private ChunkRenderer? _chunkRenderer;
+    private ChunkRenderer _chunkRenderer = null!;
 
     private readonly ConcurrentQueue<(Vector2D<int> position, int sectionY)> _chunksToMesh = new();
     private readonly ConcurrentQueue<(ChunkColumn column, int sectionY, MeshData? meshData)> _generatedMeshes = new();
@@ -81,18 +81,23 @@ public class ChunkMesherService : IDisposable
             }
 
             var oldGeometry = column.MeshGeometries[sectionY];
-            if (oldGeometry.HasValue && _chunkRenderer != null)
+            if (oldGeometry.IndexCount > 0 && _chunkRenderer != null)
             {
-                _chunkRenderer.FreeChunkMesh(oldGeometry.Value);
-                column.MeshGeometries[sectionY] = null;
+                _chunkRenderer.FreeChunkMesh(oldGeometry);
+                column.MeshGeometries[sectionY] = default;
+                column.ActiveMask &= (ushort)~(1 << sectionY);
             }
 
-            ChunkMeshGeometry? newGeometry = null;
+            ChunkMeshGeometry newGeometry = default;
 
             if (meshData is not null)
-                newGeometry = _chunkRenderer?.UploadChunkMesh(meshData.Value);
+                newGeometry = _chunkRenderer?.UploadChunkMesh(meshData.Value) ?? default;
 
             column.MeshGeometries[sectionY] = newGeometry;
+
+            if (newGeometry.IndexCount > 0)
+                column.ActiveMask |= (ushort)(1 << sectionY);
+
             column.SectionStates[sectionY] = ChunkSectionState.Rendered;
         }
     }

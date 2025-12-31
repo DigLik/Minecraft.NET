@@ -7,7 +7,7 @@ public static class Constants
     public const int ChunkMask = ChunkSize - 1; // 15 или 0xF
     public const int BlocksInChunk = ChunkSize * ChunkSize * ChunkSize;
 
-    public const int RenderDistance = 16;
+    public const int RenderDistance = 32;
 
     public const int WorldHeightInChunks = 16;
     public const int WorldHeightInBlocks = ChunkSize * WorldHeightInChunks;

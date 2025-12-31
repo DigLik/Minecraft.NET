@@ -13,6 +13,8 @@ public class SharedRenderData
     public Framebuffer? GBuffer { get; set; }
     public Framebuffer? PostProcessBuffer { get; set; }
 
-    public IReadOnlyList<ChunkMeshGeometry> VisibleGeometries { get; set; } = [];
-    public IReadOnlyList<Matrix4x4> ModelMatrices { get; set; } = [];
+    public DrawElementsIndirectCommand[] IndirectCommands { get; set; } = [];
+    public Vector3[] ChunkOffsets { get; set; } = [];
+
+    public int VisibleCount { get; set; }
 }

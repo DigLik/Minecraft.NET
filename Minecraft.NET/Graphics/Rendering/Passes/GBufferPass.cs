@@ -7,9 +7,10 @@ public class GBufferPass(ChunkRenderer chunkRenderer) : IRenderPass
     private Texture _blockTextureAtlas = null!;
     private int _gBufferViewLocation;
     private int _gBufferProjectionLocation;
+
     public Framebuffer GBuffer { get; private set; } = null!;
 
-    private readonly List<DrawElementsIndirectCommand> _commands = new(MaxVisibleSections);
+    private readonly DrawElementsIndirectCommand[] _commands = new DrawElementsIndirectCommand[MaxVisibleSections];
 
     public unsafe void Initialize(GL gl, uint width, uint height)
     {
@@ -17,12 +18,15 @@ public class GBufferPass(ChunkRenderer chunkRenderer) : IRenderPass
         if (_gBufferShader == null)
         {
             _blockTextureAtlas = new Texture(gl, "Assets/Textures/atlas.png");
-            _gBufferShader = new Shader(gl, Shader.LoadFromFile("Assets/Shaders/g_buffer.vert"), Shader.LoadFromFile("Assets/Shaders/g_buffer.frag"));
+            _gBufferShader = new Shader(gl,
+                Shader.LoadFromFile("Assets/Shaders/g_buffer.vert"),
+                Shader.LoadFromFile("Assets/Shaders/g_buffer.frag")
+            );
             _gBufferShader.Use();
 
             _gBufferShader.SetInt(_gBufferShader.GetUniformLocation("uTexture"), 0);
-            _gBufferShader.SetVector2(_gBufferShader.GetUniformLocation("uTileAtlasSize"), new Vector2(Constants.AtlasWidth, Constants.AtlasHeight));
-            _gBufferShader.SetFloat(_gBufferShader.GetUniformLocation("uTileSize"), Constants.TileSize);
+            _gBufferShader.SetVector2(_gBufferShader.GetUniformLocation("uTileAtlasSize"), new Vector2(AtlasWidth, AtlasHeight));
+            _gBufferShader.SetFloat(_gBufferShader.GetUniformLocation("uTileSize"), TileSize);
             _gBufferShader.SetFloat(_gBufferShader.GetUniformLocation("uPixelPadding"), 0.1f);
 
             _gBufferViewLocation = _gBufferShader.GetUniformLocation("view");
@@ -42,7 +46,8 @@ public class GBufferPass(ChunkRenderer chunkRenderer) : IRenderPass
         GBuffer.Bind();
         gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
-        var visibleCount = sharedData.VisibleGeometries.Count;
+        var visibleCount = sharedData.VisibleCount;
+
         if (visibleCount > 0)
         {
             _gBufferShader.Use();
@@ -51,20 +56,9 @@ public class GBufferPass(ChunkRenderer chunkRenderer) : IRenderPass
 
             _blockTextureAtlas.Bind(TextureUnit.Texture0);
 
-            _commands.Clear();
-            for (int i = 0; i < visibleCount; i++)
-            {
-                var geometry = sharedData.VisibleGeometries[i];
-                _commands.Add(new DrawElementsIndirectCommand(
-                    Count: geometry.IndexCount,
-                    InstanceCount: 1,
-                    FirstIndex: geometry.FirstIndex,
-                    BaseVertex: geometry.BaseVertex,
-                    BaseInstance: (uint)i
-                ));
-            }
+            fixed (DrawElementsIndirectCommand* pCmd = sharedData.IndirectCommands)
+                chunkRenderer.UploadIndirectCommands(pCmd, visibleCount);
 
-            chunkRenderer.UploadIndirectCommands(_commands);
             chunkRenderer.Bind();
             chunkRenderer.Draw(visibleCount);
         }

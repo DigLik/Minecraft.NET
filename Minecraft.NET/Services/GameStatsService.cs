@@ -17,15 +17,15 @@ public class GameStatsService(
     private readonly StringBuilder _sb = new();
 
     private double _statsUpdateTimer;
-    private const double StatsUpdateInterval = 0.5;
+    private const double StatsUpdateInterval = 0.25;
 
     private double _titleUpdateTimer;
     private const double TitleUpdateInterval = 0.05;
 
     private int _frameCount;
 
-    private string _cachedFpsStats = "FPS: 0 | CPU: 0% | GPU: 0%";
-    private string _cachedWorldStats = "Sections: 0/0 | Chunks: 0";
+    private string _cachedFpsStats = "FPS: 0 (0.00ms) | CPU: 0.00ms | GPU: 0.00ms";
+    private string _cachedWorldStats = "S: 0/0 | C: 0";
 
     public void OnUpdate(double deltaTime)
     {
@@ -35,19 +35,17 @@ public class GameStatsService(
         if (_statsUpdateTimer >= StatsUpdateInterval)
         {
             double fps = _frameCount / _statsUpdateTimer;
-            double frameTimeMs = fps > 0 ? 1000.0 / fps : 1000.0;
 
-            double cpuPercent = (performanceMonitor.AvgCpuTimeMs / frameTimeMs) * 100.0;
-            double gpuPercent = (performanceMonitor.AvgGpuTimeMs / frameTimeMs) * 100.0;
+            double frameTimeMs = fps > 0 ? 1000.0 / fps : 0.0;
 
-            //cpuPercent = Math.Min(cpuPercent, 100.0);
-            //gpuPercent = Math.Min(gpuPercent, 100.0);
+            double cpuMs = performanceMonitor.AvgCpuTimeMs;
+            double gpuMs = performanceMonitor.AvgGpuTimeMs;
 
-            _cachedFpsStats = $"FPS: {fps:F0} | CPU: {cpuPercent:F1}% | GPU: {gpuPercent:F1}%";
+            _cachedFpsStats = $"FPS: {fps:F0} ({frameTimeMs:F1}ms) | CPU: {cpuMs:F2}ms | GPU: {gpuMs:F2}ms";
 
             int loaded = chunkManager.GetLoadedChunkCount();
             int meshed = chunkManager.GetMeshedSectionCount();
-            _cachedWorldStats = $"Sections: {renderPipeline.VisibleSectionCount}/{meshed} | Chunks: {loaded}";
+            _cachedWorldStats = $"S: {renderPipeline.VisibleSectionCount}/{meshed} | C: {loaded}";
 
             _statsUpdateTimer = 0;
             _frameCount = 0;
@@ -56,14 +54,13 @@ public class GameStatsService(
         if (_titleUpdateTimer >= TitleUpdateInterval)
         {
             var pos = player.Position;
-            var mode = player.CurrentGameMode;
+            var mode = player.CurrentGameMode == GameMode.Creative ? "C" : "S";
 
             _sb.Clear();
-            _sb.Append("Minecraft.NET [").Append(mode).Append("] | ");
+            _sb.Append("MC.NET [").Append(mode).Append("] | ");
             _sb.Append(_cachedFpsStats).Append(" | ");
             _sb.Append(_cachedWorldStats).Append(" | ");
-
-            _sb.Append($"X: {pos.X:F1} Y: {pos.Y:F1} Z: {pos.Z:F1}");
+            _sb.Append($"XYZ: {pos.X:F1} / {pos.Y:F1} / {pos.Z:F1}");
 
             _window.Title = _sb.ToString();
             _titleUpdateTimer = 0;

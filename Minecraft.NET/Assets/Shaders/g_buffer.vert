@@ -3,7 +3,7 @@ layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec2 aTexIndex;
 layout (location = 2) in vec2 aUV;
 layout (location = 3) in float aAO;
-layout (location = 4) in mat4 aModel;
+layout (location = 4) in vec3 aInstancePos;
 
 out vec3 v_viewPos;
 out vec2 v_texIndex;
@@ -15,7 +15,7 @@ uniform mat4 projection;
 
 void main() 
 {
-    vec4 relativeWorldPos = aModel * vec4(aPos, 1.0);
+    vec4 relativeWorldPos = vec4(aPos + aInstancePos, 1.0);
     vec4 viewPos = view * relativeWorldPos;
 
     v_viewPos = viewPos.xyz;

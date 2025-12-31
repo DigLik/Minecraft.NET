@@ -5,12 +5,36 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 	<PlatformTarget>x64</PlatformTarget>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
 	<ServerGarbageCollection>true</ServerGarbageCollection>
 	<ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+
+	<DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
+	<InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+	<Optimize>false</Optimize>
+	<DebugType>full</DebugType>
+	<DefineConstants>DEBUG;TRACE</DefineConstants>
+
+	<PublishReadyToRun>false</PublishReadyToRun>
+	<PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+	<Optimize>true</Optimize>
+	<DebugType>embedded</DebugType>
+	<OptimizationPreference>Size</OptimizationPreference>
+
+	<PublishTrimmed>true</PublishTrimmed>
+	<TrimMode>full</TrimMode>
+	<PublishReadyToRun>true</PublishReadyToRun>
+	<TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+	
   <ItemGroup>
     <PackageReference Include="Silk.NET.Input" Version="2.22.0" />
     <PackageReference Include="Silk.NET.OpenGL" Version="2.22.0" />
@@ -21,40 +45,9 @@
 
   <ItemGroup>
 	<TrimmerRootDescriptor Include="TrimmerDirectives.xml" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Update="Assets\Shaders\chunk.frag">
+    <None Update="Assets\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Update="Assets\Shaders\chunk.vert">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Assets\Shaders\fxaa.frag">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Assets\Shaders\fxaa.vert">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Assets\Shaders\g_buffer.frag">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Assets\Shaders\g_buffer.vert">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Assets\Shaders\lighting.frag">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Assets\Shaders\lighting.vert">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Assets\Textures\atlas.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Assets\Shaders\" />
   </ItemGroup>
 
 </Project>
