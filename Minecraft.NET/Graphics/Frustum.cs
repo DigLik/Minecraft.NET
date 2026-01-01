@@ -56,17 +56,17 @@ public unsafe class Frustum
         _nz = Vector256.Load(nzPtr);
         _d = Vector256.Load(dPtr);
 
-        YIncrement = _ny * 16.0f;
+        YIncrement = _ny * ChunkSize;
 
         var absNx = Vector256.Abs(_nx);
         var absNy = Vector256.Abs(_ny);
         var absNz = Vector256.Abs(_nz);
 
-        var extent8 = Vector256.Create(8.0f);
-        SectionExtentProjection = absNx * extent8 + absNy * extent8 + absNz * extent8;
+        var extentHalf = Vector256.Create(ChunkSize / 2.0f);
+        SectionExtentProjection = absNx * extentHalf + absNy * extentHalf + absNz * extentHalf;
 
         var extentHeight = Vector256.Create(WorldHeightInBlocks / 2.0f);
-        ColumnExtentProjection = absNx * extent8 + absNy * extentHeight + absNz * extent8;
+        ColumnExtentProjection = absNx * extentHalf + absNy * extentHeight + absNz * extentHalf;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -41,7 +41,7 @@ public sealed unsafe class Framebuffer : IDisposable
         _gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.DepthAttachment, TextureTarget.Texture2D, DepthAttachment, 0);
 
         if (_gl.CheckFramebufferStatus(FramebufferTarget.Framebuffer) != GLEnum.FramebufferComplete)
-            throw new Exception("Framebuffer is not complete!");
+            throw new Exception("GBuffer Framebuffer is not complete!");
 
         _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
     }

@@ -1,10 +1,7 @@
-﻿using Minecraft.NET.Character;
-using Minecraft.NET.Character.Controllers;
-using Minecraft.NET.Core.Chunks;
+﻿using Minecraft.NET.Core.Chunks;
 using Minecraft.NET.Core.Environment;
-using Minecraft.NET.Graphics.Rendering;
 using Minecraft.NET.Services;
-using Minecraft.NET.Services.Physics;
+using Silk.NET.Input;
 using Silk.NET.Windowing;
 
 namespace Minecraft.NET.Engine;
@@ -13,19 +10,41 @@ public sealed class Game : IDisposable
 {
     private readonly IWindow _window;
 
-    private RenderPipeline _renderPipeline = null!;
-    private ChunkManager _chunkManager = null!;
-    private ChunkMesherService _chunkMesherService = null!;
-    private InputManager _inputManager = null!;
-    private PhysicsService _physicsService = null!;
-    private GameStatsService _gameStatsService = null!;
-    private World _world = null!;
-    private WorldStorage _worldStorage = null!;
-    private PerformanceMonitor _performanceMonitor = null!;
+    private readonly IRenderPipeline _renderPipeline;
+    private readonly IInputManager _inputManager;
+    private readonly IPerformanceMonitor _performanceMonitor;
+    private readonly IGameStatsService _gameStatsService;
 
-    public Game(IWindow window)
+    private readonly ChunkManager _chunkManager;
+    private readonly ChunkMesherService _chunkMesherService;
+    private readonly PhysicsService _physicsService;
+    private readonly World _world;
+
+    private GL _gl = null!;
+
+    public Game(
+        IWindow window,
+        IRenderPipeline renderPipeline,
+        IInputManager inputManager,
+        IPerformanceMonitor performanceMonitor,
+        IGameStatsService gameStatsService,
+        ChunkManager chunkManager,
+        ChunkMesherService chunkMesherService,
+        PhysicsService physicsService,
+        World world
+        )
     {
         _window = window;
+
+        _renderPipeline = renderPipeline;
+        _inputManager = inputManager;
+        _performanceMonitor = performanceMonitor;
+        _gameStatsService = gameStatsService;
+        _chunkManager = chunkManager;
+        _chunkMesherService = chunkMesherService;
+        _physicsService = physicsService;
+        _world = world;
+
         _window.Load += OnLoad;
         _window.Update += OnUpdate;
         _window.Render += OnRender;
@@ -33,79 +52,35 @@ public sealed class Game : IDisposable
         _window.Closing += OnClose;
     }
 
+    public void Run() => _window.Run();
+
     private void OnLoad()
     {
-        var gl = _window.CreateOpenGL();
-        var player = new Player(new(16, 80, 16));
-        _worldStorage = new WorldStorage("world");
-        _performanceMonitor = new PerformanceMonitor(gl);
+        _gl = _window.CreateOpenGL();
+        var inputContext = _window.CreateInput();
 
-        // 1. Инициализация ChunkManager (без обработчиков рендеринга)
-        _chunkManager = new ChunkManager(player, _worldStorage);
+        _performanceMonitor.Initialize(_gl);
+        _renderPipeline.Initialize(_gl);
+        _inputManager.Initialize(inputContext);
 
-        // 2. Инициализация World (зависит от ChunkManager)
-        _world = new World(_chunkManager, _worldStorage);
+        _world.OnLoad();
 
-        // 3. Инициализация ChunkMesherService и установка его зависимостей
-        _chunkMesherService = new ChunkMesherService();
         _chunkMesherService.SetDependencies(_world, _chunkManager);
 
-        // 4. Физика и Контроллеры (зависит от World)
-        var creativeController = new CreativePlayerController();
-        var spectatorController = new SpectatorPlayerController();
-        var creativeStrategy = new CreativePhysicsStrategy();
-        var spectatorStrategy = new SpectatorPhysicsStrategy();
-
-        var physicsStrategies = new Dictionary<GameMode, IPhysicsStrategy>
-        {
-            { GameMode.Creative, creativeStrategy },
-            { GameMode.Spectator, spectatorStrategy }
-        };
-
-        var gameModeManager = new GameModeManager(player, _world, physicsStrategies);
-        _physicsService = new PhysicsService(player, gameModeManager);
-        var worldInteractionService = new WorldInteractionService(player, _world);
-
-        // 5. Инициализация Рендеринга (SceneCuller зависит от ChunkManager)
-        var sceneCuller = new SceneCuller(player, _chunkManager);
-        _renderPipeline = new RenderPipeline(gl, player, sceneCuller, _performanceMonitor);
-        _renderPipeline.OnLoad(); // Создает ChunkRenderer
-
-        // 6. Связывание обработчиков (ChunkManager <-> ChunkRenderer/MesherService)
-        Action<ChunkMeshGeometry> meshFreeHandler = _renderPipeline.ChunkRenderer.FreeChunkMesh;
-        ChunkMeshRequestHandler meshRequestHandler = _chunkMesherService.QueueForMeshing;
-
-        // Устанавливаем обработчики в уже созданный ChunkManager
-        _chunkManager.SetHandlers(meshRequestHandler, meshFreeHandler);
-        _chunkMesherService.SetChunkRenderer(_renderPipeline.ChunkRenderer);
-
-        // 7. Оставшиеся сервисы
-        _gameStatsService = new GameStatsService(_window, player, _chunkManager, _renderPipeline, _performanceMonitor);
-        _inputManager = new InputManager(
-            _window,
-            player,
-            worldInteractionService,
-            gameModeManager,
-            creativeController,
-            spectatorController
+        _chunkManager.SetHandlers(
+            _chunkMesherService.QueueForMeshing,
+            _renderPipeline.ChunkRenderer.FreeChunkMesh
         );
 
-        // 8. Запуск систем
         _chunkMesherService.OnLoad();
-        _inputManager.OnLoad();
-        _world.OnLoad();
-        _performanceMonitor.OnLoad();
 
         OnFramebufferResize(_window.FramebufferSize);
     }
 
-    public void Run() => _window.Run();
-
     private void OnUpdate(double deltaTime)
     {
-        if (_performanceMonitor is null || _chunkManager is null || _physicsService is null) return;
-
         _performanceMonitor.BeginCpuFrame();
+
         _chunkManager.OnUpdate(deltaTime);
         _chunkMesherService.OnUpdate(deltaTime);
         _inputManager.OnUpdate(deltaTime);
@@ -115,8 +90,6 @@ public sealed class Game : IDisposable
 
     private void OnRender(double deltaTime)
     {
-        if (_renderPipeline is null || _performanceMonitor is null) return;
-
         _renderPipeline.OnRender(deltaTime);
         _gameStatsService.OnRender(deltaTime);
         _performanceMonitor.EndCpuFrame();
@@ -129,22 +102,17 @@ public sealed class Game : IDisposable
 
     private void OnClose()
     {
-        if (_performanceMonitor is null) return;
-
-        _performanceMonitor.OnClose();
-        _world?.OnClose();
-        _inputManager?.OnClose();
-        _chunkMesherService?.OnClose();
-        _renderPipeline?.OnClose();
+        _performanceMonitor.Dispose();
+        _world.Dispose();
+        _inputManager.Dispose();
+        _chunkMesherService.Dispose();
+        _renderPipeline.Dispose();
     }
 
     public void Dispose()
     {
-        _chunkMesherService?.Dispose();
-        _world?.Dispose();
-        _chunkManager?.Dispose();
-        _performanceMonitor?.Dispose();
-        _worldStorage?.Dispose();
+        OnClose();
         _window.Dispose();
+        _gl?.Dispose();
     }
 }

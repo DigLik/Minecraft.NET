@@ -1,8 +1,15 @@
-﻿namespace Minecraft.NET.Graphics.Rendering.Passes;
+﻿using Minecraft.NET.Engine;
+using Minecraft.NET.Services;
 
-public class GBufferPass(ChunkRenderer chunkRenderer) : IRenderPass
+namespace Minecraft.NET.Graphics.Rendering.Passes;
+
+public class GBufferPass(
+    GL gl,
+    IChunkRenderer chunkRenderer,
+    FrameContext frameContext,
+    SceneCuller sceneCuller
+    ) : IRenderPass
 {
-    private GL _gl = null!;
     private Shader _gBufferShader = null!;
     private Texture _blockTextureAtlas = null!;
     private int _gBufferViewLocation;
@@ -10,11 +17,8 @@ public class GBufferPass(ChunkRenderer chunkRenderer) : IRenderPass
 
     public Framebuffer GBuffer { get; private set; } = null!;
 
-    private readonly DrawElementsIndirectCommand[] _commands = new DrawElementsIndirectCommand[MaxVisibleSections];
-
-    public unsafe void Initialize(GL gl, uint width, uint height)
+    public unsafe void Initialize(uint width, uint height)
     {
-        _gl = gl;
         if (_gBufferShader == null)
         {
             _blockTextureAtlas = new Texture(gl, "Assets/Textures/atlas.png");
@@ -22,8 +26,8 @@ public class GBufferPass(ChunkRenderer chunkRenderer) : IRenderPass
                 Shader.LoadFromFile("Assets/Shaders/g_buffer.vert"),
                 Shader.LoadFromFile("Assets/Shaders/g_buffer.frag")
             );
-            _gBufferShader.Use();
 
+            _gBufferShader.Use();
             _gBufferShader.SetInt(_gBufferShader.GetUniformLocation("uTexture"), 0);
             _gBufferShader.SetVector2(_gBufferShader.GetUniformLocation("uTileAtlasSize"), new Vector2(AtlasWidth, AtlasHeight));
             _gBufferShader.SetFloat(_gBufferShader.GetUniformLocation("uTileSize"), TileSize);
@@ -38,29 +42,29 @@ public class GBufferPass(ChunkRenderer chunkRenderer) : IRenderPass
     public void OnResize(uint width, uint height)
     {
         GBuffer?.Dispose();
-        GBuffer = new Framebuffer(_gl, width, height);
+        GBuffer = new Framebuffer(gl, width, height);
     }
 
-    public unsafe void Execute(GL gl, SharedRenderData sharedData)
+    public unsafe void Execute()
     {
         GBuffer.Bind();
         gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
-        var visibleCount = sharedData.VisibleCount;
+        var visibleScene = sceneCuller.Result;
 
-        if (visibleCount > 0)
+        if (visibleScene.VisibleSectionCount > 0)
         {
             _gBufferShader.Use();
-            _gBufferShader.SetMatrix4x4(_gBufferViewLocation, sharedData.RelativeViewMatrix);
-            _gBufferShader.SetMatrix4x4(_gBufferProjectionLocation, sharedData.ProjectionMatrix);
+            _gBufferShader.SetMatrix4x4(_gBufferViewLocation, frameContext.RelativeViewMatrix);
+            _gBufferShader.SetMatrix4x4(_gBufferProjectionLocation, frameContext.ProjectionMatrix);
 
             _blockTextureAtlas.Bind(TextureUnit.Texture0);
 
-            fixed (DrawElementsIndirectCommand* pCmd = sharedData.IndirectCommands)
-                chunkRenderer.UploadIndirectCommands(pCmd, visibleCount);
+            fixed (DrawElementsIndirectCommand* pCmd = visibleScene.IndirectCommands)
+                chunkRenderer.UploadIndirectCommands(pCmd, visibleScene.VisibleSectionCount);
 
             chunkRenderer.Bind();
-            chunkRenderer.Draw(visibleCount);
+            chunkRenderer.Draw(visibleScene.VisibleSectionCount);
         }
         GBuffer.Unbind();
     }
@@ -70,6 +74,5 @@ public class GBufferPass(ChunkRenderer chunkRenderer) : IRenderPass
         _gBufferShader?.Dispose();
         _blockTextureAtlas?.Dispose();
         GBuffer?.Dispose();
-        GC.SuppressFinalize(this);
     }
 }

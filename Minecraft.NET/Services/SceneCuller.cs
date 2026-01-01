@@ -22,7 +22,7 @@ public class VisibleScene
 public unsafe class SceneCuller(Player player, ChunkManager chunkProvider)
 {
     private readonly Frustum _frustum = new();
-    private const float SectionSphereRadius = 13.8564064606f;
+    private static readonly float SectionSphereRadius = MathF.Sqrt(3) * (ChunkSize / 2f);
     private static readonly Vector3 SectionExtent = new(ChunkSize / 2f);
 
     private Vector256<float> _negSphereRadiusVec;
@@ -96,6 +96,8 @@ public unsafe class SceneCuller(Player player, ChunkManager chunkProvider)
                     var dist = _frustum.GetDistances(colCenterX, sectionRelY, colCenterZ);
 
                     ref var geometry = ref Unsafe.Add(ref geometriesRef, y);
+
+                    if (geometry.IndexCount == 0) continue;
 
                     var sphereFail = Vector256.LessThan(dist, _negSphereRadiusVec);
                     var boxFail = Vector256.LessThan(dist + sectionProjectedRadius, zero);

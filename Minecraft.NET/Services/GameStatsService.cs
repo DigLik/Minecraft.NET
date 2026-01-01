@@ -1,5 +1,5 @@
 ﻿using Minecraft.NET.Character;
-using Minecraft.NET.Graphics.Rendering;
+using Minecraft.NET.Engine;
 using Silk.NET.Windowing;
 using System.Text;
 
@@ -9,9 +9,9 @@ public class GameStatsService(
     IWindow window,
     Player player,
     ChunkManager chunkManager,
-    RenderPipeline renderPipeline,
-    PerformanceMonitor performanceMonitor
-)
+    IRenderPipeline renderPipeline,
+    IPerformanceMonitor performanceMonitor
+) : IGameStatsService
 {
     private readonly IWindow _window = window;
     private readonly StringBuilder _sb = new();
@@ -35,7 +35,6 @@ public class GameStatsService(
         if (_statsUpdateTimer >= StatsUpdateInterval)
         {
             double fps = _frameCount / _statsUpdateTimer;
-
             double frameTimeMs = fps > 0 ? 1000.0 / fps : 0.0;
 
             double cpuMs = performanceMonitor.AvgCpuTimeMs;
@@ -45,6 +44,7 @@ public class GameStatsService(
 
             int loaded = chunkManager.GetLoadedChunkCount();
             int meshed = chunkManager.GetMeshedSectionCount();
+
             _cachedWorldStats = $"S: {renderPipeline.VisibleSectionCount}/{meshed} | C: {loaded}";
 
             _statsUpdateTimer = 0;

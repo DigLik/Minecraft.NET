@@ -2,12 +2,13 @@
 
 public static class Constants
 {
-    public const int ChunkSize = 16;
-    public const int ChunkShift = 4; // 2^4 = 16
+    public const int ChunkSize = 16; // 2^n
+
     public const int ChunkMask = ChunkSize - 1; // 15 или 0xF
+    public static readonly int ChunkShift = BitOperations.Log2(ChunkSize); // 2^4 = 16
     public const int BlocksInChunk = ChunkSize * ChunkSize * ChunkSize;
 
-    public const int RenderDistance = 32;
+    public const int RenderDistance = 512 / ChunkSize; // blocks render distance
 
     public const int WorldHeightInChunks = 16;
     public const int WorldHeightInBlocks = ChunkSize * WorldHeightInChunks;

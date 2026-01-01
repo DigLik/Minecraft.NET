@@ -1,16 +1,14 @@
 ﻿namespace Minecraft.NET.Graphics.Rendering.Passes;
 
-public class LightingPass : IRenderPass
+public class LightingPass(GL gl, FrameContext frameContext, GBufferPass gBufferPass) : IRenderPass
 {
-    private GL _gl = null!;
     private Shader _lightingShader = null!;
-    public Framebuffer PostProcessFbo { get; private set; } = null!;
     private uint _quadVao, _quadVbo;
 
-    public unsafe void Initialize(GL gl, uint width, uint height)
-    {
-        _gl = gl;
+    public Framebuffer PostProcessFbo { get; private set; } = null!;
 
+    public unsafe void Initialize(uint width, uint height)
+    {
         if (_lightingShader == null)
         {
             _lightingShader = new Shader(gl, Shader.LoadFromFile("Assets/Shaders/lighting.vert"), Shader.LoadFromFile("Assets/Shaders/lighting.frag"));
@@ -51,30 +49,30 @@ public class LightingPass : IRenderPass
     public void OnResize(uint width, uint height)
     {
         PostProcessFbo?.Dispose();
-        PostProcessFbo = new Framebuffer(_gl, width, height, false);
+        PostProcessFbo = new Framebuffer(gl, width, height, singleChannel: false);
     }
 
-    public void Execute(GL gl, SharedRenderData sharedData)
+    public void Execute()
     {
         PostProcessFbo.Bind();
         gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
         _lightingShader.Use();
 
-        Matrix4x4.Invert(sharedData.RelativeViewMatrix, out var invView);
-        Matrix4x4.Invert(sharedData.ProjectionMatrix, out var invProj);
+        Matrix4x4.Invert(frameContext.RelativeViewMatrix, out var invView);
+        Matrix4x4.Invert(frameContext.ProjectionMatrix, out var invProj);
 
         _lightingShader.SetMatrix4x4(_lightingShader.GetUniformLocation("u_inverseView"), invView);
         _lightingShader.SetMatrix4x4(_lightingShader.GetUniformLocation("u_inverseProjection"), invProj);
 
         gl.ActiveTexture(TextureUnit.Texture0);
-        gl.BindTexture(TextureTarget.Texture2D, sharedData.GBuffer!.ColorAttachments[0]); // Normal
+        gl.BindTexture(TextureTarget.Texture2D, gBufferPass.GBuffer.ColorAttachments[0]);
 
         gl.ActiveTexture(TextureUnit.Texture1);
-        gl.BindTexture(TextureTarget.Texture2D, sharedData.GBuffer!.ColorAttachments[1]); // Albedo
+        gl.BindTexture(TextureTarget.Texture2D, gBufferPass.GBuffer.ColorAttachments[1]);
 
         gl.ActiveTexture(TextureUnit.Texture2);
-        gl.BindTexture(TextureTarget.Texture2D, sharedData.GBuffer!.DepthAttachment); // Depth
+        gl.BindTexture(TextureTarget.Texture2D, gBufferPass.GBuffer.DepthAttachment);
 
         gl.BindVertexArray(_quadVao);
         gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
@@ -86,6 +84,7 @@ public class LightingPass : IRenderPass
     {
         _lightingShader?.Dispose();
         PostProcessFbo?.Dispose();
-        GC.SuppressFinalize(this);
+        gl.DeleteVertexArray(_quadVao);
+        gl.DeleteBuffer(_quadVbo);
     }
 }

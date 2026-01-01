@@ -70,16 +70,16 @@ public class WorldInteractionService(Player player, World world)
         int lastY = y;
         int lastZ = z;
 
-        int maxSteps = (int)(maxDistance * 2) + 10;
+        int maxSteps = (int)(maxDistance * 3);
 
         for (int i = 0; i < maxSteps; i++)
         {
             var currentBlockPos = new Vector3d(x, y, z);
-            if (y >= 0 && y < WorldHeightInBlocks)
+
+            var blockId = world.GetBlock(currentBlockPos);
+            if (blockId != BlockId.Air)
             {
-                var blockId = world.GetBlock(currentBlockPos);
-                if (blockId != BlockId.Air)
-                    return new RaycastResult(currentBlockPos, new Vector3d(lastX, lastY, lastZ));
+                return new RaycastResult(currentBlockPos, new Vector3d(lastX, lastY, lastZ));
             }
 
             lastX = x;

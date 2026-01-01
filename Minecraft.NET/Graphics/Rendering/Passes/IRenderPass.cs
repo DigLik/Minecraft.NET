@@ -2,7 +2,7 @@
 
 public interface IRenderPass : IDisposable
 {
-    void Initialize(GL gl, uint width, uint height);
-    void Execute(GL gl, SharedRenderData sharedData);
+    void Initialize(uint width, uint height);
+    void Execute();
     void OnResize(uint width, uint height);
 }

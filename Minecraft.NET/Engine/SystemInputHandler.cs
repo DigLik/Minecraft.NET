@@ -4,17 +4,21 @@ using Silk.NET.Windowing;
 
 namespace Minecraft.NET.Engine;
 
-public class SystemInputHandler(IWindow window, GameModeManager gameModeManager, IMouse mouse)
+public class SystemInputHandler(IWindow window, GameModeManager gameModeManager)
 {
-    private readonly IWindow _window = window;
+    private IMouse _mouse = null!;
+
+    public void SetMouse(IMouse mouse) => _mouse = mouse;
 
     public bool IsMouseCaptured { get; private set; }
 
     public void HandleKeyDown(Key key)
     {
+        if (_mouse == null) return;
+
         if (key == Key.Escape)
         {
-            _window.Close();
+            window.Close();
         }
         else if (key == Key.F1)
         {
@@ -23,12 +27,12 @@ public class SystemInputHandler(IWindow window, GameModeManager gameModeManager,
         else if (key == Key.Tab)
         {
             IsMouseCaptured = !IsMouseCaptured;
-            mouse.Cursor.CursorMode = IsMouseCaptured ? CursorMode.Disabled : CursorMode.Normal;
+            _mouse.Cursor.CursorMode = IsMouseCaptured ? CursorMode.Disabled : CursorMode.Normal;
 
             if (IsMouseCaptured)
             {
-                var center = new Vector2(_window.Size.X / 2f, _window.Size.Y / 2f);
-                mouse.Position = center;
+                var center = new Vector2(window.Size.X / 2f, window.Size.Y / 2f);
+                _mouse.Position = center;
             }
         }
     }

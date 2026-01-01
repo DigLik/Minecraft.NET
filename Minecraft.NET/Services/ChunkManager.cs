@@ -8,7 +8,7 @@ namespace Minecraft.NET.Services;
 
 public delegate void ChunkMeshRequestHandler(ChunkColumn column, int sectionY);
 
-public class ChunkManager(Player playerState, WorldStorage storage) : IDisposable
+public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenerator generator) : IDisposable
 {
     private Action<ChunkMeshGeometry>? _meshFreeHandler = null;
     private ChunkMeshRequestHandler? _meshRequestHandler = null;
@@ -102,7 +102,8 @@ public class ChunkManager(Player playerState, WorldStorage storage) : IDisposabl
 
     private void GenerateChunkData(ChunkColumn column)
     {
-        WorldGenerator.Generate(column);
+        generator.Generate(column);
+
         storage.ApplyModificationsToChunk(column);
         column.IsGenerated = true;
 
@@ -130,7 +131,7 @@ public class ChunkManager(Player playerState, WorldStorage storage) : IDisposabl
     }
 
     public int GetLoadedChunkCount() => _chunks.Count;
-    public int GetMeshedSectionCount() => _chunks.Values.Sum(c => c.MeshGeometries.Count(m => m != null));
+    public int GetMeshedSectionCount() => _chunks.Values.Sum(c => c.MeshGeometries.Count(m => m.IndexCount != 0));
 
     public void Dispose()
     {

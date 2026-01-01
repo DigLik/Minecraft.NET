@@ -2,17 +2,17 @@
 
 namespace Minecraft.NET.Core.Environment;
 
-public class WorldGenerator
+public class TerrainWorldGenerator : IWorldGenerator
 {
     private const int BaseHeight = 0;
     private const float Amplitude = 50.0f;
     private const float CaveRadius = 0.18f;
 
-    private static readonly FastNoiseLite _noise;
-    private static readonly FastNoiseLite _caveNoiseX;
-    private static readonly FastNoiseLite _caveNoiseY;
+    private readonly FastNoiseLite _noise;
+    private readonly FastNoiseLite _caveNoiseX;
+    private readonly FastNoiseLite _caveNoiseY;
 
-    static WorldGenerator()
+    public TerrainWorldGenerator()
     {
         _noise = new FastNoiseLite();
         _noise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
@@ -34,7 +34,7 @@ public class WorldGenerator
         _caveNoiseY.SetFrequency(0.02f);
     }
 
-    public static unsafe void Generate(ChunkColumn column)
+    public unsafe void Generate(ChunkColumn column)
     {
         float caveRadiusSq = CaveRadius * CaveRadius;
         int offset = VerticalChunkOffset * ChunkSize;

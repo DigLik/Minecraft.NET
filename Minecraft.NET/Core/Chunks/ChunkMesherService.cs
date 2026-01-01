@@ -1,4 +1,5 @@
 ﻿using Minecraft.NET.Core.Environment;
+using Minecraft.NET.Engine;
 using Minecraft.NET.Graphics.Models;
 using Minecraft.NET.Graphics.Rendering;
 using Minecraft.NET.Services;
@@ -6,11 +7,10 @@ using System.Collections.Concurrent;
 
 namespace Minecraft.NET.Core.Chunks;
 
-public class ChunkMesherService : IDisposable
+public class ChunkMesherService(IChunkRenderer chunkRenderer) : IDisposable
 {
     private World _world = null!;
     private ChunkManager _chunkManager = null!;
-    private ChunkRenderer _chunkRenderer = null!;
 
     private readonly ConcurrentQueue<(Vector2D<int> position, int sectionY)> _chunksToMesh = new();
     private readonly ConcurrentQueue<(ChunkColumn column, int sectionY, MeshData? meshData)> _generatedMeshes = new();
@@ -28,11 +28,6 @@ public class ChunkMesherService : IDisposable
     {
         _world = world;
         _chunkManager = chunkManager;
-    }
-
-    public void SetChunkRenderer(ChunkRenderer chunkRenderer)
-    {
-        _chunkRenderer = chunkRenderer;
     }
 
     public void OnLoad()
@@ -66,9 +61,6 @@ public class ChunkMesherService : IDisposable
 
     public void OnUpdate(double _)
     {
-        if (_chunkRenderer is null)
-            return;
-
         while (_generatedMeshes.TryDequeue(out var result))
         {
             var (column, sectionY, meshData) = result;
@@ -81,17 +73,16 @@ public class ChunkMesherService : IDisposable
             }
 
             var oldGeometry = column.MeshGeometries[sectionY];
-            if (oldGeometry.IndexCount > 0 && _chunkRenderer != null)
+            if (oldGeometry.IndexCount > 0)
             {
-                _chunkRenderer.FreeChunkMesh(oldGeometry);
+                chunkRenderer.FreeChunkMesh(oldGeometry);
                 column.MeshGeometries[sectionY] = default;
                 column.ActiveMask &= (ushort)~(1 << sectionY);
             }
 
             ChunkMeshGeometry newGeometry = default;
-
             if (meshData is not null)
-                newGeometry = _chunkRenderer?.UploadChunkMesh(meshData.Value) ?? default;
+                newGeometry = chunkRenderer.UploadChunkMesh(meshData.Value);
 
             column.MeshGeometries[sectionY] = newGeometry;
 

@@ -1,4 +1,6 @@
-﻿using Minecraft.NET.Graphics.Models;
+﻿using Minecraft.NET.Engine;
+using Minecraft.NET.Graphics.Models;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Minecraft.NET.Graphics.Rendering;
@@ -18,26 +20,27 @@ public readonly record struct ChunkMeshGeometry(
     int BaseVertex
 );
 
-public sealed unsafe class ChunkRenderer : IDisposable
+public sealed unsafe class ChunkRenderer : IChunkRenderer
 {
-    private readonly GL _gl;
+    private GL _gl = null!;
 
     private uint _vao;
     private uint _vbo;
     private uint _ebo;
-    private readonly uint _indirectBuffer;
-    private readonly uint _instanceVbo;
+    private uint _indirectBuffer;
+    private uint _instanceVbo;
 
-    private readonly MemoryAllocator _vertexAllocator;
-    private readonly MemoryAllocator _indexAllocator;
+    private MemoryAllocator _vertexAllocator = null!;
+    private MemoryAllocator _indexAllocator = null!;
 
     private nuint _currentVertexCapacity = 1024 * 256;
     private nuint _currentIndexCapacity = 1024 * 512;
 
-    public ChunkRenderer(GL gl, uint instanceVbo)
+    public ChunkRenderer() { }
+
+    public void Initialize(GL gl)
     {
         _gl = gl;
-        _instanceVbo = instanceVbo;
 
         _vbo = _gl.GenBuffer();
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
@@ -51,10 +54,33 @@ public sealed unsafe class ChunkRenderer : IDisposable
         _gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, _indirectBuffer);
         _gl.BufferData(BufferTargetARB.DrawIndirectBuffer, (nuint)(MaxVisibleSections * sizeof(DrawElementsIndirectCommand)), null, BufferUsageARB.StreamDraw);
 
+        _instanceVbo = _gl.GenBuffer();
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
+        _gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(MaxVisibleSections * sizeof(Vector3)), null, BufferUsageARB.StreamDraw);
+
         _vertexAllocator = new MemoryAllocator(_currentVertexCapacity);
         _indexAllocator = new MemoryAllocator(_currentIndexCapacity);
 
         SetupVao();
+    }
+
+    public void UpdateInstanceData(Vector3* offsets, int count)
+    {
+        if (count == 0) return;
+
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
+
+        nuint sizeInBytes = (nuint)(count * sizeof(Vector3));
+        _gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(MaxVisibleSections * sizeof(Vector3)), null, BufferUsageARB.StreamDraw);
+
+        void* ptr = _gl.MapBufferRange(BufferTargetARB.ArrayBuffer, 0, sizeInBytes,
+            (uint)(MapBufferAccessMask.WriteBit | MapBufferAccessMask.InvalidateBufferBit | MapBufferAccessMask.UnsynchronizedBit));
+
+        if (ptr != null)
+        {
+            Unsafe.CopyBlock(ptr, offsets, (uint)sizeInBytes);
+            _gl.UnmapBuffer(BufferTargetARB.ArrayBuffer);
+        }
     }
 
     private void SetupVao()
@@ -70,7 +96,6 @@ public sealed unsafe class ChunkRenderer : IDisposable
         ChunkVertex.SetVertexAttribPointers(_gl);
 
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
-
         uint vec3Size = (uint)sizeof(Vector3);
         uint loc = 4;
         _gl.EnableVertexAttribArray(loc);

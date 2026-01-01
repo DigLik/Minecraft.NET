@@ -15,6 +15,13 @@ public static class ChunkMesher
         if (section.IsEmpty)
             return default;
 
+        const int paddedSize = ChunkSize + 2;
+        const int totalSize = paddedSize * paddedSize * paddedSize;
+
+        BlockId* paddedBlocks = stackalloc BlockId[totalSize];
+
+        FillPaddedBuffer(paddedBlocks, column, sectionY, world);
+
         var pos = column.Position;
         var colXP = world.GetColumn(pos + new Vector2D<int>(1, 0));
         var colXN = world.GetColumn(pos + new Vector2D<int>(-1, 0));
@@ -57,8 +64,8 @@ public static class ChunkMesher
                     {
                         for (x[u] = 0; x[u] < ChunkSize; x[u]++)
                         {
-                            var blockCurrent = GetBlockSafeSmart(sectionY, x[0], x[1], x[2], column, colXP, colXN, colZP, colZN);
-                            var blockNeighbor = GetBlockSafeSmart(sectionY, x[0] + q[0], x[1] + q[1], x[2] + q[2], column, colXP, colXN, colZP, colZN);
+                            var blockCurrent = paddedBlocks[GetPaddedIndex(x[0] + 1, x[1] + 1, x[2] + 1)];
+                            var blockNeighbor = paddedBlocks[GetPaddedIndex(x[0] + q[0] + 1, x[1] + q[1] + 1, x[2] + q[2] + 1)];
 
                             bool isCurrentSolid = blockCurrent != BlockId.Air;
                             bool isNeighborSolid = blockNeighbor != BlockId.Air;
@@ -66,13 +73,9 @@ public static class ChunkMesher
                             uint aoData = 0;
 
                             if (dir == 1)
-                            {
                                 if (isCurrentSolid && !isNeighborSolid) faceBlockId = blockCurrent;
-                            }
                             else
-                            {
                                 if (!isCurrentSolid && isNeighborSolid) faceBlockId = blockNeighbor;
-                            }
 
                             if (faceBlockId != BlockId.Air)
                             {
@@ -275,6 +278,33 @@ public static class ChunkMesher
         {
             builder.AddIndices(baseIndex + 0, baseIndex + 2, baseIndex + 1);
             builder.AddIndices(baseIndex + 0, baseIndex + 3, baseIndex + 2);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int GetPaddedIndex(int x, int y, int z)
+    {
+        return x + (z * 18) + (y * 18 * 18);
+    }
+
+    private static unsafe void FillPaddedBuffer(BlockId* buffer, ChunkColumn center, int sectionY, World world)
+    {
+        var pos = center.Position;
+        var xp = world.GetColumn(pos + new Vector2D<int>(1, 0));
+        var xn = world.GetColumn(pos + new Vector2D<int>(-1, 0));
+        var zp = world.GetColumn(pos + new Vector2D<int>(0, 1));
+        var zn = world.GetColumn(pos + new Vector2D<int>(0, -1));
+
+        int index = 0;
+        for (int y = -1; y <= ChunkSize; y++)
+        {
+            for (int z = -1; z <= ChunkSize; z++)
+            {
+                for (int x = -1; x <= ChunkSize; x++)
+                {
+                    buffer[index++] = GetBlockSafeSmart(sectionY, x, y, z, center, xp, xn, zp, zn);
+                }
+            }
         }
     }
 }
