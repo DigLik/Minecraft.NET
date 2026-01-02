@@ -7,7 +7,8 @@ public enum ChunkSectionState : byte { Empty, AwaitingMesh, Meshing, Rendered }
 
 public unsafe sealed class ChunkColumn : IDisposable
 {
-    public readonly ReaderWriterLockSlim DataLock = new(LockRecursionPolicy.NoRecursion);
+    public readonly Lock StateLock = new();
+
     public Action<ChunkMeshGeometry>? OnFreeMeshGeometry;
     public Vector2D<int> Position;
     public readonly ChunkSection[] Sections;
@@ -27,35 +28,37 @@ public unsafe sealed class ChunkColumn : IDisposable
 
     public void Reset(Vector2D<int> newPosition)
     {
-        Position = newPosition;
-        IsGenerated = false;
-        Array.Clear(SectionStates);
+        lock (StateLock)
+        {
+            Position = newPosition;
+            IsGenerated = false;
+            Array.Clear(SectionStates);
 
-        if (OnFreeMeshGeometry != null)
-            while (ActiveMask != 0)
-            {
-                int i = BitOperations.TrailingZeroCount(ActiveMask);
-
-                if (MeshGeometries[i].IndexCount > 0)
+            if (OnFreeMeshGeometry != null)
+                while (ActiveMask != 0)
                 {
-                    OnFreeMeshGeometry(MeshGeometries[i]);
-                    MeshGeometries[i] = default;
+                    int i = BitOperations.TrailingZeroCount(ActiveMask);
+
+                    if (MeshGeometries[i].IndexCount > 0)
+                    {
+                        OnFreeMeshGeometry(MeshGeometries[i]);
+                        MeshGeometries[i] = default;
+                    }
+
+                    ActiveMask &= (ushort)~(1 << i);
                 }
 
-                ActiveMask &= (ushort)~(1 << i);
-            }
+            ActiveMask = 0;
 
-        ActiveMask = 0;
-
-        for (int i = 0; i < Sections.Length; i++)
-            Sections[i].Reset();
+            for (int i = 0; i < Sections.Length; i++)
+                Sections[i].Reset();
+        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void SetBlock(int x, int y, int z, BlockId id)
     {
-        DataLock.EnterWriteLock();
-        try
+        lock (StateLock)
         {
             if (y < 0 || y >= WorldHeightInBlocks) return;
 
@@ -64,41 +67,27 @@ public unsafe sealed class ChunkColumn : IDisposable
 
             Sections[sectionIndex].SetBlock(x, localY, z, id);
         }
-        finally
-        {
-            DataLock.ExitWriteLock();
-        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void FillSection(int sectionY, BlockId id)
     {
         if (sectionY < 0 || sectionY >= WorldHeightInChunks) return;
-        Sections[sectionY].Fill(id);
+        lock (StateLock)
+            Sections[sectionY].Fill(id);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public BlockId GetBlock(int x, int y, int z)
     {
-        DataLock.EnterReadLock();
-        try
-        {
-            if (y < 0 || y >= WorldHeightInBlocks) return BlockId.Air;
-            int sectionIndex = y >> ChunkShift;
-            int localY = y & ChunkMask;
-            return Sections[sectionIndex].GetBlock(x, localY, z);
-        }
-        finally
-        {
-            DataLock.ExitReadLock();
-        }
+        if (y < 0 || y >= WorldHeightInBlocks) return BlockId.Air;
+        return Sections[y >> ChunkShift].GetBlock(x, y & ChunkMask, z);
     }
 
     public void Dispose()
     {
         if (_isDisposed) return;
         Reset(Vector2D<int>.Zero);
-        DataLock.Dispose();
         _isDisposed = true;
         GC.SuppressFinalize(this);
     }

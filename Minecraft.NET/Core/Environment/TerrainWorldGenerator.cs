@@ -4,84 +4,70 @@ namespace Minecraft.NET.Core.Environment;
 
 public class TerrainWorldGenerator : IWorldGenerator
 {
-    private const int BaseHeight = 0;
-    private const float Amplitude = 50.0f;
-    private const float CaveRadius = 0.18f;
+    private readonly FastNoise _noise;
 
-    private readonly FastNoiseLite _noise;
-    private readonly FastNoiseLite _caveNoiseX;
-    private readonly FastNoiseLite _caveNoiseY;
+    private const float Frequency = 0.008f;
+    private const int Octaves = 5;
+    private const float Lacunarity = 2.0f;
+    private const float Persistence = 0.3f;
+
+    private const int SeaLevel = 0;
+    private const float MinHeight = 50.0f;
+    private const float MaxHeight = 250.0f;
+    private const float HeightExponent = 1.0f;
 
     public TerrainWorldGenerator()
     {
-        _noise = new FastNoiseLite();
-        _noise.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
-        _noise.SetSeed(1337);
-        _noise.SetFrequency(0.005f);
-        _noise.SetFractalType(FastNoiseLite.FractalType.FBm);
-        _noise.SetFractalOctaves(4);
-        _noise.SetFractalLacunarity(2.0f);
-        _noise.SetFractalGain(0.5f);
-
-        _caveNoiseX = new FastNoiseLite();
-        _caveNoiseX.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
-        _caveNoiseX.SetSeed(1338);
-        _caveNoiseX.SetFrequency(0.02f);
-
-        _caveNoiseY = new FastNoiseLite();
-        _caveNoiseY.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2);
-        _caveNoiseY.SetSeed(1339);
-        _caveNoiseY.SetFrequency(0.02f);
+        _noise = new FastNoise(12345);
     }
 
     public unsafe void Generate(ChunkColumn column)
     {
-        float caveRadiusSq = CaveRadius * CaveRadius;
-        int offset = VerticalChunkOffset * ChunkSize;
+        float* heightMap = stackalloc float[ChunkSize * ChunkSize];
 
-        int safeStoneLevel = (offset - 32) >> ChunkShift;
-        for (int sy = 0; sy < safeStoneLevel; sy++)
-            column.FillSection(sy, BlockId.Stone);
+        _noise.FillHeightMapSIMD(
+            heightMap,
+            column.Position.X * ChunkSize,
+            column.Position.Y * ChunkSize,
+            Frequency,
+            Octaves,
+            Lacunarity,
+            Persistence
+        );
 
-        for (int x = 0; x < ChunkSize; x++)
+        for (int z = 0; z < ChunkSize; z++)
         {
-            for (int z = 0; z < ChunkSize; z++)
+            for (int x = 0; x < ChunkSize; x++)
             {
-                float worldX = column.Position.X * ChunkSize + x;
-                float worldZ = column.Position.Y * ChunkSize + z;
+                float rawNoise = heightMap[x + z * ChunkSize];
 
-                float noiseValue = _noise.GetNoise(worldX, worldZ);
-                int terrainHeight = (int)(BaseHeight + noiseValue * Amplitude);
-                int storageHeight = terrainHeight + offset;
+                float normalized = (rawNoise + 1.2f) / 2.4f;
+                normalized = Math.Clamp(normalized, 0.0f, 1.0f);
 
-                if (storageHeight >= WorldHeightInBlocks) storageHeight = WorldHeightInBlocks - 1;
-                if (storageHeight < 0) storageHeight = 0;
+                float curve = MathF.Pow(normalized, HeightExponent);
 
-                for (int y = 0; y <= storageHeight; y++)
+                int height = (int)(MinHeight + curve * (MaxHeight - MinHeight));
+                height = Math.Clamp(height, 0, WorldHeightInBlocks - 1);
+
+                for (int y = 0; y <= height; y++)
                 {
-                    int worldY = y - offset;
+                    BlockId block;
 
-                    int sectionIndex = y >> ChunkShift;
-                    bool isSafeStoneZone = sectionIndex < safeStoneLevel;
-
-                    float noiseValX = _caveNoiseX.GetNoise(worldX, worldY, worldZ);
-                    float noiseValY = _caveNoiseY.GetNoise(worldX, worldY, worldZ);
-                    float distFromCenterSq = noiseValX * noiseValX + noiseValY * noiseValY;
-
-                    if (distFromCenterSq < caveRadiusSq)
+                    if (y == height)
                     {
-                        column.SetBlock(x, y, z, BlockId.Air);
-                        continue;
+                        if (y >= SeaLevel + 2) block = BlockId.Grass;
+                        else block = BlockId.Dirt;
+                    }
+                    else if (y > height - 4)
+                    {
+                        block = BlockId.Dirt;
+                    }
+                    else
+                    {
+                        block = BlockId.Stone;
                     }
 
-                    if (isSafeStoneZone) continue;
-
-                    BlockId blockToSet;
-                    if (y == storageHeight) blockToSet = BlockId.Grass;
-                    else if (y > storageHeight - 4) blockToSet = BlockId.Dirt;
-                    else blockToSet = BlockId.Stone;
-
-                    column.SetBlock(x, y, z, blockToSet);
+                    column.SetBlock(x, y, z, block);
                 }
             }
         }

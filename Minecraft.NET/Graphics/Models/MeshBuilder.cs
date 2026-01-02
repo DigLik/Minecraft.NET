@@ -1,11 +1,12 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Minecraft.NET.Graphics.Models;
 
-public unsafe class MeshBuilder : IDisposable
+public unsafe class MeshBuilder
 {
     private ChunkVertex* _vertices;
-    private uint* _indices;
+    private ushort* _indices;
 
     private int _vertexCapacity;
     private int _indexCapacity;
@@ -18,7 +19,13 @@ public unsafe class MeshBuilder : IDisposable
         _vertexCapacity = initialVertexCapacity;
         _indexCapacity = initialIndexCapacity;
         _vertices = (ChunkVertex*)NativeMemory.Alloc((nuint)_vertexCapacity, (nuint)sizeof(ChunkVertex));
-        _indices = (uint*)NativeMemory.Alloc((nuint)_indexCapacity, sizeof(uint));
+        _indices = (ushort*)NativeMemory.Alloc((nuint)_indexCapacity, sizeof(ushort));
+    }
+
+    public void Reset()
+    {
+        VertexCount = 0;
+        IndexCount = 0;
     }
 
     public void AddVertex(in ChunkVertex vertex)
@@ -32,12 +39,12 @@ public unsafe class MeshBuilder : IDisposable
         _vertices[VertexCount++] = vertex;
     }
 
-    public void AddIndices(uint i1, uint i2, uint i3)
+    public void AddIndices(ushort i1, ushort i2, ushort i3)
     {
         if (IndexCount + 3 > _indexCapacity)
         {
             _indexCapacity *= 2;
-            _indices = (uint*)NativeMemory.Realloc(_indices, (nuint)_indexCapacity * sizeof(uint));
+            _indices = (ushort*)NativeMemory.Realloc(_indices, (nuint)_indexCapacity * sizeof(ushort));
         }
 
         int currentOffset = IndexCount;
@@ -47,18 +54,16 @@ public unsafe class MeshBuilder : IDisposable
         IndexCount += 3;
     }
 
-    public MeshData Build()
+    public MeshData BuildToData()
     {
-        var data = new MeshData((nint)_vertices, VertexCount, _indices, IndexCount);
-        _vertices = null;
-        _indices = null;
-        return data;
-    }
+        if (IndexCount == 0) return default;
 
-    public void Dispose()
-    {
-        if (_vertices != null) NativeMemory.Free(_vertices);
-        if (_indices != null) NativeMemory.Free(_indices);
-        GC.SuppressFinalize(this);
+        ChunkVertex* outVertices = (ChunkVertex*)NativeMemory.Alloc((nuint)VertexCount, (nuint)sizeof(ChunkVertex));
+        ushort* outIndices = (ushort*)NativeMemory.Alloc((nuint)IndexCount, sizeof(ushort));
+
+        Unsafe.CopyBlock(outVertices, _vertices, (uint)(VertexCount * sizeof(ChunkVertex)));
+        Unsafe.CopyBlock(outIndices, _indices, (uint)(IndexCount * sizeof(ushort)));
+
+        return new MeshData((nint)outVertices, VertexCount, outIndices, IndexCount);
     }
 }

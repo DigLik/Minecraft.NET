@@ -48,7 +48,7 @@ public sealed unsafe class ChunkRenderer : IChunkRenderer
 
         _ebo = _gl.GenBuffer();
         _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
-        _gl.BufferData(BufferTargetARB.ElementArrayBuffer, _currentIndexCapacity * sizeof(uint), null, BufferUsageARB.DynamicDraw);
+        _gl.BufferData(BufferTargetARB.ElementArrayBuffer, _currentIndexCapacity * sizeof(ushort), null, BufferUsageARB.DynamicDraw);
 
         _indirectBuffer = _gl.GenBuffer();
         _gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, _indirectBuffer);
@@ -125,13 +125,13 @@ public sealed unsafe class ChunkRenderer : IChunkRenderer
         uint firstIndex = (uint)indexOffset;
 
         nuint vertexSizeInBytes = (nuint)meshData.VertexCount * ChunkVertex.Stride;
-        nuint indexSizeInBytes = (nuint)meshData.IndexCount * sizeof(uint);
+        nuint indexSizeInBytes = (nuint)meshData.IndexCount * sizeof(ushort);
 
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
         _gl.BufferSubData(BufferTargetARB.ArrayBuffer, (nint)(vertexOffset * ChunkVertex.Stride), vertexSizeInBytes, (void*)meshData.Vertices);
 
         _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
-        _gl.BufferSubData(BufferTargetARB.ElementArrayBuffer, (nint)(indexOffset * sizeof(uint)), indexSizeInBytes, meshData.Indices);
+        _gl.BufferSubData(BufferTargetARB.ElementArrayBuffer, (nint)(indexOffset * sizeof(ushort)), indexSizeInBytes, meshData.Indices);
 
         var geometry = new ChunkMeshGeometry((uint)meshData.IndexCount, firstIndex, baseVertex);
 
@@ -165,10 +165,10 @@ public sealed unsafe class ChunkRenderer : IChunkRenderer
 
         uint newEbo = _gl.GenBuffer();
         _gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, newEbo);
-        _gl.BufferData(BufferTargetARB.CopyWriteBuffer, newCapacity * sizeof(uint), null, BufferUsageARB.DynamicDraw);
+        _gl.BufferData(BufferTargetARB.CopyWriteBuffer, newCapacity * sizeof(ushort), null, BufferUsageARB.DynamicDraw);
 
         _gl.BindBuffer(BufferTargetARB.CopyReadBuffer, _ebo);
-        _gl.CopyBufferSubData(CopyBufferSubDataTarget.CopyReadBuffer, CopyBufferSubDataTarget.CopyWriteBuffer, 0, 0, _currentIndexCapacity * sizeof(uint));
+        _gl.CopyBufferSubData(CopyBufferSubDataTarget.CopyReadBuffer, CopyBufferSubDataTarget.CopyWriteBuffer, 0, 0, _currentIndexCapacity * sizeof(ushort));
 
         _gl.DeleteBuffer(_ebo);
         _ebo = newEbo;
@@ -204,7 +204,7 @@ public sealed unsafe class ChunkRenderer : IChunkRenderer
     {
         if (commandCount == 0) return;
         _gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, _indirectBuffer);
-        _gl.MultiDrawElementsIndirect(PrimitiveType.Triangles, DrawElementsType.UnsignedInt, null, (uint)commandCount, 0);
+        _gl.MultiDrawElementsIndirect(PrimitiveType.Triangles, DrawElementsType.UnsignedShort, null, (uint)commandCount, 0);
     }
 
     public void Dispose()

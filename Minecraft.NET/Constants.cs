@@ -2,17 +2,17 @@
 
 public static class Constants
 {
-    public const int ChunkSize = 16; // 2^n
+    public const int ChunkSize = 16; // НЕ МЕНЯТЬ! | DO NOT CHANGE!
 
-    public const int ChunkMask = ChunkSize - 1; // 15 или 0xF
-    public static readonly int ChunkShift = BitOperations.Log2(ChunkSize); // 2^4 = 16
-    public const int BlocksInChunk = ChunkSize * ChunkSize * ChunkSize;
+    public const int ChunkMask = ChunkSize - 1; // 15
+    public const int ChunkShift = 4;
+    public const int BlocksInChunk = ChunkSize * ChunkSize * ChunkSize; // 4096
 
-    public const int RenderDistance = 512 / ChunkSize; // blocks render distance
+    public const int RenderDistance = 64; // Расстояние рендеринга в блоках
 
     public const int WorldHeightInChunks = 16;
-    public const int WorldHeightInBlocks = ChunkSize * WorldHeightInChunks;
-    public const int VerticalChunkOffset = WorldHeightInChunks / 2;
+    public const int WorldHeightInBlocks = ChunkSize * WorldHeightInChunks; // 256
+    public const int VerticalChunkOffset = WorldHeightInChunks / 2; // 8
 
     public const int MaxVisibleSections = (RenderDistance * 2 + 1) * (RenderDistance * 2 + 1) * WorldHeightInChunks;
 

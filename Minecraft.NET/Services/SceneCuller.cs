@@ -19,14 +19,13 @@ public class VisibleScene
     public void Reset() => VisibleSectionCount = 0;
 }
 
-public unsafe class SceneCuller(Player player, ChunkManager chunkProvider)
+public unsafe class SceneCuller(Player player, ChunkManager chunkManager)
 {
     private readonly Frustum _frustum = new();
     private static readonly float SectionSphereRadius = MathF.Sqrt(3) * (ChunkSize / 2f);
     private static readonly Vector3 SectionExtent = new(ChunkSize / 2f);
 
     private Vector256<float> _negSphereRadiusVec;
-    private static readonly Matrix4x4 _identityMatrix = Matrix4x4.Identity;
 
     public VisibleScene Result { get; } = new();
 
@@ -45,8 +44,8 @@ public unsafe class SceneCuller(Player player, ChunkManager chunkProvider)
         float camY = (float)cameraOrigin.Y;
         float camZ = (float)cameraOrigin.Z;
 
-        var chunks = chunkProvider.RenderChunks;
-        int chunkCount = chunks.Count;
+        var chunks = chunkManager.GetRenderChunks();
+        int chunkCount = chunks.Length;
         if (chunkCount == 0) return;
 
         var yInc1 = _frustum.YIncrement;
@@ -60,7 +59,7 @@ public unsafe class SceneCuller(Player player, ChunkManager chunkProvider)
         int globalCount = 0;
         int maxCount = MaxVisibleSections;
 
-        var chunksSpan = CollectionsMarshal.AsSpan(chunks);
+        ref var chunkRef = ref MemoryMarshal.GetArrayDataReference(chunks);
 
         fixed (DrawElementsIndirectCommand* pCommandsBase = Result.IndirectCommands)
         fixed (Vector3* pOffsetsBase = Result.ChunkOffsets)
@@ -73,7 +72,7 @@ public unsafe class SceneCuller(Player player, ChunkManager chunkProvider)
 
             for (int i = 0; i < chunkCount; i++)
             {
-                var column = chunksSpan[i];
+                var column = Unsafe.Add(ref chunkRef, i);
 
                 if (column.ActiveMask == 0) continue;
 
@@ -84,19 +83,17 @@ public unsafe class SceneCuller(Player player, ChunkManager chunkProvider)
                     continue;
 
                 var dist0 = _frustum.GetDistances(colCenterX, startSectionRelY, colCenterZ);
-                var dist1 = dist0 + yInc1;
-                var dist2 = dist0 + yInc2;
-                var dist3 = dist0 + yInc3;
 
                 ref var geometriesRef = ref MemoryMarshal.GetArrayDataReference(column.MeshGeometries);
 
                 for (int y = 0; y < WorldHeightInChunks; y++)
                 {
+                    if (((column.ActiveMask >> y) & 1) == 0) continue;
+
                     float sectionRelY = startSectionRelY + (y * ChunkSize);
                     var dist = _frustum.GetDistances(colCenterX, sectionRelY, colCenterZ);
 
                     ref var geometry = ref Unsafe.Add(ref geometriesRef, y);
-
                     if (geometry.IndexCount == 0) continue;
 
                     var sphereFail = Vector256.LessThan(dist, _negSphereRadiusVec);

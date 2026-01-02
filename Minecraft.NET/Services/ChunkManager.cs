@@ -14,9 +14,12 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
     private ChunkMeshRequestHandler? _meshRequestHandler = null;
 
     private readonly ConcurrentDictionary<Vector2D<int>, ChunkColumn> _chunks = new();
-    public List<ChunkColumn> RenderChunks { get; } = [];
-    private readonly List<Vector2D<int>> _chunksToRemove = [];
 
+    private ChunkColumn[] _renderChunksSnapshot = [];
+    private bool _isRenderListDirty = false;
+    private readonly Lock _listLock = new();
+
+    private readonly List<Vector2D<int>> _chunksToRemove = [];
     private readonly ConcurrentStack<ChunkColumn> _chunkPool = new();
 
     private Vector2D<int> _lastPlayerChunkPos = new(int.MaxValue, int.MaxValue);
@@ -39,15 +42,32 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
             (int)Math.Floor(playerState.Position.X) >> ChunkShift,
             (int)Math.Floor(playerState.Position.Z) >> ChunkShift
         );
-        if (playerChunkPos == _lastPlayerChunkPos) return;
 
-        UnloadFarChunks(playerChunkPos);
-        LoadCloseChunks(playerChunkPos);
-        _lastPlayerChunkPos = playerChunkPos;
+        if (playerChunkPos != _lastPlayerChunkPos)
+        {
+            UnloadFarChunks(playerChunkPos);
+            LoadCloseChunks(playerChunkPos);
+            _lastPlayerChunkPos = playerChunkPos;
+        }
+
+        if (_isRenderListDirty)
+        {
+            lock (_listLock)
+            {
+                if (_isRenderListDirty)
+                {
+                    _renderChunksSnapshot = [.. _chunks.Values];
+                    _isRenderListDirty = false;
+                }
+            }
+        }
     }
+
+    public ChunkColumn[] GetRenderChunks() => _renderChunksSnapshot;
 
     private void LoadCloseChunks(Vector2D<int> playerChunkPos)
     {
+        bool addedAny = false;
         for (int x = -RenderDistance; x <= RenderDistance; x++)
             for (int z = -RenderDistance; z <= RenderDistance; z++)
             {
@@ -66,12 +86,13 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
 
                     if (_chunks.TryAdd(targetPos, newChunk))
                     {
-                        lock (RenderChunks)
-                            RenderChunks.Add(newChunk);
                         Task.Run(() => GenerateChunkData(newChunk));
+                        addedAny = true;
                     }
                 }
             }
+
+        if (addedAny) _isRenderListDirty = true;
     }
 
     private void UnloadFarChunks(Vector2D<int> playerChunkPos)
@@ -87,16 +108,15 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
 
         if (_chunksToRemove.Count > 0)
         {
-            lock (RenderChunks)
-                foreach (var posToRemove in _chunksToRemove)
+            foreach (var posToRemove in _chunksToRemove)
+            {
+                if (_chunks.TryRemove(posToRemove, out var removedChunk))
                 {
-                    if (_chunks.TryRemove(posToRemove, out var removedChunk))
-                    {
-                        RenderChunks.Remove(removedChunk);
-                        removedChunk.Reset(Vector2D<int>.Zero);
-                        _chunkPool.Push(removedChunk);
-                    }
+                    removedChunk.Reset(Vector2D<int>.Zero);
+                    _chunkPool.Push(removedChunk);
                 }
+            }
+            _isRenderListDirty = true;
         }
     }
 
@@ -135,13 +155,10 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
 
     public void Dispose()
     {
-        lock (_chunks)
-        {
-            foreach (var chunk in _chunks.Values) chunk.Dispose();
-            foreach (var chunk in _chunkPool) chunk.Dispose();
-            _chunks.Clear();
-            _chunkPool.Clear();
-        }
+        foreach (var chunk in _chunks.Values) chunk.Dispose();
+        foreach (var chunk in _chunkPool) chunk.Dispose();
+        _chunks.Clear();
+        _chunkPool.Clear();
         GC.SuppressFinalize(this);
     }
 }

@@ -13,6 +13,7 @@ public unsafe struct ChunkSection
 
     public readonly bool IsAllocated => Blocks != null;
     public readonly bool IsEmpty => (!IsAllocated && UniformId == BlockId.Air) || (IsAllocated && NonAirBlockCount == 0);
+    public readonly bool IsFull => (!IsAllocated && UniformId != BlockId.Air) || (IsAllocated && NonAirBlockCount == SectionSize);
 
     public void Reset()
     {

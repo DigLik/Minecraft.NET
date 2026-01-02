@@ -2,10 +2,10 @@
 
 namespace Minecraft.NET.Graphics.Models;
 
-public unsafe readonly struct MeshData(nint vertices, int vertexCount, uint* indices, int indexCount) : IDisposable
+public unsafe readonly struct MeshData(nint vertices, int vertexCount, ushort* indices, int indexCount) : IDisposable
 {
     public readonly nint Vertices = vertices;
-    public readonly uint* Indices = indices;
+    public readonly ushort* Indices = indices;
     public readonly int VertexCount = vertexCount;
     public readonly int IndexCount = indexCount;
 
