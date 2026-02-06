@@ -1,20 +1,11 @@
-﻿using Minecraft.NET.Graphics.Rendering;
-using Framebuffer = Minecraft.NET.Graphics.Rendering.Framebuffer;
+﻿//namespace Minecraft.NET.Graphics;
 
-namespace Minecraft.NET.Graphics;
+//public class SharedRenderData
+//{
+//    public Matrix4x4 ViewMatrix { get; set; }
+//    public Matrix4x4 RelativeViewMatrix { get; set; }
+//    public Matrix4x4 ProjectionMatrix { get; set; }
+//    public Vector2 ViewportSize { get; set; }
 
-public class SharedRenderData
-{
-    public Matrix4x4 ViewMatrix { get; set; }
-    public Matrix4x4 RelativeViewMatrix { get; set; }
-    public Matrix4x4 ProjectionMatrix { get; set; }
-    public Vector2 ViewportSize { get; set; }
-
-    public Framebuffer? GBuffer { get; set; }
-    public Framebuffer? PostProcessBuffer { get; set; }
-
-    public DrawElementsIndirectCommand[] IndirectCommands { get; set; } = [];
-    public Vector3[] ChunkOffsets { get; set; } = [];
-
-    public int VisibleCount { get; set; }
-}
+//    public int VisibleCount { get; set; }
+//}

@@ -75,6 +75,20 @@ public unsafe struct ChunkSection
         SetBlock(x, y, z, id);
     }
 
+    public void Optimize()
+    {
+        if (Blocks == null) return;
+
+        BlockId first = Blocks[0];
+        for (int i = 1; i < SectionSize; i++)
+            if (Blocks[i] != first) return;
+
+        NativeMemory.Free(Blocks);
+        Blocks = null;
+        UniformId = first;
+        NonAirBlockCount = (first == BlockId.Air) ? 0 : SectionSize;
+    }
+
     public void Free()
     {
         Reset();

@@ -1,6 +1,5 @@
 ﻿using Minecraft.NET.Engine;
 using Minecraft.NET.Graphics.Models;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Minecraft.NET.Graphics.Rendering;
@@ -27,8 +26,6 @@ public sealed unsafe class ChunkRenderer : IChunkRenderer
     private uint _vao;
     private uint _vbo;
     private uint _ebo;
-    private uint _indirectBuffer;
-    private uint _instanceVbo;
 
     private MemoryAllocator _vertexAllocator = null!;
     private MemoryAllocator _indexAllocator = null!;
@@ -50,42 +47,16 @@ public sealed unsafe class ChunkRenderer : IChunkRenderer
         _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
         _gl.BufferData(BufferTargetARB.ElementArrayBuffer, _currentIndexCapacity * sizeof(ushort), null, BufferUsageARB.DynamicDraw);
 
-        _indirectBuffer = _gl.GenBuffer();
-        _gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, _indirectBuffer);
-        _gl.BufferData(BufferTargetARB.DrawIndirectBuffer, (nuint)(MaxVisibleSections * sizeof(DrawElementsIndirectCommand)), null, BufferUsageARB.StreamDraw);
-
-        _instanceVbo = _gl.GenBuffer();
-        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
-        _gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(MaxVisibleSections * sizeof(Vector3)), null, BufferUsageARB.StreamDraw);
-
         _vertexAllocator = new MemoryAllocator(_currentVertexCapacity);
         _indexAllocator = new MemoryAllocator(_currentIndexCapacity);
 
         SetupVao();
     }
 
-    public void UpdateInstanceData(Vector3* offsets, int count)
-    {
-        if (count == 0) return;
-
-        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
-
-        nuint sizeInBytes = (nuint)(count * sizeof(Vector3));
-        _gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(MaxVisibleSections * sizeof(Vector3)), null, BufferUsageARB.StreamDraw);
-
-        void* ptr = _gl.MapBufferRange(BufferTargetARB.ArrayBuffer, 0, sizeInBytes,
-            (uint)(MapBufferAccessMask.WriteBit | MapBufferAccessMask.InvalidateBufferBit | MapBufferAccessMask.UnsynchronizedBit));
-
-        if (ptr != null)
-        {
-            Unsafe.CopyBlock(ptr, offsets, (uint)sizeInBytes);
-            _gl.UnmapBuffer(BufferTargetARB.ArrayBuffer);
-        }
-    }
-
     private void SetupVao()
     {
-        if (_vao != 0) _gl.DeleteVertexArray(_vao);
+        if (_vao != 0)
+            _gl.DeleteVertexArray(_vao);
 
         _vao = _gl.GenVertexArray();
         _gl.BindVertexArray(_vao);
@@ -95,11 +66,8 @@ public sealed unsafe class ChunkRenderer : IChunkRenderer
 
         ChunkVertex.SetVertexAttribPointers(_gl);
 
-        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
-        uint vec3Size = (uint)sizeof(Vector3);
         uint loc = 4;
         _gl.EnableVertexAttribArray(loc);
-        _gl.VertexAttribPointer(loc, 3, VertexAttribPointerType.Float, false, vec3Size, (void*)0);
         _gl.VertexAttribDivisor(loc, 1);
 
         _gl.BindVertexArray(0);
@@ -107,7 +75,8 @@ public sealed unsafe class ChunkRenderer : IChunkRenderer
 
     public ChunkMeshGeometry UploadChunkMesh(MeshData meshData)
     {
-        if (meshData.IndexCount == 0) { meshData.Dispose(); return default; }
+        if (meshData.IndexCount == 0)
+        { meshData.Dispose(); return default; }
 
         if (!_vertexAllocator.TryAllocate((nuint)meshData.VertexCount, out nuint vertexOffset))
         {
@@ -179,19 +148,6 @@ public sealed unsafe class ChunkRenderer : IChunkRenderer
         SetupVao();
     }
 
-    public unsafe void UploadIndirectCommands(DrawElementsIndirectCommand* commands, int count)
-    {
-        if (count == 0) return;
-
-        _gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, _indirectBuffer);
-        _gl.BufferSubData(
-            BufferTargetARB.DrawIndirectBuffer,
-            0,
-            (nuint)(count * sizeof(DrawElementsIndirectCommand)),
-            commands
-        );
-    }
-
     public void FreeChunkMesh(ChunkMeshGeometry geometry)
     {
         _vertexAllocator.Free((nuint)geometry.BaseVertex);
@@ -200,11 +156,21 @@ public sealed unsafe class ChunkRenderer : IChunkRenderer
 
     public void Bind() => _gl.BindVertexArray(_vao);
 
-    public void Draw(int commandCount)
+    public void DrawGPUIndirectCount(uint indirectBuffer, uint instanceBuffer, uint countBuffer, int maxDrawCount)
     {
-        if (commandCount == 0) return;
-        _gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, _indirectBuffer);
-        _gl.MultiDrawElementsIndirect(PrimitiveType.Triangles, DrawElementsType.UnsignedShort, null, (uint)commandCount, 0);
+        _gl.BindVertexArray(_vao);
+
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, instanceBuffer);
+        _gl.VertexAttribPointer(4, 3, VertexAttribPointerType.Float, false, 16, (void*)0);
+        _gl.VertexAttribDivisor(4, 1);
+
+        _gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, indirectBuffer);
+        _gl.BindBuffer(BufferTargetARB.ParameterBuffer, countBuffer);
+
+        _gl.MultiDrawElementsIndirectCount(PrimitiveType.Triangles, DrawElementsType.UnsignedShort, (void*)0, 0, (uint)maxDrawCount, 0);
+
+        _gl.BindBuffer(BufferTargetARB.ParameterBuffer, 0);
+        _gl.BindVertexArray(0);
     }
 
     public void Dispose()
@@ -212,6 +178,5 @@ public sealed unsafe class ChunkRenderer : IChunkRenderer
         _gl.DeleteVertexArray(_vao);
         _gl.DeleteBuffer(_vbo);
         _gl.DeleteBuffer(_ebo);
-        _gl.DeleteBuffer(_indirectBuffer);
     }
 }

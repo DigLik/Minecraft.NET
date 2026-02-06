@@ -1,10 +1,11 @@
 ﻿using Minecraft.NET.Character;
+using Minecraft.NET.Graphics;
 using Silk.NET.Input;
 using Silk.NET.Windowing;
 
 namespace Minecraft.NET.Engine;
 
-public class SystemInputHandler(IWindow window, GameModeManager gameModeManager)
+public class SystemInputHandler(IWindow window, GameModeManager gameModeManager, RenderSettings renderSettings)
 {
     private IMouse _mouse = null!;
 
@@ -23,6 +24,10 @@ public class SystemInputHandler(IWindow window, GameModeManager gameModeManager)
         else if (key == Key.F1)
         {
             gameModeManager.ToggleGameMode();
+        }
+        else if (key == Key.F3)
+        {
+            renderSettings.IsWireframeEnabled = !renderSettings.IsWireframeEnabled;
         }
         else if (key == Key.Tab)
         {

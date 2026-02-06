@@ -8,7 +8,7 @@ public class SpectatorPlayerController : IPlayerController
 {
     public void HandleInput(InputManager inputHandler, Player player)
     {
-        double cameraSpeed = 50.0;
+        double cameraSpeed = 500.0;
 
         if (inputHandler.IsKeyPressed(Key.ControlLeft)) cameraSpeed *= 2;
 

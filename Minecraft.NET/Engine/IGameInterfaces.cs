@@ -19,7 +19,6 @@ public interface IRenderPipeline : IDisposable
     void OnFramebufferResize(Vector2D<int> newSize);
 
     IChunkRenderer ChunkRenderer { get; }
-    int VisibleSectionCount { get; }
 }
 
 public interface IChunkRenderer : IDisposable
@@ -29,11 +28,9 @@ public interface IChunkRenderer : IDisposable
     ChunkMeshGeometry UploadChunkMesh(MeshData meshData);
     void FreeChunkMesh(ChunkMeshGeometry geometry);
 
-    unsafe void UploadIndirectCommands(DrawElementsIndirectCommand* commands, int count);
     void Bind();
-    void Draw(int commandCount);
 
-    unsafe void UpdateInstanceData(Vector3* offsets, int count);
+    void DrawGPUIndirectCount(uint indirectBuffer, uint instanceBuffer, uint countBuffer, int maxDrawCount);
 }
 
 public interface IPerformanceMonitor : IDisposable
@@ -43,7 +40,6 @@ public interface IPerformanceMonitor : IDisposable
     void EndCpuFrame();
     void BeginGpuFrame();
     void EndGpuFrame();
-
     double AvgCpuTimeMs { get; }
     double AvgGpuTimeMs { get; }
 }

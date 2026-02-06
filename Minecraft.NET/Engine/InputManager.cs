@@ -1,5 +1,6 @@
 ﻿using Minecraft.NET.Character;
 using Minecraft.NET.Character.Controllers;
+using Minecraft.NET.Graphics;
 using Minecraft.NET.Services;
 using Silk.NET.Input;
 using Silk.NET.Windowing;
@@ -11,11 +12,12 @@ public class InputManager(
     Player player,
     WorldInteractionService worldInteraction,
     GameModeManager gameModeManager,
+    RenderSettings renderSettings,
     IReadOnlyDictionary<GameMode, IPlayerController> controllers
     ) : IInputManager
 {
     private readonly Dictionary<GameMode, IPlayerController> _controllers = new(controllers);
-    private readonly SystemInputHandler _systemInputHandler = new(window, gameModeManager);
+    private readonly SystemInputHandler _systemInputHandler = new(window, gameModeManager, renderSettings);
 
     private IInputContext _inputContext = null!;
     private IKeyboard _keyboard = null!;
@@ -23,7 +25,7 @@ public class InputManager(
 
     private Vector2 _lastMousePosition;
 
-    private const float BreakBlockCooldown = 0.25f;
+    private const float BreakBlockCooldown = 0.2f;
     private const float PlaceBlockCooldown = 0.2f;
     private float _breakCooldownTimer = BreakBlockCooldown;
     private float _placeCooldownTimer = PlaceBlockCooldown;

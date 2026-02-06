@@ -1,7 +1,6 @@
 ﻿using Minecraft.NET.Character;
 using Minecraft.NET.Core.Common;
 using Minecraft.NET.Core.Environment;
-using Minecraft.NET.Graphics;
 
 namespace Minecraft.NET.Services;
 

@@ -9,7 +9,6 @@ public class GameStatsService(
     IWindow window,
     Player player,
     ChunkManager chunkManager,
-    IRenderPipeline renderPipeline,
     IPerformanceMonitor performanceMonitor
 ) : IGameStatsService
 {
@@ -25,7 +24,7 @@ public class GameStatsService(
     private int _frameCount;
 
     private string _cachedFpsStats = "FPS: 0 (0.00ms) | CPU: 0.00ms | GPU: 0.00ms";
-    private string _cachedWorldStats = "S: 0/0 | C: 0";
+    private string _cachedWorldStats = "S: GPU | C: 0";
 
     public void OnUpdate(double deltaTime)
     {
@@ -45,7 +44,7 @@ public class GameStatsService(
             int loaded = chunkManager.GetLoadedChunkCount();
             int meshed = chunkManager.GetMeshedSectionCount();
 
-            _cachedWorldStats = $"S: {renderPipeline.VisibleSectionCount}/{meshed} | C: {loaded}";
+            _cachedWorldStats = $"S: GPU/{meshed} | C: {loaded}";
 
             _statsUpdateTimer = 0;
             _frameCount = 0;

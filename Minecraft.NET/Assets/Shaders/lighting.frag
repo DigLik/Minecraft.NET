@@ -16,12 +16,11 @@ uniform mat4 u_inverseProjection;
 
 vec3 ReconstructWorldPos(float depth, vec2 uv)
 {
-    float z = depth * 2.0 - 1.0;
+    float z = depth; 
     vec4 clipSpacePosition = vec4(uv * 2.0 - 1.0, z, 1.0);
     vec4 viewSpacePosition = u_inverseProjection * clipSpacePosition;
 
     viewSpacePosition /= viewSpacePosition.w;
-
     vec4 worldSpacePosition = u_inverseView * viewSpacePosition;
     return worldSpacePosition.xyz;
 }
@@ -31,7 +30,7 @@ void main()
     vec3 albedo = texture(gAlbedo, vTexCoords).rgb;
     float depth = texture(gDepth, vTexCoords).r;
 
-    if (depth >= 1.0) 
+    if (depth <= 0.00001) 
     {
         FragColor = vec4(u_fogColor, 1.0);
         return;

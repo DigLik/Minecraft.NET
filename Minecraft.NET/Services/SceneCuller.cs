@@ -1,127 +1,241 @@
 ﻿using Minecraft.NET.Character;
-using Minecraft.NET.Core.Common;
-using Minecraft.NET.Graphics;
-using Minecraft.NET.Graphics.Rendering;
+using Minecraft.NET.Core.Chunks;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Runtime.Intrinsics;
 
 namespace Minecraft.NET.Services;
 
 public class VisibleScene
 {
-    public DrawElementsIndirectCommand[] IndirectCommands { get; }
-        = new DrawElementsIndirectCommand[MaxVisibleSections];
-    public Vector3[] ChunkOffsets { get; } = new Vector3[MaxVisibleSections];
-
-    public int VisibleSectionCount;
-
-    public void Reset() => VisibleSectionCount = 0;
+    public uint IndirectBufferHandle;
+    public uint InstanceBufferHandle;
+    public uint CountBufferHandle;
+    public int MaxPossibleCount;
 }
 
-public unsafe class SceneCuller(Player player, ChunkManager chunkManager)
+public unsafe class SceneCuller(Player player, ChunkManager chunkManager) : IDisposable
 {
-    private readonly Frustum _frustum = new();
-    private static readonly float SectionSphereRadius = MathF.Sqrt(3) * (ChunkSize / 2f);
-    private static readonly Vector3 SectionExtent = new(ChunkSize / 2f);
+    [StructLayout(LayoutKind.Sequential, Pack = 16)]
+    private struct ChunkInputGPU
+    {
+        public Vector4 Position;
+        public Vector4 Center;
+        public uint IndexCount;
+        public uint FirstIndex;
+        public int BaseVertex;
+        public uint Padding;
+    }
 
-    private Vector256<float> _negSphereRadiusVec;
+    private GL _gl = null!;
+    private Shader _cullShader = null!;
+
+    private uint _inputBuffer;
+    private uint _indirectBuffer;
+    private uint _instanceBuffer;
+    private uint _atomicCounterBuffer;
+
+    private ChunkInputGPU[] _cpuInputBuffer = [];
+    private readonly int _maxCapacity = MaxVisibleSections;
+    private readonly Vector4[] _frustumPlanes = new Vector4[6];
+    private long _lastStateHash = -1;
+    private int _cachedTotalSections = 0;
 
     public VisibleScene Result { get; } = new();
 
+    private const int CommandSize = 20;
+    private const int InstanceSize = 16;
+
+    public void Initialize(GL gl)
+    {
+        _gl = gl;
+        InitializeBuffers();
+        InitializeShader();
+    }
+
+    private void InitializeShader()
+    {
+        _cullShader = new Shader(_gl, Shader.LoadFromFile("Assets/Shaders/cull.comp"));
+        _cullShader.Use();
+        _cullShader.SetInt(_cullShader.GetUniformLocation("visibleCount"), 0);
+    }
+
+    private void InitializeBuffers()
+    {
+        _inputBuffer = _gl.GenBuffer();
+        _gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, _inputBuffer);
+        _gl.BufferData(BufferTargetARB.ShaderStorageBuffer, (nuint)(_maxCapacity * sizeof(ChunkInputGPU)), null, BufferUsageARB.DynamicDraw);
+
+        _indirectBuffer = _gl.GenBuffer();
+        _gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, _indirectBuffer);
+        _gl.BufferData(BufferTargetARB.ShaderStorageBuffer, (nuint)(_maxCapacity * CommandSize), null, BufferUsageARB.DynamicCopy);
+
+        _instanceBuffer = _gl.GenBuffer();
+        _gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, _instanceBuffer);
+        _gl.BufferData(BufferTargetARB.ShaderStorageBuffer, (nuint)(_maxCapacity * InstanceSize), null, BufferUsageARB.DynamicCopy);
+
+        _atomicCounterBuffer = _gl.GenBuffer();
+        _gl.BindBuffer(BufferTargetARB.AtomicCounterBuffer, _atomicCounterBuffer);
+        _gl.BufferData(BufferTargetARB.AtomicCounterBuffer, sizeof(uint), null, BufferUsageARB.DynamicDraw);
+
+        _gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, 0);
+        _gl.BindBuffer(BufferTargetARB.AtomicCounterBuffer, 0);
+
+        Result.IndirectBufferHandle = _indirectBuffer;
+        Result.InstanceBufferHandle = _instanceBuffer;
+        Result.CountBufferHandle = _atomicCounterBuffer;
+        Result.MaxPossibleCount = _maxCapacity;
+    }
+
     public void Cull(in Matrix4x4 projectionMatrix, in Matrix4x4 relativeViewMatrix)
     {
-        _frustum.Update(relativeViewMatrix * projectionMatrix);
-        _negSphereRadiusVec = Vector256.Create(-SectionSphereRadius);
-        Result.Reset();
+        if (_gl == null)
+            return;
 
-        var cameraOrigin = new Vector3d(
-            Math.Floor(player.Position.X),
-            Math.Floor(player.Position.Y),
-            Math.Floor(player.Position.Z)
-        );
-        float camX = (float)cameraOrigin.X;
-        float camY = (float)cameraOrigin.Y;
-        float camZ = (float)cameraOrigin.Z;
+        _cullShader.Use();
+
+        UpdateFrustumPlanes(relativeViewMatrix * projectionMatrix);
+        _cullShader.SetVector4Array(_cullShader.GetUniformLocation("u_frustumPlanes"), _frustumPlanes);
+
+        var camPos = player.Position;
+        float camX = (float)Math.Floor(camPos.X);
+        float camY = (float)Math.Floor(camPos.Y);
+        float camZ = (float)Math.Floor(camPos.Z);
+        _cullShader.SetVector3(_cullShader.GetUniformLocation("u_viewPos"), new Vector3(camX, camY, camZ));
 
         var chunks = chunkManager.GetRenderChunks();
-        int chunkCount = chunks.Length;
-        if (chunkCount == 0) return;
+        UpdateInputBufferIfNeeded(chunks);
 
-        var yInc1 = _frustum.YIncrement;
-        var yInc2 = yInc1 + yInc1;
-        var yInc3 = yInc2 + yInc1;
-        var yInc4 = yInc2 + yInc2;
-
-        var sectionProjectedRadius = _frustum.SectionExtentProjection;
-        var zero = Vector256<float>.Zero;
-
-        int globalCount = 0;
-        int maxCount = MaxVisibleSections;
-
-        ref var chunkRef = ref MemoryMarshal.GetArrayDataReference(chunks);
-
-        fixed (DrawElementsIndirectCommand* pCommandsBase = Result.IndirectCommands)
-        fixed (Vector3* pOffsetsBase = Result.ChunkOffsets)
+        if (_cachedTotalSections == 0)
         {
-            DrawElementsIndirectCommand* ptrCommands = pCommandsBase;
-            Vector3* ptrOffsets = pOffsetsBase;
+            _gl.BindBuffer(BufferTargetARB.AtomicCounterBuffer, _atomicCounterBuffer);
+            uint zero = 0;
+            _gl.BufferSubData(BufferTargetARB.AtomicCounterBuffer, 0, sizeof(uint), &zero);
+            _gl.BindBuffer(BufferTargetARB.AtomicCounterBuffer, 0);
+            return;
+        }
 
-            float colCenterY = (float)((WorldHeightInBlocks / 2.0) - VerticalChunkOffset * ChunkSize) - camY;
-            float startSectionRelY = ((0 - VerticalChunkOffset) * ChunkSize) - camY + SectionExtent.Y;
+        _gl.BindBuffer(BufferTargetARB.AtomicCounterBuffer, _atomicCounterBuffer);
+        uint zeroVal = 0;
+        _gl.BufferSubData(BufferTargetARB.AtomicCounterBuffer, 0, sizeof(uint), &zeroVal);
 
-            for (int i = 0; i < chunkCount; i++)
+        _gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, 0, _inputBuffer);
+        _gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, 1, _indirectBuffer);
+        _gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, 2, _instanceBuffer);
+        _gl.BindBufferBase(BufferTargetARB.AtomicCounterBuffer, 3, _atomicCounterBuffer);
+
+        _cullShader.SetUInt(_cullShader.GetUniformLocation("u_chunkCount"), (uint)_cachedTotalSections);
+
+        uint groupSize = 64;
+        uint numGroups = ((uint)_cachedTotalSections + groupSize - 1) / groupSize;
+        _cullShader.Dispatch(numGroups, 1, 1);
+
+        _gl.MemoryBarrier(MemoryBarrierMask.CommandBarrierBit | MemoryBarrierMask.VertexAttribArrayBarrierBit | MemoryBarrierMask.ClientMappedBufferBarrierBit);
+    }
+
+    private void UpdateInputBufferIfNeeded(IReadOnlyList<ChunkColumn> columns)
+    {
+        long currentHash = 0;
+        int colCount = columns.Count;
+        for (int i = 0; i < colCount; i++)
+            currentHash = currentHash * 31 + (columns[i].Version ^ columns[i].Position.GetHashCode());
+
+        if (currentHash == _lastStateHash)
+            return;
+
+        _lastStateHash = currentHash;
+        int count = 0;
+
+        if (_cpuInputBuffer.Length < MaxVisibleSections)
+            Array.Resize(ref _cpuInputBuffer, MaxVisibleSections);
+
+        float sectionRadius = 13.856f;
+        float halfSize = 8.0f;
+
+        for (int i = 0; i < colCount; i++)
+        {
+            var column = columns[i];
+            if (column.ActiveMask == 0)
+                continue;
+
+            float colX = column.Position.X * ChunkSize;
+            float colZ = column.Position.Y * ChunkSize;
+
+            var meshGeometries = column.MeshGeometries;
+            int activeMask = column.ActiveMask;
+
+            for (int y = 0; y < WorldHeightInChunks; y++)
             {
-                var column = Unsafe.Add(ref chunkRef, i);
-
-                if (column.ActiveMask == 0) continue;
-
-                float colCenterX = (column.Position.X * ChunkSize) - camX + SectionExtent.X;
-                float colCenterZ = (column.Position.Y * ChunkSize) - camZ + SectionExtent.Z;
-
-                if (!_frustum.IntersectsColumn(colCenterX, colCenterY, colCenterZ))
+                if (((activeMask >> y) & 1) == 0)
                     continue;
 
-                var dist0 = _frustum.GetDistances(colCenterX, startSectionRelY, colCenterZ);
+                ref readonly var geometry = ref meshGeometries[y];
+                if (geometry.IndexCount == 0)
+                    continue;
 
-                ref var geometriesRef = ref MemoryMarshal.GetArrayDataReference(column.MeshGeometries);
+                if (count >= _maxCapacity)
+                    goto EndLoop;
 
-                for (int y = 0; y < WorldHeightInChunks; y++)
-                {
-                    if (((column.ActiveMask >> y) & 1) == 0) continue;
+                float colY = y * ChunkSize - VerticalChunkOffset * ChunkSize;
 
-                    float sectionRelY = startSectionRelY + (y * ChunkSize);
-                    var dist = _frustum.GetDistances(colCenterX, sectionRelY, colCenterZ);
+                ref var input = ref _cpuInputBuffer[count];
+                input.Position.X = colX;
+                input.Position.Y = colY;
+                input.Position.Z = colZ;
+                input.Position.W = 0;
 
-                    ref var geometry = ref Unsafe.Add(ref geometriesRef, y);
-                    if (geometry.IndexCount == 0) continue;
+                input.Center.X = colX + halfSize;
+                input.Center.Y = colY + halfSize;
+                input.Center.Z = colZ + halfSize;
+                input.Center.W = sectionRadius;
 
-                    var sphereFail = Vector256.LessThan(dist, _negSphereRadiusVec);
-                    var boxFail = Vector256.LessThan(dist + sectionProjectedRadius, zero);
+                input.IndexCount = geometry.IndexCount;
+                input.FirstIndex = geometry.FirstIndex;
+                input.BaseVertex = geometry.BaseVertex;
 
-                    if (Vector256.ExtractMostSignificantBits(Vector256.BitwiseOr(sphereFail, boxFail)) != 0)
-                        continue;
-
-                    if (globalCount >= maxCount) break;
-
-                    ptrCommands[globalCount] = new DrawElementsIndirectCommand(
-                        Count: geometry.IndexCount,
-                        InstanceCount: 1,
-                        FirstIndex: geometry.FirstIndex,
-                        BaseVertex: geometry.BaseVertex,
-                        BaseInstance: (uint)globalCount
-                    );
-
-                    float x = colCenterX - SectionExtent.X;
-                    float z = colCenterZ - SectionExtent.Z;
-                    float py = sectionRelY - SectionExtent.Y;
-
-                    ptrOffsets[globalCount] = new Vector3(x, py, z);
-
-                    globalCount++;
-                }
+                count++;
             }
         }
-        Result.VisibleSectionCount = globalCount;
+
+EndLoop:
+        _cachedTotalSections = count;
+
+        _gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, _inputBuffer);
+        fixed (ChunkInputGPU* ptr = _cpuInputBuffer)
+            _gl.BufferSubData(BufferTargetARB.ShaderStorageBuffer, 0, (nuint)(count * sizeof(ChunkInputGPU)), ptr);
+    }
+
+    private void UpdateFrustumPlanes(Matrix4x4 vp)
+    {
+        float m11 = vp.M11, m12 = vp.M12, m13 = vp.M13, m14 = vp.M14;
+        float m21 = vp.M21, m22 = vp.M22, m23 = vp.M23, m24 = vp.M24;
+        float m31 = vp.M31, m32 = vp.M32, m33 = vp.M33, m34 = vp.M34;
+        float m41 = vp.M41, m42 = vp.M42, m43 = vp.M43, m44 = vp.M44;
+
+        _frustumPlanes[0] = NormalizePlane(m14 + m11, m24 + m21, m34 + m31, m44 + m41);
+        _frustumPlanes[1] = NormalizePlane(m14 - m11, m24 - m21, m34 - m31, m44 - m41);
+        _frustumPlanes[2] = NormalizePlane(m14 + m12, m24 + m22, m34 + m32, m44 + m42);
+        _frustumPlanes[3] = NormalizePlane(m14 - m12, m24 - m22, m34 - m32, m44 - m42);
+        _frustumPlanes[4] = NormalizePlane(m14 + m13, m24 + m23, m34 + m33, m44 + m43);
+        _frustumPlanes[5] = NormalizePlane(m14 - m13, m24 - m23, m34 - m33, m44 - m43);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Vector4 NormalizePlane(float x, float y, float z, float w)
+    {
+        float len = MathF.Sqrt(x * x + y * y + z * z);
+        float invLen = 1.0f / len;
+        return new Vector4(x * invLen, y * invLen, z * invLen, w * invLen);
+    }
+
+    public void Dispose()
+    {
+        if (_gl == null)
+            return;
+
+        _cullShader?.Dispose();
+        _gl.DeleteBuffer(_inputBuffer);
+        _gl.DeleteBuffer(_indirectBuffer);
+        _gl.DeleteBuffer(_instanceBuffer);
+        _gl.DeleteBuffer(_atomicCounterBuffer);
     }
 }

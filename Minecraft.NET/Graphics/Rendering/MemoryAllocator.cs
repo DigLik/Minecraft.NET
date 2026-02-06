@@ -2,20 +2,22 @@
 
 public class MemoryAllocator
 {
-    private class FreeBlock(nuint offset, nuint size)
+    private struct FreeBlock(nuint offset, nuint size) : IComparable<FreeBlock>
     {
         public nuint Offset = offset;
         public nuint Size = size;
+
+        public readonly int CompareTo(FreeBlock other) => Offset.CompareTo(other.Offset);
     }
 
-    private readonly LinkedList<FreeBlock> _freeList = new();
+    private readonly List<FreeBlock> _freeList = new();
     private readonly Dictionary<nuint, nuint> _allocations = [];
     public nuint Capacity { get; private set; }
 
     public MemoryAllocator(nuint initialCapacity)
     {
         Capacity = initialCapacity;
-        _freeList.AddFirst(new LinkedListNode<FreeBlock>(new FreeBlock(0, Capacity)));
+        _freeList.Add(new FreeBlock(0, Capacity));
     }
 
     public bool TryAllocate(nuint size, out nuint offset)
@@ -26,24 +28,26 @@ public class MemoryAllocator
             return false;
         }
 
-        var node = _freeList.First;
-        while (node != null)
+        int count = _freeList.Count;
+        for (int i = 0; i < count; i++)
         {
-            var block = node.Value;
+            var block = _freeList[i];
             if (block.Size >= size)
             {
                 offset = block.Offset;
                 _allocations[offset] = size;
 
-                block.Offset += size;
-                block.Size -= size;
-
-                if (block.Size == 0)
-                    _freeList.Remove(node);
-
+                if (block.Size == size)
+                {
+                    _freeList.RemoveAt(i);
+                }
+                else
+                {
+                    var newBlock = new FreeBlock(block.Offset + size, block.Size - size);
+                    _freeList[i] = newBlock;
+                }
                 return true;
             }
-            node = node.Next;
         }
 
         offset = 0;
@@ -55,64 +59,57 @@ public class MemoryAllocator
         if (!_allocations.Remove(offset, out nuint size))
             return;
 
-        var node = _freeList.First;
-        LinkedListNode<FreeBlock>? insertBefore = null;
+        var newBlock = new FreeBlock(offset, size);
+        int index = _freeList.BinarySearch(newBlock);
 
-        while (node != null)
+        if (index < 0)
+            index = ~index;
+
+        _freeList.Insert(index, newBlock);
+        Coalesce(index);
+    }
+
+    private void Coalesce(int index)
+    {
+        if (index + 1 < _freeList.Count)
         {
-            if (node.Value.Offset > offset)
+            var current = _freeList[index];
+            var next = _freeList[index + 1];
+
+            if (current.Offset + current.Size == next.Offset)
             {
-                insertBefore = node;
-                break;
+                var merged = new FreeBlock(current.Offset, current.Size + next.Size);
+                _freeList[index] = merged;
+                _freeList.RemoveAt(index + 1);
             }
-            node = node.Next;
         }
 
-        var newNode = insertBefore != null
-            ? _freeList.AddBefore(insertBefore, new FreeBlock(offset, size))
-            : _freeList.AddLast(new FreeBlock(offset, size));
+        if (index > 0)
+        {
+            var prev = _freeList[index - 1];
+            var current = _freeList[index];
 
-        Coalesce(newNode);
+            if (prev.Offset + prev.Size == current.Offset)
+            {
+                var merged = new FreeBlock(prev.Offset, prev.Size + current.Size);
+                _freeList[index - 1] = merged;
+                _freeList.RemoveAt(index);
+            }
+        }
     }
 
     public void Grow(nuint newCapacity)
     {
-        if (newCapacity <= Capacity) return;
+        if (newCapacity <= Capacity)
+            return;
 
         nuint addedSize = newCapacity - Capacity;
         nuint oldCapacity = Capacity;
         Capacity = newCapacity;
 
-        var newNode = _freeList.AddLast(new FreeBlock(oldCapacity, addedSize));
-
-        Coalesce(newNode);
-    }
-
-    private void Coalesce(LinkedListNode<FreeBlock> node)
-    {
-        var block = node.Value;
-        var prevNode = node.Previous;
-        if (prevNode != null)
-        {
-            var prevBlock = prevNode.Value;
-            if (prevBlock.Offset + prevBlock.Size == block.Offset)
-            {
-                prevBlock.Size += block.Size;
-                _freeList.Remove(node);
-                node = prevNode;
-                block = node.Value;
-            }
-        }
-
-        var nextNode = node.Next;
-        if (nextNode != null)
-        {
-            var nextBlock = nextNode.Value;
-            if (block.Offset + block.Size == nextBlock.Offset)
-            {
-                block.Size += nextBlock.Size;
-                _freeList.Remove(nextNode);
-            }
-        }
+        var newBlock = new FreeBlock(oldCapacity, addedSize);
+        int index = _freeList.Count;
+        _freeList.Add(newBlock);
+        Coalesce(index);
     }
 }

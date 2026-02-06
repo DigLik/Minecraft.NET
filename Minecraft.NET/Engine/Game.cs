@@ -96,9 +96,7 @@ public sealed class Game : IDisposable
     }
 
     private void OnFramebufferResize(Vector2D<int> newSize)
-    {
-        _renderPipeline?.OnFramebufferResize(newSize);
-    }
+        => _renderPipeline?.OnFramebufferResize(newSize);
 
     private void OnClose()
     {

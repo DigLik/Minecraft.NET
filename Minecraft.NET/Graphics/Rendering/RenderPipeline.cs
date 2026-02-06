@@ -20,38 +20,40 @@ public class RenderPipeline(
     private readonly List<IRenderPass> _renderPasses = [];
 
     public IChunkRenderer ChunkRenderer => chunkRenderer;
-    public int VisibleSectionCount => sceneCuller.Result.VisibleSectionCount;
 
     public unsafe void Initialize(GL gl)
     {
         _gl = gl;
 
         chunkRenderer.Initialize(gl);
+        sceneCuller.Initialize(gl);
 
         var gBuffer = ActivatorUtilities.CreateInstance<GBufferPass>(serviceProvider, _gl, chunkRenderer);
-        var lighting = ActivatorUtilities.CreateInstance<LightingPass>(serviceProvider, _gl, gBuffer);
-        var fxaa = ActivatorUtilities.CreateInstance<FxaaPass>(serviceProvider, _gl, lighting);
-
         _renderPasses.Add(gBuffer);
-        _renderPasses.Add(lighting);
-        _renderPasses.Add(fxaa);
 
         _gl.ClearColor(0.53f, 0.81f, 0.92f, 1.0f);
+
+        _gl.ClipControl(ClipControlOrigin.LowerLeft, ClipControlDepth.ZeroToOne);
         _gl.Enable(EnableCap.DepthTest);
+        _gl.DepthFunc(DepthFunction.Greater);
         _gl.Enable(EnableCap.CullFace);
     }
 
     public void OnFramebufferResize(Vector2D<int> newSize)
     {
-        if (_gl == null) return;
+        if (_gl == null)
+            return;
         _gl.Viewport(newSize);
         frameContext.ViewportSize = new Vector2((uint)newSize.X, (uint)newSize.Y);
-        foreach (var pass in _renderPasses) pass.Initialize((uint)newSize.X, (uint)newSize.Y);
+        foreach (var pass in _renderPasses)
+            pass.Initialize((uint)newSize.X, (uint)newSize.Y);
     }
 
     public unsafe void OnRender(double deltaTime)
     {
-        if (_gl == null) return;
+        if (_gl == null)
+            return;
+
         performanceMonitor.BeginGpuFrame();
 
         var camera = player.Camera;
@@ -66,15 +68,6 @@ public class RenderPipeline(
         frameContext.ViewMatrix = camera.GetViewMatrix();
 
         sceneCuller.Cull(frameContext.ProjectionMatrix, frameContext.RelativeViewMatrix);
-        var visibleScene = sceneCuller.Result;
-
-        if (visibleScene.VisibleSectionCount > 0)
-        {
-            fixed (Vector3* ptr = visibleScene.ChunkOffsets)
-            {
-                chunkRenderer.UpdateInstanceData(ptr, visibleScene.VisibleSectionCount);
-            }
-        }
 
         foreach (var pass in _renderPasses)
             pass.Execute();
@@ -84,7 +77,8 @@ public class RenderPipeline(
 
     public void Dispose()
     {
-        foreach (var pass in _renderPasses) pass.Dispose();
+        foreach (var pass in _renderPasses)
+            pass.Dispose();
         chunkRenderer.Dispose();
     }
 }

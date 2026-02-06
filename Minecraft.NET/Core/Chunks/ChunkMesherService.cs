@@ -11,14 +11,11 @@ public class ChunkMesherService(IChunkRenderer chunkRenderer) : IDisposable
 {
     private World _world = null!;
     private ChunkManager _chunkManager = null!;
-
     private readonly ConcurrentQueue<(Vector2D<int> position, int sectionY)> _chunksToMesh = new();
     private readonly ConcurrentQueue<(ChunkColumn column, int sectionY, MeshData? meshData)> _generatedMeshes = new();
-
     private Task _mesherTask = null!;
     private CancellationTokenSource _cancellationTokenSource = null!;
     private bool _isDisposed = false;
-
     private static readonly Vector2D<int>[] NeighborOffsets =
     [
         new(1, 0), new(-1, 0), new(0, 1), new(0, -1)
@@ -42,18 +39,18 @@ public class ChunkMesherService(IChunkRenderer chunkRenderer) : IDisposable
         {
             if (_chunksToMesh.TryDequeue(out var item))
             {
-                if (token.IsCancellationRequested) break;
-
+                if (token.IsCancellationRequested)
+                    break;
                 var column = _chunkManager?.GetColumn(item.position);
 
                 if (column is null || column.SectionStates[item.sectionY] != ChunkSectionState.Meshing)
                     continue;
-
                 RemeshChunkSection(column, item.sectionY, token);
             }
             else
             {
-                try { Task.Delay(10, token).Wait(token); }
+                try
+                { Task.Delay(10, token).Wait(token); }
                 catch (OperationCanceledException) { break; }
             }
         }
@@ -64,7 +61,6 @@ public class ChunkMesherService(IChunkRenderer chunkRenderer) : IDisposable
         while (_generatedMeshes.TryDequeue(out var result))
         {
             var (column, sectionY, meshData) = result;
-
             if (_chunkManager.GetColumn(column.Position) is null || column.SectionStates[sectionY] != ChunkSectionState.Meshing)
             {
                 if (meshData.HasValue)
@@ -83,20 +79,19 @@ public class ChunkMesherService(IChunkRenderer chunkRenderer) : IDisposable
             ChunkMeshGeometry newGeometry = default;
             if (meshData is not null)
                 newGeometry = chunkRenderer.UploadChunkMesh(meshData.Value);
-
             column.MeshGeometries[sectionY] = newGeometry;
 
             if (newGeometry.IndexCount > 0)
                 column.ActiveMask |= (ushort)(1 << sectionY);
 
             column.SectionStates[sectionY] = ChunkSectionState.Rendered;
+            column.Version++;
         }
     }
 
     private void RemeshChunkSection(ChunkColumn column, int sectionY, CancellationToken token)
     {
         var meshData = ChunkMesher.GenerateMesh(column, sectionY, _world, token);
-
         if (token.IsCancellationRequested)
         {
             meshData.Dispose();
@@ -137,13 +132,15 @@ public class ChunkMesherService(IChunkRenderer chunkRenderer) : IDisposable
 
     public void OnClose()
     {
-        if (_isDisposed) return;
+        if (_isDisposed)
+            return;
         _cancellationTokenSource?.Cancel();
     }
 
     public void Dispose()
     {
-        if (_isDisposed) return;
+        if (_isDisposed)
+            return;
         _isDisposed = true;
 
         _cancellationTokenSource?.Cancel();

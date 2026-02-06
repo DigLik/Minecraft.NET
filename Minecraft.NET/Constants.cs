@@ -8,7 +8,7 @@ public static class Constants
     public const int ChunkShift = 4;
     public const int BlocksInChunk = ChunkSize * ChunkSize * ChunkSize; // 4096
 
-    public const int RenderDistance = 64; // Расстояние рендеринга в блоках
+    public const int RenderDistance = 64; // Расстояние рендеринга в чанках
 
     public const int WorldHeightInChunks = 16;
     public const int WorldHeightInBlocks = ChunkSize * WorldHeightInChunks; // 256

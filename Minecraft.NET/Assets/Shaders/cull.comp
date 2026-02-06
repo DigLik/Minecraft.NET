@@ -1,0 +1,68 @@
+#version 460 core
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct DrawCommand {
+    uint count;
+    uint instanceCount;
+    uint firstIndex;
+    int  baseVertex;
+    uint baseInstance;
+};
+
+struct ChunkInput {
+    vec4 position;
+    vec4 center;
+    uint indexCount;
+    uint firstIndex;
+    int  baseVertex;
+    uint padding;
+};
+
+layout(std430, binding = 0) readonly buffer InputBuffer {
+    ChunkInput chunks[];
+};
+
+layout(std430, binding = 1) writeonly buffer IndirectBuffer {
+    DrawCommand commands[];
+};
+
+layout(std430, binding = 2) writeonly buffer InstanceBuffer {
+    vec4 instanceOffsets[];
+};
+
+layout(binding = 3, offset = 0) uniform atomic_uint visibleCount;
+
+uniform vec4 u_frustumPlanes[6];
+uniform uint u_chunkCount;
+uniform vec3 u_viewPos; 
+
+bool IsVisible(vec3 center, float radius) {
+    for (int i = 0; i < 6; i++) {
+        if (dot(u_frustumPlanes[i].xyz, center - u_viewPos) + u_frustumPlanes[i].w <= -radius) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= u_chunkCount) return;
+
+    ChunkInput chunk = chunks[idx];
+
+    if (IsVisible(chunk.center.xyz, chunk.center.w)) {
+        uint drawIndex = atomicCounterIncrement(visibleCount);
+        DrawCommand cmd;
+        cmd.count = chunk.indexCount;
+        cmd.instanceCount = 1;
+        cmd.firstIndex = chunk.firstIndex;
+        cmd.baseVertex = chunk.baseVertex;
+        cmd.baseInstance = drawIndex;
+
+        commands[drawIndex] = cmd;
+        
+        vec3 relativePos = chunk.position.xyz - u_viewPos;
+        instanceOffsets[drawIndex] = vec4(relativePos, 0.0);
+    }
+}

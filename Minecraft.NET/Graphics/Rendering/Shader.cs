@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Text;
 
 namespace Minecraft.NET.Graphics.Rendering;
 
@@ -32,10 +33,46 @@ public sealed class Shader : IDisposable
         _gl.DeleteShader(fragmentShader);
     }
 
+    public Shader(GL gl, string computeSource)
+    {
+        _gl = gl;
+        var computeShader = CompileShader(ShaderType.ComputeShader, computeSource);
+
+        Handle = _gl.CreateProgram();
+        _gl.AttachShader(Handle, computeShader);
+        _gl.LinkProgram(Handle);
+
+        _gl.GetProgram(Handle, ProgramPropertyARB.LinkStatus, out var status);
+        if (status == 0)
+            throw new Exception($"Compute Shader program linking failed: {_gl.GetProgramInfoLog(Handle)}");
+
+        _gl.DetachShader(Handle, computeShader);
+        _gl.DeleteShader(computeShader);
+    }
+
     public static string LoadFromFile(string path)
-        => new([.. File.ReadAllText(path).Where(c => c < 128)]);
+    {
+        string text = File.ReadAllText(path);
+
+        bool hasBadChars = false;
+        foreach (char c in text)
+            if (c >= 128)
+            { hasBadChars = true; break; }
+
+        if (!hasBadChars)
+            return text;
+
+        var sb = new StringBuilder(text.Length);
+        foreach (char c in text)
+            if (c < 128)
+                sb.Append(c);
+        return sb.ToString();
+    }
 
     public void Use() => _gl.UseProgram(Handle);
+
+    public void Dispatch(uint numGroupsX, uint numGroupsY, uint numGroupsZ)
+        => _gl.DispatchCompute(numGroupsX, numGroupsY, numGroupsZ);
 
     public int GetUniformLocation(string name)
     {
@@ -52,11 +89,19 @@ public sealed class Shader : IDisposable
 
     public void SetInt(int location, int value) => _gl.Uniform1(location, value);
     public void SetFloat(int location, float value) => _gl.Uniform1(location, value);
+    public void SetUInt(int location, uint value) => _gl.Uniform1(location, value);
     public void SetBool(int location, bool value) => _gl.Uniform1(location, value ? 1 : 0);
+
     public unsafe void SetVector2(int location, Vector2 vector) => _gl.Uniform2(location, 1, (float*)&vector);
     public unsafe void SetVector3(int location, Vector3 vector) => _gl.Uniform3(location, 1, (float*)&vector);
     public unsafe void SetVector4(int location, Vector4 vector) => _gl.Uniform4(location, 1, (float*)&vector);
     public unsafe void SetMatrix4x4(int location, Matrix4x4 matrix) => _gl.UniformMatrix4(location, 1, false, (float*)&matrix);
+
+    public unsafe void SetVector4Array(int location, ReadOnlySpan<Vector4> vectors)
+    {
+        fixed (Vector4* ptr = vectors)
+            _gl.Uniform4(location, (uint)vectors.Length, (float*)ptr);
+    }
 
     private uint CompileShader(ShaderType type, string source)
     {
@@ -67,6 +112,7 @@ public sealed class Shader : IDisposable
         _gl.GetShader(shader, ShaderParameterName.CompileStatus, out var status);
         if (status == 0)
             throw new Exception($"Shader compilation of type {type} failed: {_gl.GetShaderInfoLog(shader)}");
+
         return shader;
     }
 

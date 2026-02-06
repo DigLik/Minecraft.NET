@@ -4,6 +4,7 @@ using Minecraft.NET.Character.Controllers;
 using Minecraft.NET.Core.Chunks;
 using Minecraft.NET.Core.Environment;
 using Minecraft.NET.Engine;
+using Minecraft.NET.Graphics;
 using Minecraft.NET.Graphics.Rendering;
 using Minecraft.NET.Services;
 using Minecraft.NET.Services.Physics;
@@ -26,6 +27,7 @@ services.AddSingleton<Player>(new Player(new(16, 80, 16)));
 services.AddSingleton<WorldStorage>(_ => new WorldStorage("world"));
 services.AddSingleton<IWorldGenerator, TerrainWorldGenerator>(); // FlatWorldGenerator, TerrainWorldGenerator
 services.AddSingleton<FrameContext>();
+services.AddSingleton<RenderSettings>();
 services.AddSingleton<GameModeManager>();
 
 services.AddSingleton<PhysicsService>();

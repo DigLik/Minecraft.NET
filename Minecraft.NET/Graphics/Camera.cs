@@ -27,14 +27,25 @@ public class Camera
 
     public Matrix4x4 GetProjectionMatrix(float aspectRatio)
     {
-        float farPlane = (RenderDistance + 2) * ChunkSize;
-        return Matrix4x4.CreatePerspectiveFieldOfView(float.DegreesToRadians(Fov), aspectRatio, 0.1f, farPlane);
+        float fovRad = float.DegreesToRadians(Fov);
+        float f = 1.0f / MathF.Tan(fovRad * 0.5f);
+
+        float zNear = 0.1f;
+        Matrix4x4 result = default;
+
+        result.M11 = f / aspectRatio;
+        result.M22 = f;
+        result.M33 = 0.0f;
+        result.M34 = -1.0f;
+        result.M43 = zNear;
+        result.M44 = 0.0f;
+
+        return result;
     }
 
     public void UpdateVectors()
     {
         Pitch = Math.Clamp(Pitch, -89.0f, 89.0f);
-
         Vector3 front;
         front.X = MathF.Cos(float.DegreesToRadians(Yaw)) * MathF.Cos(float.DegreesToRadians(Pitch));
         front.Y = MathF.Sin(float.DegreesToRadians(Pitch));

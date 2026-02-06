@@ -4,20 +4,18 @@ public sealed unsafe class Framebuffer : IDisposable
 {
     private readonly GL _gl;
     public readonly uint Fbo;
-
     public readonly uint[] ColorAttachments;
     public readonly uint DepthAttachment;
 
     public Framebuffer(GL gl, uint width, uint height)
     {
         _gl = gl;
-
         Fbo = _gl.GenFramebuffer();
         _gl.BindFramebuffer(FramebufferTarget.Framebuffer, Fbo);
 
         uint gNormal = _gl.GenTexture();
         _gl.BindTexture(TextureTarget.Texture2D, gNormal);
-        _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.Rgba16f, width, height, 0, PixelFormat.Rgba, PixelType.Float, null);
+        _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.Rgb10A2, width, height, 0, PixelFormat.Rgba, PixelType.UnsignedInt2101010Rev, null);
         _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)GLEnum.Nearest);
         _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)GLEnum.Nearest);
         _gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D, gNormal, 0);
@@ -35,7 +33,7 @@ public sealed unsafe class Framebuffer : IDisposable
 
         DepthAttachment = _gl.GenTexture();
         _gl.BindTexture(TextureTarget.Texture2D, DepthAttachment);
-        _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.DepthComponent24, width, height, 0, PixelFormat.DepthComponent, PixelType.Float, null);
+        _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.DepthComponent32f, width, height, 0, PixelFormat.DepthComponent, PixelType.Float, null);
         _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)GLEnum.Nearest);
         _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)GLEnum.Nearest);
         _gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.DepthAttachment, TextureTarget.Texture2D, DepthAttachment, 0);
@@ -65,7 +63,7 @@ public sealed unsafe class Framebuffer : IDisposable
         _gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D, colorBuffer, 0);
 
         ColorAttachments = [colorBuffer];
-        DepthAttachment = 0; // Нет глубины
+        DepthAttachment = 0;
 
         if (_gl.CheckFramebufferStatus(FramebufferTarget.Framebuffer) != GLEnum.FramebufferComplete)
             throw new Exception("PP Framebuffer is not complete!");
@@ -80,6 +78,7 @@ public sealed unsafe class Framebuffer : IDisposable
     {
         _gl.DeleteFramebuffer(Fbo);
         _gl.DeleteTextures((uint)ColorAttachments.Length, ColorAttachments);
-        if (DepthAttachment != 0) _gl.DeleteTextures(1, in DepthAttachment);
+        if (DepthAttachment != 0)
+            _gl.DeleteTextures(1, in DepthAttachment);
     }
 }

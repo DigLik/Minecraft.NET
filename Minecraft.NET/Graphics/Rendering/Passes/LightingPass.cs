@@ -54,7 +54,7 @@ public class LightingPass(GL gl, FrameContext frameContext, GBufferPass gBufferP
 
     public void Execute()
     {
-        PostProcessFbo.Bind();
+        gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
         gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
         _lightingShader.Use();
@@ -66,18 +66,16 @@ public class LightingPass(GL gl, FrameContext frameContext, GBufferPass gBufferP
         _lightingShader.SetMatrix4x4(_lightingShader.GetUniformLocation("u_inverseProjection"), invProj);
 
         gl.ActiveTexture(TextureUnit.Texture0);
-        gl.BindTexture(TextureTarget.Texture2D, gBufferPass.GBuffer.ColorAttachments[0]);
+        gl.BindTexture(TextureTarget.Texture2D, gBufferPass.GBuffer.ColorAttachments[0]); // Normal
 
         gl.ActiveTexture(TextureUnit.Texture1);
-        gl.BindTexture(TextureTarget.Texture2D, gBufferPass.GBuffer.ColorAttachments[1]);
+        gl.BindTexture(TextureTarget.Texture2D, gBufferPass.GBuffer.ColorAttachments[1]); // Albedo
 
         gl.ActiveTexture(TextureUnit.Texture2);
-        gl.BindTexture(TextureTarget.Texture2D, gBufferPass.GBuffer.DepthAttachment);
+        gl.BindTexture(TextureTarget.Texture2D, gBufferPass.GBuffer.DepthAttachment); // Depth
 
         gl.BindVertexArray(_quadVao);
         gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
-
-        PostProcessFbo.Unbind();
     }
 
     public void Dispose()
