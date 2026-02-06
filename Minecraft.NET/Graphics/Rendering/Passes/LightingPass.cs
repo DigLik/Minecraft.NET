@@ -12,7 +12,6 @@ public class LightingPass(GL gl, FrameContext frameContext, GBufferPass gBufferP
         if (_lightingShader == null)
         {
             _lightingShader = new Shader(gl, Shader.LoadFromFile("Assets/Shaders/lighting.vert"), Shader.LoadFromFile("Assets/Shaders/lighting.frag"));
-
             _lightingShader.Use();
             _lightingShader.SetInt(_lightingShader.GetUniformLocation("gNormal"), 0);
             _lightingShader.SetInt(_lightingShader.GetUniformLocation("gAlbedo"), 1);
@@ -49,13 +48,17 @@ public class LightingPass(GL gl, FrameContext frameContext, GBufferPass gBufferP
     public void OnResize(uint width, uint height)
     {
         PostProcessFbo?.Dispose();
-        PostProcessFbo = new Framebuffer(gl, width, height, singleChannel: false);
+        PostProcessFbo = new Framebuffer(gl, width, height, InternalFormat.Rgba8, PixelFormat.Rgba, PixelType.UnsignedByte);
     }
 
     public void Execute()
     {
-        gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
-        gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+        PostProcessFbo.Bind();
+
+        gl.Disable(EnableCap.DepthTest);
+        gl.Disable(EnableCap.CullFace);
+
+        gl.Clear(ClearBufferMask.ColorBufferBit);
 
         _lightingShader.Use();
 
@@ -66,16 +69,19 @@ public class LightingPass(GL gl, FrameContext frameContext, GBufferPass gBufferP
         _lightingShader.SetMatrix4x4(_lightingShader.GetUniformLocation("u_inverseProjection"), invProj);
 
         gl.ActiveTexture(TextureUnit.Texture0);
-        gl.BindTexture(TextureTarget.Texture2D, gBufferPass.GBuffer.ColorAttachments[0]); // Normal
+        gl.BindTexture(TextureTarget.Texture2D, gBufferPass.GBuffer.ColorAttachments[0]);
 
         gl.ActiveTexture(TextureUnit.Texture1);
-        gl.BindTexture(TextureTarget.Texture2D, gBufferPass.GBuffer.ColorAttachments[1]); // Albedo
+        gl.BindTexture(TextureTarget.Texture2D, gBufferPass.GBuffer.ColorAttachments[1]);
 
         gl.ActiveTexture(TextureUnit.Texture2);
-        gl.BindTexture(TextureTarget.Texture2D, gBufferPass.GBuffer.DepthAttachment); // Depth
+        gl.BindTexture(TextureTarget.Texture2D, gBufferPass.GBuffer.DepthAttachment);
 
         gl.BindVertexArray(_quadVao);
         gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
+
+        gl.Enable(EnableCap.DepthTest);
+        gl.Enable(EnableCap.CullFace);
     }
 
     public void Dispose()

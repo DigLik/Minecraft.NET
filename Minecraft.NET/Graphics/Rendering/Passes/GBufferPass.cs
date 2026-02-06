@@ -1,4 +1,5 @@
-﻿using Minecraft.NET.Engine;
+﻿using Minecraft.NET.Core.Blocks;
+using Minecraft.NET.Engine;
 using Minecraft.NET.Services;
 
 namespace Minecraft.NET.Graphics.Rendering.Passes;
@@ -12,7 +13,7 @@ public class GBufferPass(
     ) : IRenderPass
 {
     private Shader _gBufferShader = null!;
-    private Texture _blockTextureAtlas = null!;
+    private TextureArray _blockTextures = null!;
     private int _gBufferViewLocation;
     private int _gBufferProjectionLocation;
     private int _uUseWireframeColorLoc;
@@ -27,22 +28,19 @@ public class GBufferPass(
     {
         if (_gBufferShader == null)
         {
-            _blockTextureAtlas = new Texture(gl, "Assets/Textures/atlas.png");
+            _blockTextures = new TextureArray(gl, BlockRegistry.TextureFiles);
+
             _gBufferShader = new Shader(gl,
                 Shader.LoadFromFile("Assets/Shaders/g_buffer.vert"),
                 Shader.LoadFromFile("Assets/Shaders/g_buffer.frag")
             );
             _gBufferShader.Use();
 
-            _gBufferShader.SetInt(_gBufferShader.GetUniformLocation("uTexture"), 0);
-            _gBufferShader.SetVector2(_gBufferShader.GetUniformLocation("uTileAtlasSize"), new Vector2(AtlasWidth, AtlasHeight));
-            _gBufferShader.SetFloat(_gBufferShader.GetUniformLocation("uTileSize"), TileSize);
-            _gBufferShader.SetFloat(_gBufferShader.GetUniformLocation("uPixelPadding"), 0.1f);
+            _gBufferShader.SetInt(_gBufferShader.GetUniformLocation("uTextureArray"), 0);
 
             _uFogStartLoc = _gBufferShader.GetUniformLocation("u_fogStart");
             _uFogEndLoc = _gBufferShader.GetUniformLocation("u_fogEnd");
             _uFogColorLoc = _gBufferShader.GetUniformLocation("u_fogColor");
-
             _gBufferViewLocation = _gBufferShader.GetUniformLocation("view");
             _gBufferProjectionLocation = _gBufferShader.GetUniformLocation("projection");
             _uUseWireframeColorLoc = _gBufferShader.GetUniformLocation("u_UseWireframeColor");
@@ -59,8 +57,10 @@ public class GBufferPass(
 
     public unsafe void Execute()
     {
-        gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+        GBuffer.Bind();
+
         gl.ClearDepth(0.0f);
+        gl.ClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
         var visibleScene = sceneCuller.Result;
@@ -90,10 +90,9 @@ public class GBufferPass(
                 _gBufferShader.SetBool(_uUseWireframeColorLoc, false);
             }
 
-            _blockTextureAtlas.Bind(TextureUnit.Texture0);
+            _blockTextures.Bind(TextureUnit.Texture0);
 
             chunkRenderer.Bind();
-
             chunkRenderer.DrawGPUIndirectCount(
                 visibleScene.IndirectBufferHandle,
                 visibleScene.InstanceBufferHandle,
@@ -108,14 +107,14 @@ public class GBufferPass(
                 _gBufferShader.SetBool(_uUseWireframeColorLoc, false);
             }
         }
+
         GBuffer.Unbind();
-        gl.ClearDepth(1.0f);
     }
 
     public void Dispose()
     {
         _gBufferShader?.Dispose();
-        _blockTextureAtlas?.Dispose();
+        _blockTextures?.Dispose();
         GBuffer?.Dispose();
     }
 }

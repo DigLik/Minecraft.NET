@@ -31,6 +31,12 @@ public class RenderPipeline(
         var gBuffer = ActivatorUtilities.CreateInstance<GBufferPass>(serviceProvider, _gl, chunkRenderer);
         _renderPasses.Add(gBuffer);
 
+        var lighting = ActivatorUtilities.CreateInstance<LightingPass>(serviceProvider, _gl, gBuffer);
+        _renderPasses.Add(lighting);
+
+        var smaa = ActivatorUtilities.CreateInstance<SmaaPass>(serviceProvider, _gl, lighting);
+        _renderPasses.Add(smaa);
+
         _gl.ClearColor(0.53f, 0.81f, 0.92f, 1.0f);
 
         _gl.ClipControl(ClipControlOrigin.LowerLeft, ClipControlDepth.ZeroToOne);
@@ -43,6 +49,7 @@ public class RenderPipeline(
     {
         if (_gl == null)
             return;
+
         _gl.Viewport(newSize);
         frameContext.ViewportSize = new Vector2((uint)newSize.X, (uint)newSize.Y);
         foreach (var pass in _renderPasses)
@@ -79,6 +86,7 @@ public class RenderPipeline(
     {
         foreach (var pass in _renderPasses)
             pass.Dispose();
+
         chunkRenderer.Dispose();
     }
 }
