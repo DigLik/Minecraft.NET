@@ -37,6 +37,9 @@ public class RenderPipeline(
         var smaa = ActivatorUtilities.CreateInstance<SmaaPass>(serviceProvider, _gl, lighting);
         _renderPasses.Add(smaa);
 
+        var uiPass = ActivatorUtilities.CreateInstance<UiRenderPass>(serviceProvider, _gl);
+        _renderPasses.Add(uiPass);
+
         _gl.ClearColor(0.53f, 0.81f, 0.92f, 1.0f);
 
         _gl.ClipControl(ClipControlOrigin.LowerLeft, ClipControlDepth.ZeroToOne);

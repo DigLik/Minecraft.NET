@@ -257,45 +257,44 @@ public static class ChunkMesher
             }
         }
 
-        var pos = center.Position;
-        var xp = world.GetColumn(pos + new Vector2D<int>(1, 0));
-        var xn = world.GetColumn(pos + new Vector2D<int>(-1, 0));
-        var zp = world.GetColumn(pos + new Vector2D<int>(0, 1));
-        var zn = world.GetColumn(pos + new Vector2D<int>(0, -1));
-
         for (int y = -1; y <= ChunkSize; y += ChunkSize + 1)
             for (int z = -1; z <= ChunkSize; z++)
                 for (int x = -1; x <= ChunkSize; x++)
-                    buffer[GetPaddedIndex(x + 1, y + 1, z + 1)] = GetBlockSafeSmart(sectionY, x, y, z, center, xp, xn, zp, zn);
+                    buffer[GetPaddedIndex(x + 1, y + 1, z + 1)] = GetBlockSafeSmart(sectionY, x, y, z, center, world);
 
         for (int y = 0; y < ChunkSize; y++)
             for (int z = -1; z <= ChunkSize; z += ChunkSize + 1)
                 for (int x = -1; x <= ChunkSize; x++)
-                    buffer[GetPaddedIndex(x + 1, y + 1, z + 1)] = GetBlockSafeSmart(sectionY, x, y, z, center, xp, xn, zp, zn);
+                    buffer[GetPaddedIndex(x + 1, y + 1, z + 1)] = GetBlockSafeSmart(sectionY, x, y, z, center, world);
 
         for (int y = 0; y < ChunkSize; y++)
             for (int z = 0; z < ChunkSize; z++)
                 for (int x = -1; x <= ChunkSize; x += ChunkSize + 1)
-                    buffer[GetPaddedIndex(x + 1, y + 1, z + 1)] = GetBlockSafeSmart(sectionY, x, y, z, center, xp, xn, zp, zn);
+                    buffer[GetPaddedIndex(x + 1, y + 1, z + 1)] = GetBlockSafeSmart(sectionY, x, y, z, center, world);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static unsafe BlockId GetBlockSafeSmart(int centerSectionY, int x, int y, int z,
-        ChunkColumn cur, ChunkColumn? xp, ChunkColumn? xn, ChunkColumn? zp, ChunkColumn? zn)
+        ChunkColumn cur, World world)
     {
-        ChunkColumn? targetColumn = cur;
+        int chunkOffsetX = 0;
+        int chunkOffsetZ = 0;
         int localX = x;
         int localZ = z;
 
         if (x < 0)
-        { targetColumn = xn; localX += ChunkSize; }
+        { chunkOffsetX = -1; localX += ChunkSize; }
         else if (x >= ChunkSize)
-        { targetColumn = xp; localX -= ChunkSize; }
+        { chunkOffsetX = 1; localX -= ChunkSize; }
 
         if (z < 0)
-        { targetColumn = zn; localZ += ChunkSize; }
+        { chunkOffsetZ = -1; localZ += ChunkSize; }
         else if (z >= ChunkSize)
-        { targetColumn = zp; localZ -= ChunkSize; }
+        { chunkOffsetZ = 1; localZ -= ChunkSize; }
+
+        ChunkColumn? targetColumn = cur;
+        if (chunkOffsetX != 0 || chunkOffsetZ != 0)
+            targetColumn = world.GetColumn(cur.Position + new Vector2D<int>(chunkOffsetX, chunkOffsetZ));
 
         if (targetColumn == null)
             return BlockId.Air;
@@ -312,22 +311,12 @@ public static class ChunkMesher
             return BlockId.Air;
 
         ref var section = ref targetColumn.Sections[absoluteSectionIndex];
-
-        if (!section.IsAllocated)
-            return section.UniformId;
-
-        return section.Blocks[ChunkSection.GetIndex(localX, localY, localZ)];
+        return section.GetBlock(localX, localY, localZ);
     }
 
     private static unsafe uint CalculateFaceAO(int axis, int x, int y, int z, int sectionY,
         ChunkColumn cur, World world)
     {
-        var pos = cur.Position;
-        var xp = world.GetColumn(pos + new Vector2D<int>(1, 0));
-        var xn = world.GetColumn(pos + new Vector2D<int>(-1, 0));
-        var zp = world.GetColumn(pos + new Vector2D<int>(0, 1));
-        var zn = world.GetColumn(pos + new Vector2D<int>(0, -1));
-
         int ux = 0, uy = 0, uz = 0;
         int vx = 0, vy = 0, vz = 0;
 
@@ -338,14 +327,14 @@ public static class ChunkMesher
         else
         { ux = 1; vy = 1; }
 
-        int t = GetOpacity(sectionY, x + vx, y + vy, z + vz, cur, xp, xn, zp, zn);
-        int b = GetOpacity(sectionY, x - vx, y - vy, z - vz, cur, xp, xn, zp, zn);
-        int r = GetOpacity(sectionY, x + ux, y + uy, z + uz, cur, xp, xn, zp, zn);
-        int l = GetOpacity(sectionY, x - ux, y - uy, z - uz, cur, xp, xn, zp, zn);
-        int tr = GetOpacity(sectionY, x + ux + vx, y + uy + vy, z + uz + vz, cur, xp, xn, zp, zn);
-        int tl = GetOpacity(sectionY, x - ux + vx, y - uy + vy, z - uz + vz, cur, xp, xn, zp, zn);
-        int br = GetOpacity(sectionY, x + ux - vx, y + uy - vy, z + uz - vz, cur, xp, xn, zp, zn);
-        int bl = GetOpacity(sectionY, x - ux - vx, y - uy - vy, z - uz - vz, cur, xp, xn, zp, zn);
+        int t = GetOpacity(sectionY, x + vx, y + vy, z + vz, cur, world);
+        int b = GetOpacity(sectionY, x - vx, y - vy, z - vz, cur, world);
+        int r = GetOpacity(sectionY, x + ux, y + uy, z + uz, cur, world);
+        int l = GetOpacity(sectionY, x - ux, y - uy, z - uz, cur, world);
+        int tr = GetOpacity(sectionY, x + ux + vx, y + uy + vy, z + uz + vz, cur, world);
+        int tl = GetOpacity(sectionY, x - ux + vx, y - uy + vy, z - uz + vz, cur, world);
+        int br = GetOpacity(sectionY, x + ux - vx, y + uy - vy, z + uz - vz, cur, world);
+        int bl = GetOpacity(sectionY, x - ux - vx, y - uy - vy, z - uz - vz, cur, world);
 
         uint ao_bl = VertexAO(l, bl, b);
         uint ao_br = VertexAO(r, br, b);
@@ -365,9 +354,9 @@ public static class ChunkMesher
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static unsafe int GetOpacity(int sectionY, int x, int y, int z,
-        ChunkColumn cur, ChunkColumn? xp, ChunkColumn? xn, ChunkColumn? zp, ChunkColumn? zn)
+        ChunkColumn cur, World world)
     {
-        BlockId id = GetBlockSafeSmart(sectionY, x, y, z, cur, xp, xn, zp, zn);
+        BlockId id = GetBlockSafeSmart(sectionY, x, y, z, cur, world);
         return id == BlockId.Air ? 0 : 1;
     }
 
@@ -377,6 +366,7 @@ public static class ChunkMesher
         int w, int h, bool reversed, int texIndex, uint aoData)
     {
         ushort baseIndex = (ushort)builder.VertexCount;
+
         float ao_bl = AO_Factors[aoData & 0xFF];
         float ao_br = AO_Factors[(aoData >> 8) & 0xFF];
         float ao_tr = AO_Factors[(aoData >> 16) & 0xFF];
@@ -387,15 +377,33 @@ public static class ChunkMesher
         builder.AddVertex(new ChunkVertex(v4_tr, texIndex, new Vector2(w, 0), ao_tr));
         builder.AddVertex(new ChunkVertex(v3_tl, texIndex, new Vector2(0, 0), ao_tl));
 
+        bool flipDiagonal = (ao_bl + ao_tr) < (ao_br + ao_tl);
+
         if (reversed)
         {
-            builder.AddIndices((ushort)(baseIndex + 0), (ushort)(baseIndex + 1), (ushort)(baseIndex + 2));
-            builder.AddIndices((ushort)(baseIndex + 0), (ushort)(baseIndex + 2), (ushort)(baseIndex + 3));
+            if (flipDiagonal)
+            {
+                builder.AddIndices((ushort)(baseIndex + 1), (ushort)(baseIndex + 2), (ushort)(baseIndex + 3));
+                builder.AddIndices((ushort)(baseIndex + 1), (ushort)(baseIndex + 3), (ushort)(baseIndex + 0));
+            }
+            else
+            {
+                builder.AddIndices((ushort)(baseIndex + 0), (ushort)(baseIndex + 1), (ushort)(baseIndex + 2));
+                builder.AddIndices((ushort)(baseIndex + 0), (ushort)(baseIndex + 2), (ushort)(baseIndex + 3));
+            }
         }
         else
         {
-            builder.AddIndices((ushort)(baseIndex + 0), (ushort)(baseIndex + 2), (ushort)(baseIndex + 1));
-            builder.AddIndices((ushort)(baseIndex + 0), (ushort)(baseIndex + 3), (ushort)(baseIndex + 2));
+            if (flipDiagonal)
+            {
+                builder.AddIndices((ushort)(baseIndex + 1), (ushort)(baseIndex + 3), (ushort)(baseIndex + 2));
+                builder.AddIndices((ushort)(baseIndex + 1), (ushort)(baseIndex + 0), (ushort)(baseIndex + 3));
+            }
+            else
+            {
+                builder.AddIndices((ushort)(baseIndex + 0), (ushort)(baseIndex + 2), (ushort)(baseIndex + 1));
+                builder.AddIndices((ushort)(baseIndex + 0), (ushort)(baseIndex + 3), (ushort)(baseIndex + 2));
+            }
         }
     }
 

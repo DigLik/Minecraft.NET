@@ -26,7 +26,8 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
 
     private static readonly Vector2D<int>[] NeighborOffsets =
     [
-        new(1, 0), new(-1, 0), new(0, 1), new(0, -1)
+        new(1, 0), new(-1, 0), new(0, 1), new(0, -1),
+        new(1, 1), new(1, -1), new(-1, 1), new(-1, -1)
     ];
 
     public void SetHandlers(ChunkMeshRequestHandler meshRequestHandler, Action<ChunkMeshGeometry> meshFreeHandler)
@@ -90,9 +91,7 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
                 if (!_chunks.ContainsKey(targetPos))
                 {
                     if (!_chunkPool.TryPop(out var newChunk))
-                    {
                         newChunk = new ChunkColumn();
-                    }
 
                     newChunk.Reset(targetPos);
                     newChunk.OnFreeMeshGeometry = _meshFreeHandler;

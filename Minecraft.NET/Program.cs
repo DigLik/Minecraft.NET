@@ -6,18 +6,19 @@ using Minecraft.NET.Core.Environment;
 using Minecraft.NET.Engine;
 using Minecraft.NET.Graphics;
 using Minecraft.NET.Graphics.Rendering;
+using Minecraft.NET.Graphics.Rendering.Passes;
 using Minecraft.NET.Services;
 using Minecraft.NET.Services.Physics;
+using Minecraft.NET.UI;
 using Silk.NET.Windowing;
 
-var windowOptions = WindowOptions.Default with
+var window = Window.Create(WindowOptions.Default with
 {
     Title = "Minecraft.NET",
     Size = new(1600, 900),
     VSync = false,
     API = new GraphicsAPI(ContextAPI.OpenGL, new(4, 6)),
-};
-var window = Window.Create(windowOptions);
+});
 
 var services = new ServiceCollection();
 
@@ -62,10 +63,16 @@ services.AddSingleton<IReadOnlyDictionary<GameMode, IPlayerController>>(provider
     };
 });
 
+services.AddSingleton<UiContext>();
+services.AddSingleton<UiRenderPass>();
+services.AddSingleton(_ => new FontService("Assets/Fonts/CascadiaCode-VariableFont_wght.ttf"));
+
 services.AddSingleton<SceneCuller>();
 services.AddSingleton<Game>();
 
-using var serviceProvider = services.BuildServiceProvider();
-
+var serviceProvider = services.BuildServiceProvider();
 var game = serviceProvider.GetRequiredService<Game>();
 game.Run();
+
+serviceProvider.Dispose();
+window.Dispose();

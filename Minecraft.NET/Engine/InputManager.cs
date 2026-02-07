@@ -30,6 +30,8 @@ public class InputManager(
     private float _breakCooldownTimer = BreakBlockCooldown;
     private float _placeCooldownTimer = PlaceBlockCooldown;
 
+    public IMouse Mouse => _mouse;
+
     public void Initialize(IInputContext inputContext)
     {
         _inputContext = inputContext;

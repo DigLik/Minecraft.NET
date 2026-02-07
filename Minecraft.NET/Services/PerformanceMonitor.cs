@@ -7,6 +7,7 @@ public class PerformanceMonitor : IPerformanceMonitor
 {
     private GL _gl = null!;
     private readonly Stopwatch _cpuStopwatch = new();
+    private readonly Stopwatch _totalStopwatch = new();
 
     private const int NumFramesInFlight = 3;
     private readonly uint[] _queryIds = new uint[NumFramesInFlight];
@@ -16,6 +17,7 @@ public class PerformanceMonitor : IPerformanceMonitor
 
     public double AvgCpuTimeMs { get; private set; }
     public double AvgGpuTimeMs { get; private set; }
+    public double AvgTotalTimeMs { get; private set; }
 
     public void Initialize(GL gl)
     {
@@ -27,9 +29,16 @@ public class PerformanceMonitor : IPerformanceMonitor
             _gl.EndQuery(QueryTarget.TimeElapsed);
         }
         _queriesInitialized = true;
+        _totalStopwatch.Start();
     }
 
-    public void BeginCpuFrame() => _cpuStopwatch.Restart();
+    public void BeginCpuFrame()
+    {
+        double currentTotal = _totalStopwatch.Elapsed.TotalMilliseconds;
+        _totalStopwatch.Restart();
+        AvgTotalTimeMs = (AvgTotalTimeMs * SmoothingFactor) + (currentTotal * (1.0 - SmoothingFactor));
+        _cpuStopwatch.Restart();
+    }
 
     public void EndCpuFrame()
     {
@@ -41,7 +50,6 @@ public class PerformanceMonitor : IPerformanceMonitor
     public unsafe void BeginGpuFrame()
     {
         if (!_queriesInitialized) return;
-
         int queryToRead = _queryFrameIndex;
         _gl.GetQueryObject(_queryIds[queryToRead], GLEnum.QueryResultAvailable, out int available);
 

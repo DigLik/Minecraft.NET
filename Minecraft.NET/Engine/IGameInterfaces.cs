@@ -6,6 +6,7 @@ namespace Minecraft.NET.Engine;
 
 public interface IInputManager : IDisposable
 {
+    IMouse Mouse { get; }
     void Initialize(IInputContext inputContext);
     void OnUpdate(double deltaTime);
     bool IsKeyPressed(Key key);
@@ -42,6 +43,7 @@ public interface IPerformanceMonitor : IDisposable
     void EndGpuFrame();
     double AvgCpuTimeMs { get; }
     double AvgGpuTimeMs { get; }
+    double AvgTotalTimeMs { get; }
 }
 
 public interface IGameStatsService
