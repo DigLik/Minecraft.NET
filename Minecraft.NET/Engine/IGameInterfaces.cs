@@ -15,7 +15,7 @@ public interface IInputManager : IDisposable
 
 public interface IRenderPipeline : IDisposable
 {
-    void Initialize(GL gl);
+    void Initialize();
     void OnRender(double deltaTime);
     void OnFramebufferResize(Vector2D<int> newSize);
 
@@ -24,7 +24,7 @@ public interface IRenderPipeline : IDisposable
 
 public interface IChunkRenderer : IDisposable
 {
-    void Initialize(GL gl);
+    void Initialize();
 
     ChunkMeshGeometry UploadChunkMesh(MeshData meshData);
     void FreeChunkMesh(ChunkMeshGeometry geometry);
@@ -36,7 +36,7 @@ public interface IChunkRenderer : IDisposable
 
 public interface IPerformanceMonitor : IDisposable
 {
-    void Initialize(GL gl);
+    void Initialize();
     void BeginCpuFrame();
     void EndCpuFrame();
     void BeginGpuFrame();

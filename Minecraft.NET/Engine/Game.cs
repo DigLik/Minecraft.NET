@@ -1,5 +1,6 @@
 ﻿using Minecraft.NET.Core.Chunks;
 using Minecraft.NET.Core.Environment;
+using Minecraft.NET.Graphics.Rendering;
 using Minecraft.NET.Services;
 using Minecraft.NET.UI;
 using Minecraft.NET.UI.Elements;
@@ -11,12 +12,10 @@ namespace Minecraft.NET.Engine;
 public sealed class Game : IDisposable
 {
     private readonly IWindow _window;
-
     private readonly IRenderPipeline _renderPipeline;
     private readonly IInputManager _inputManager;
     private readonly IPerformanceMonitor _performanceMonitor;
     private readonly IGameStatsService _gameStatsService;
-
     private readonly ChunkManager _chunkManager;
     private readonly ChunkMesherService _chunkMesherService;
     private readonly PhysicsService _physicsService;
@@ -24,6 +23,7 @@ public sealed class Game : IDisposable
     private readonly UiContext _uiContext;
     private readonly FontService _fontService;
 
+    private readonly IGlContextAccessor _glContextAccessor;
     private GL _gl = null!;
 
     public Game(
@@ -37,11 +37,11 @@ public sealed class Game : IDisposable
         PhysicsService physicsService,
         World world,
         UiContext uiContext,
-        FontService fontService
+        FontService fontService,
+        IGlContextAccessor glContextAccessor
     )
     {
         _window = window;
-
         _renderPipeline = renderPipeline;
         _inputManager = inputManager;
         _performanceMonitor = performanceMonitor;
@@ -52,6 +52,7 @@ public sealed class Game : IDisposable
         _world = world;
         _uiContext = uiContext;
         _fontService = fontService;
+        _glContextAccessor = glContextAccessor;
 
         _window.Load += OnLoad;
         _window.Update += OnUpdate;
@@ -67,21 +68,20 @@ public sealed class Game : IDisposable
         _gl = _window.CreateOpenGL();
         var inputContext = _window.CreateInput();
 
-        _fontService.Initialize(_gl);
-
-        _performanceMonitor.Initialize(_gl);
-        _renderPipeline.Initialize(_gl);
-        _inputManager.Initialize(inputContext);
-
+        _glContextAccessor.SetGl(_gl);
         _world.OnLoad();
 
-        _chunkMesherService.SetDependencies(_world, _chunkManager);
+        _fontService.Initialize();
+        _performanceMonitor.Initialize();
+        _renderPipeline.Initialize();
 
+        _inputManager.Initialize(inputContext);
+
+        _chunkMesherService.SetDependencies(_world, _chunkManager);
         _chunkManager.SetHandlers(
             _chunkMesherService.QueueForMeshing,
             _renderPipeline.ChunkRenderer.FreeChunkMesh
         );
-
         _chunkMesherService.OnLoad();
 
         var fpsLabel = new Label("FPS: ...") { FontSize = 28 };
@@ -145,7 +145,6 @@ public sealed class Game : IDisposable
     private void OnUpdate(double deltaTime)
     {
         _performanceMonitor.BeginCpuFrame();
-
         _chunkManager.OnUpdate(deltaTime);
         _chunkMesherService.OnUpdate(deltaTime);
         _inputManager.OnUpdate(deltaTime);

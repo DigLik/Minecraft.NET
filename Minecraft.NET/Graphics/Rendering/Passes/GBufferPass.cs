@@ -5,15 +5,21 @@ using Minecraft.NET.Services;
 namespace Minecraft.NET.Graphics.Rendering.Passes;
 
 public class GBufferPass(
-    GL gl,
+    IGlContextAccessor glAccessor,
     IChunkRenderer chunkRenderer,
     FrameContext frameContext,
     SceneCuller sceneCuller,
-    RenderSettings renderSettings
+    RenderSettings renderSettings,
+    RenderResources resources
     ) : IRenderPass
 {
+    public int Priority => 100;
+    public string Name => "G-Buffer";
+    private GL Gl => glAccessor.Gl;
+
     private Shader _gBufferShader = null!;
     private TextureArray _blockTextures = null!;
+
     private int _gBufferViewLocation;
     private int _gBufferProjectionLocation;
     private int _uUseWireframeColorLoc;
@@ -22,15 +28,12 @@ public class GBufferPass(
     private int _uFogEndLoc;
     private int _uFogColorLoc;
 
-    public Framebuffer GBuffer { get; private set; } = null!;
-
     public unsafe void Initialize(uint width, uint height)
     {
         if (_gBufferShader == null)
         {
-            _blockTextures = new TextureArray(gl, BlockRegistry.TextureFiles);
-
-            _gBufferShader = new Shader(gl,
+            _blockTextures = new TextureArray(Gl, BlockRegistry.TextureFiles);
+            _gBufferShader = new Shader(Gl,
                 Shader.LoadFromFile("Assets/Shaders/g_buffer.vert"),
                 Shader.LoadFromFile("Assets/Shaders/g_buffer.frag")
             );
@@ -46,25 +49,26 @@ public class GBufferPass(
             _uUseWireframeColorLoc = _gBufferShader.GetUniformLocation("u_UseWireframeColor");
             _uWireframeColorLoc = _gBufferShader.GetUniformLocation("u_WireframeColor");
         }
-        OnResize(width, height);
     }
 
     public void OnResize(uint width, uint height)
     {
-        GBuffer?.Dispose();
-        GBuffer = new Framebuffer(gl, width, height);
+        resources.GBuffer?.Dispose();
+        resources.GBuffer = new Framebuffer(Gl, width, height);
     }
 
-    public unsafe void Execute()
+    public unsafe void Execute(RenderResources renderResources)
     {
-        GBuffer.Bind();
+        var gBuffer = renderResources.GBuffer;
+        if (gBuffer == null)
+            return;
 
-        gl.ClearDepth(0.0f);
-        gl.ClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-        gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+        gBuffer.Bind();
+        Gl.ClearDepth(0.0f);
+        Gl.ClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        Gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
         var visibleScene = sceneCuller.Result;
-
         if (visibleScene.MaxPossibleCount > 0)
         {
             _gBufferShader.Use();
@@ -77,16 +81,16 @@ public class GBufferPass(
 
             if (renderSettings.IsWireframeEnabled)
             {
-                gl.PolygonMode(GLEnum.FrontAndBack, GLEnum.Line);
-                gl.Enable(EnableCap.PolygonOffsetLine);
-                gl.PolygonOffset(-1.0f, -1.0f);
+                Gl.PolygonMode(GLEnum.FrontAndBack, GLEnum.Line);
+                Gl.Enable(EnableCap.PolygonOffsetLine);
+                Gl.PolygonOffset(-1.0f, -1.0f);
                 _gBufferShader.SetBool(_uUseWireframeColorLoc, true);
                 _gBufferShader.SetVector4(_uWireframeColorLoc, new Vector4(0.0f, 0.0f, 0.0f, 1.0f));
             }
             else
             {
-                gl.PolygonMode(GLEnum.FrontAndBack, GLEnum.Fill);
-                gl.Disable(EnableCap.PolygonOffsetLine);
+                Gl.PolygonMode(GLEnum.FrontAndBack, GLEnum.Fill);
+                Gl.Disable(EnableCap.PolygonOffsetLine);
                 _gBufferShader.SetBool(_uUseWireframeColorLoc, false);
             }
 
@@ -102,19 +106,18 @@ public class GBufferPass(
 
             if (renderSettings.IsWireframeEnabled)
             {
-                gl.PolygonMode(GLEnum.FrontAndBack, GLEnum.Fill);
-                gl.Disable(EnableCap.PolygonOffsetLine);
+                Gl.PolygonMode(GLEnum.FrontAndBack, GLEnum.Fill);
+                Gl.Disable(EnableCap.PolygonOffsetLine);
                 _gBufferShader.SetBool(_uUseWireframeColorLoc, false);
             }
         }
 
-        GBuffer.Unbind();
+        gBuffer.Unbind();
     }
 
     public void Dispose()
     {
         _gBufferShader?.Dispose();
         _blockTextures?.Dispose();
-        GBuffer?.Dispose();
     }
 }

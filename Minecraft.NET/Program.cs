@@ -12,24 +12,23 @@ using Minecraft.NET.Services.Physics;
 using Minecraft.NET.UI;
 using Silk.NET.Windowing;
 
-var window = Window.Create(WindowOptions.Default with
-{
-    Title = "Minecraft.NET",
-    Size = new(1600, 900),
-    VSync = false,
-    API = new GraphicsAPI(ContextAPI.OpenGL, new(4, 6)),
-});
-
 var services = new ServiceCollection();
 
-services.AddSingleton<IWindow>(window);
+services.AddSingleton(Window.Create(WindowOptions.Default with
+{
+    Title = "Minecraft.NET",
+    Size = new(1200, 800),
+    VSync = false,
+    API = new GraphicsAPI(ContextAPI.OpenGL, new(4, 6)),
+}));
 
-services.AddSingleton<Player>(new Player(new(16, 80, 16)));
-services.AddSingleton<WorldStorage>(_ => new WorldStorage("world"));
-services.AddSingleton<IWorldGenerator, TerrainWorldGenerator>(); // FlatWorldGenerator, TerrainWorldGenerator
+services.AddSingleton(new Player(new(16, 80, 16)));
+services.AddSingleton(_ => new WorldStorage("world"));
+services.AddSingleton<IWorldGenerator, TerrainWorldGenerator>();
 services.AddSingleton<FrameContext>();
 services.AddSingleton<RenderSettings>();
 services.AddSingleton<GameModeManager>();
+services.AddSingleton<RenderResources>();
 
 services.AddSingleton<PhysicsService>();
 services.AddSingleton<WorldInteractionService>();
@@ -54,6 +53,7 @@ services.AddSingleton<IReadOnlyDictionary<GameMode, IPhysicsStrategy>>(_ =>
         { GameMode.Spectator, new SpectatorPhysicsStrategy() }
     };
 });
+
 services.AddSingleton<IReadOnlyDictionary<GameMode, IPlayerController>>(provider =>
 {
     return new Dictionary<GameMode, IPlayerController>
@@ -63,14 +63,22 @@ services.AddSingleton<IReadOnlyDictionary<GameMode, IPlayerController>>(provider
     };
 });
 
+services.AddSingleton<IGlContextAccessor, GlContextAccessor>();
+
+services.AddSingleton<FontService>();
 services.AddSingleton<UiContext>();
-services.AddSingleton<UiRenderPass>();
-services.AddSingleton(_ => new FontService("Assets/Fonts/CascadiaCode-VariableFont_wght.ttf"));
+services.AddSingleton<IRenderPipeline, RenderPipeline>();
+
+services.AddSingleton<IRenderPass, GBufferPass>();
+services.AddSingleton<IRenderPass, LightingPass>();
+services.AddSingleton<IRenderPass, SmaaPass>();
+services.AddSingleton<IRenderPass, UiRenderPass>();
 
 services.AddSingleton<SceneCuller>();
 services.AddSingleton<Game>();
 
 var serviceProvider = services.BuildServiceProvider();
+var window = serviceProvider.GetRequiredService<IWindow>();
 var game = serviceProvider.GetRequiredService<Game>();
 game.Run();
 

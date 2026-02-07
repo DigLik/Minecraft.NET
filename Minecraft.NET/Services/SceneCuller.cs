@@ -1,5 +1,6 @@
 ﻿using Minecraft.NET.Character;
 using Minecraft.NET.Core.Chunks;
+using Minecraft.NET.Graphics.Rendering;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -13,7 +14,7 @@ public class VisibleScene
     public int MaxPossibleCount;
 }
 
-public unsafe class SceneCuller(Player player, ChunkManager chunkManager) : IDisposable
+public unsafe class SceneCuller(Player player, ChunkManager chunkManager, IGlContextAccessor glAccessor) : IDisposable
 {
     [StructLayout(LayoutKind.Sequential, Pack = 16)]
     private struct ChunkInputGPU
@@ -26,7 +27,7 @@ public unsafe class SceneCuller(Player player, ChunkManager chunkManager) : IDis
         public uint Padding;
     }
 
-    private GL _gl = null!;
+    private GL Gl => glAccessor.Gl;
     private Shader _cullShader = null!;
 
     private uint _inputBuffer;
@@ -45,40 +46,39 @@ public unsafe class SceneCuller(Player player, ChunkManager chunkManager) : IDis
     private const int CommandSize = 20;
     private const int InstanceSize = 16;
 
-    public void Initialize(GL gl)
+    public void Initialize()
     {
-        _gl = gl;
         InitializeBuffers();
         InitializeShader();
     }
 
     private void InitializeShader()
     {
-        _cullShader = new Shader(_gl, Shader.LoadFromFile("Assets/Shaders/cull.comp"));
+        _cullShader = new Shader(Gl, Shader.LoadFromFile("Assets/Shaders/cull.comp"));
         _cullShader.Use();
         _cullShader.SetInt(_cullShader.GetUniformLocation("visibleCount"), 0);
     }
 
     private void InitializeBuffers()
     {
-        _inputBuffer = _gl.GenBuffer();
-        _gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, _inputBuffer);
-        _gl.BufferData(BufferTargetARB.ShaderStorageBuffer, (nuint)(_maxCapacity * sizeof(ChunkInputGPU)), null, BufferUsageARB.DynamicDraw);
+        _inputBuffer = Gl.GenBuffer();
+        Gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, _inputBuffer);
+        Gl.BufferData(BufferTargetARB.ShaderStorageBuffer, (nuint)(_maxCapacity * sizeof(ChunkInputGPU)), null, BufferUsageARB.DynamicDraw);
 
-        _indirectBuffer = _gl.GenBuffer();
-        _gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, _indirectBuffer);
-        _gl.BufferData(BufferTargetARB.ShaderStorageBuffer, (nuint)(_maxCapacity * CommandSize), null, BufferUsageARB.DynamicCopy);
+        _indirectBuffer = Gl.GenBuffer();
+        Gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, _indirectBuffer);
+        Gl.BufferData(BufferTargetARB.ShaderStorageBuffer, (nuint)(_maxCapacity * CommandSize), null, BufferUsageARB.DynamicCopy);
 
-        _instanceBuffer = _gl.GenBuffer();
-        _gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, _instanceBuffer);
-        _gl.BufferData(BufferTargetARB.ShaderStorageBuffer, (nuint)(_maxCapacity * InstanceSize), null, BufferUsageARB.DynamicCopy);
+        _instanceBuffer = Gl.GenBuffer();
+        Gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, _instanceBuffer);
+        Gl.BufferData(BufferTargetARB.ShaderStorageBuffer, (nuint)(_maxCapacity * InstanceSize), null, BufferUsageARB.DynamicCopy);
 
-        _atomicCounterBuffer = _gl.GenBuffer();
-        _gl.BindBuffer(BufferTargetARB.AtomicCounterBuffer, _atomicCounterBuffer);
-        _gl.BufferData(BufferTargetARB.AtomicCounterBuffer, sizeof(uint), null, BufferUsageARB.DynamicDraw);
+        _atomicCounterBuffer = Gl.GenBuffer();
+        Gl.BindBuffer(BufferTargetARB.AtomicCounterBuffer, _atomicCounterBuffer);
+        Gl.BufferData(BufferTargetARB.AtomicCounterBuffer, sizeof(uint), null, BufferUsageARB.DynamicDraw);
 
-        _gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, 0);
-        _gl.BindBuffer(BufferTargetARB.AtomicCounterBuffer, 0);
+        Gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, 0);
+        Gl.BindBuffer(BufferTargetARB.AtomicCounterBuffer, 0);
 
         Result.IndirectBufferHandle = _indirectBuffer;
         Result.InstanceBufferHandle = _instanceBuffer;
@@ -88,7 +88,7 @@ public unsafe class SceneCuller(Player player, ChunkManager chunkManager) : IDis
 
     public void Cull(in Matrix4x4 projectionMatrix, in Matrix4x4 relativeViewMatrix)
     {
-        if (_gl == null)
+        if (Gl == null)
             return;
 
         _cullShader.Use();
@@ -107,21 +107,21 @@ public unsafe class SceneCuller(Player player, ChunkManager chunkManager) : IDis
 
         if (_cachedTotalSections == 0)
         {
-            _gl.BindBuffer(BufferTargetARB.AtomicCounterBuffer, _atomicCounterBuffer);
+            Gl.BindBuffer(BufferTargetARB.AtomicCounterBuffer, _atomicCounterBuffer);
             uint zero = 0;
-            _gl.BufferSubData(BufferTargetARB.AtomicCounterBuffer, 0, sizeof(uint), &zero);
-            _gl.BindBuffer(BufferTargetARB.AtomicCounterBuffer, 0);
+            Gl.BufferSubData(BufferTargetARB.AtomicCounterBuffer, 0, sizeof(uint), &zero);
+            Gl.BindBuffer(BufferTargetARB.AtomicCounterBuffer, 0);
             return;
         }
 
-        _gl.BindBuffer(BufferTargetARB.AtomicCounterBuffer, _atomicCounterBuffer);
+        Gl.BindBuffer(BufferTargetARB.AtomicCounterBuffer, _atomicCounterBuffer);
         uint zeroVal = 0;
-        _gl.BufferSubData(BufferTargetARB.AtomicCounterBuffer, 0, sizeof(uint), &zeroVal);
+        Gl.BufferSubData(BufferTargetARB.AtomicCounterBuffer, 0, sizeof(uint), &zeroVal);
 
-        _gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, 0, _inputBuffer);
-        _gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, 1, _indirectBuffer);
-        _gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, 2, _instanceBuffer);
-        _gl.BindBufferBase(BufferTargetARB.AtomicCounterBuffer, 3, _atomicCounterBuffer);
+        Gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, 0, _inputBuffer);
+        Gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, 1, _indirectBuffer);
+        Gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, 2, _instanceBuffer);
+        Gl.BindBufferBase(BufferTargetARB.AtomicCounterBuffer, 3, _atomicCounterBuffer);
 
         _cullShader.SetUInt(_cullShader.GetUniformLocation("u_chunkCount"), (uint)_cachedTotalSections);
 
@@ -129,7 +129,7 @@ public unsafe class SceneCuller(Player player, ChunkManager chunkManager) : IDis
         uint numGroups = ((uint)_cachedTotalSections + groupSize - 1) / groupSize;
         _cullShader.Dispatch(numGroups, 1, 1);
 
-        _gl.MemoryBarrier(MemoryBarrierMask.CommandBarrierBit | MemoryBarrierMask.VertexAttribArrayBarrierBit | MemoryBarrierMask.ClientMappedBufferBarrierBit);
+        Gl.MemoryBarrier(MemoryBarrierMask.CommandBarrierBit | MemoryBarrierMask.VertexAttribArrayBarrierBit | MemoryBarrierMask.ClientMappedBufferBarrierBit);
     }
 
     private void UpdateInputBufferIfNeeded(IReadOnlyList<ChunkColumn> columns)
@@ -199,9 +199,9 @@ public unsafe class SceneCuller(Player player, ChunkManager chunkManager) : IDis
 EndLoop:
         _cachedTotalSections = count;
 
-        _gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, _inputBuffer);
+        Gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, _inputBuffer);
         fixed (ChunkInputGPU* ptr = _cpuInputBuffer)
-            _gl.BufferSubData(BufferTargetARB.ShaderStorageBuffer, 0, (nuint)(count * sizeof(ChunkInputGPU)), ptr);
+            Gl.BufferSubData(BufferTargetARB.ShaderStorageBuffer, 0, (nuint)(count * sizeof(ChunkInputGPU)), ptr);
     }
 
     private void UpdateFrustumPlanes(Matrix4x4 vp)
@@ -229,13 +229,13 @@ EndLoop:
 
     public void Dispose()
     {
-        if (_gl == null)
+        if (Gl == null)
             return;
 
         _cullShader?.Dispose();
-        _gl.DeleteBuffer(_inputBuffer);
-        _gl.DeleteBuffer(_indirectBuffer);
-        _gl.DeleteBuffer(_instanceBuffer);
-        _gl.DeleteBuffer(_atomicCounterBuffer);
+        Gl.DeleteBuffer(_inputBuffer);
+        Gl.DeleteBuffer(_indirectBuffer);
+        Gl.DeleteBuffer(_instanceBuffer);
+        Gl.DeleteBuffer(_atomicCounterBuffer);
     }
 }

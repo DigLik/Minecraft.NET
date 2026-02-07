@@ -19,9 +19,9 @@ public readonly record struct ChunkMeshGeometry(
     int BaseVertex
 );
 
-public sealed unsafe class ChunkRenderer : IChunkRenderer
+public sealed unsafe class ChunkRenderer(IGlContextAccessor glAccessor) : IChunkRenderer
 {
-    private GL _gl = null!;
+    private GL Gl => glAccessor.Gl;
 
     private uint _vao;
     private uint _vbo;
@@ -33,19 +33,15 @@ public sealed unsafe class ChunkRenderer : IChunkRenderer
     private nuint _currentVertexCapacity = 1024 * 256;
     private nuint _currentIndexCapacity = 1024 * 512;
 
-    public ChunkRenderer() { }
-
-    public void Initialize(GL gl)
+    public void Initialize()
     {
-        _gl = gl;
+        _vbo = Gl.GenBuffer();
+        Gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
+        Gl.BufferData(BufferTargetARB.ArrayBuffer, _currentVertexCapacity * ChunkVertex.Stride, null, BufferUsageARB.DynamicDraw);
 
-        _vbo = _gl.GenBuffer();
-        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
-        _gl.BufferData(BufferTargetARB.ArrayBuffer, _currentVertexCapacity * ChunkVertex.Stride, null, BufferUsageARB.DynamicDraw);
-
-        _ebo = _gl.GenBuffer();
-        _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
-        _gl.BufferData(BufferTargetARB.ElementArrayBuffer, _currentIndexCapacity * sizeof(ushort), null, BufferUsageARB.DynamicDraw);
+        _ebo = Gl.GenBuffer();
+        Gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
+        Gl.BufferData(BufferTargetARB.ElementArrayBuffer, _currentIndexCapacity * sizeof(ushort), null, BufferUsageARB.DynamicDraw);
 
         _vertexAllocator = new MemoryAllocator(_currentVertexCapacity);
         _indexAllocator = new MemoryAllocator(_currentIndexCapacity);
@@ -56,21 +52,21 @@ public sealed unsafe class ChunkRenderer : IChunkRenderer
     private void SetupVao()
     {
         if (_vao != 0)
-            _gl.DeleteVertexArray(_vao);
+            Gl.DeleteVertexArray(_vao);
 
-        _vao = _gl.GenVertexArray();
-        _gl.BindVertexArray(_vao);
+        _vao = Gl.GenVertexArray();
+        Gl.BindVertexArray(_vao);
 
-        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
-        _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
+        Gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
+        Gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
 
-        ChunkVertex.SetVertexAttribPointers(_gl);
+        ChunkVertex.SetVertexAttribPointers(Gl);
 
         uint loc = 4;
-        _gl.EnableVertexAttribArray(loc);
-        _gl.VertexAttribDivisor(loc, 1);
+        Gl.EnableVertexAttribArray(loc);
+        Gl.VertexAttribDivisor(loc, 1);
 
-        _gl.BindVertexArray(0);
+        Gl.BindVertexArray(0);
     }
 
     public ChunkMeshGeometry UploadChunkMesh(MeshData meshData)
@@ -96,11 +92,11 @@ public sealed unsafe class ChunkRenderer : IChunkRenderer
         nuint vertexSizeInBytes = (nuint)meshData.VertexCount * ChunkVertex.Stride;
         nuint indexSizeInBytes = (nuint)meshData.IndexCount * sizeof(ushort);
 
-        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
-        _gl.BufferSubData(BufferTargetARB.ArrayBuffer, (nint)(vertexOffset * ChunkVertex.Stride), vertexSizeInBytes, (void*)meshData.Vertices);
+        Gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
+        Gl.BufferSubData(BufferTargetARB.ArrayBuffer, (nint)(vertexOffset * ChunkVertex.Stride), vertexSizeInBytes, (void*)meshData.Vertices);
 
-        _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
-        _gl.BufferSubData(BufferTargetARB.ElementArrayBuffer, (nint)(indexOffset * sizeof(ushort)), indexSizeInBytes, meshData.Indices);
+        Gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
+        Gl.BufferSubData(BufferTargetARB.ElementArrayBuffer, (nint)(indexOffset * sizeof(ushort)), indexSizeInBytes, meshData.Indices);
 
         var geometry = new ChunkMeshGeometry((uint)meshData.IndexCount, firstIndex, baseVertex);
 
@@ -112,14 +108,14 @@ public sealed unsafe class ChunkRenderer : IChunkRenderer
     {
         nuint newCapacity = Math.Max(_currentVertexCapacity * 2, _currentVertexCapacity + requiredExtraSize + 1024);
 
-        uint newVbo = _gl.GenBuffer();
-        _gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, newVbo);
-        _gl.BufferData(BufferTargetARB.CopyWriteBuffer, newCapacity * ChunkVertex.Stride, null, BufferUsageARB.DynamicDraw);
+        uint newVbo = Gl.GenBuffer();
+        Gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, newVbo);
+        Gl.BufferData(BufferTargetARB.CopyWriteBuffer, newCapacity * ChunkVertex.Stride, null, BufferUsageARB.DynamicDraw);
 
-        _gl.BindBuffer(BufferTargetARB.CopyReadBuffer, _vbo);
-        _gl.CopyBufferSubData(CopyBufferSubDataTarget.CopyReadBuffer, CopyBufferSubDataTarget.CopyWriteBuffer, 0, 0, _currentVertexCapacity * ChunkVertex.Stride);
+        Gl.BindBuffer(BufferTargetARB.CopyReadBuffer, _vbo);
+        Gl.CopyBufferSubData(CopyBufferSubDataTarget.CopyReadBuffer, CopyBufferSubDataTarget.CopyWriteBuffer, 0, 0, _currentVertexCapacity * ChunkVertex.Stride);
 
-        _gl.DeleteBuffer(_vbo);
+        Gl.DeleteBuffer(_vbo);
         _vbo = newVbo;
 
         _vertexAllocator.Grow(newCapacity);
@@ -132,14 +128,14 @@ public sealed unsafe class ChunkRenderer : IChunkRenderer
     {
         nuint newCapacity = Math.Max(_currentIndexCapacity * 2, _currentIndexCapacity + requiredExtraSize + 1024);
 
-        uint newEbo = _gl.GenBuffer();
-        _gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, newEbo);
-        _gl.BufferData(BufferTargetARB.CopyWriteBuffer, newCapacity * sizeof(ushort), null, BufferUsageARB.DynamicDraw);
+        uint newEbo = Gl.GenBuffer();
+        Gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, newEbo);
+        Gl.BufferData(BufferTargetARB.CopyWriteBuffer, newCapacity * sizeof(ushort), null, BufferUsageARB.DynamicDraw);
 
-        _gl.BindBuffer(BufferTargetARB.CopyReadBuffer, _ebo);
-        _gl.CopyBufferSubData(CopyBufferSubDataTarget.CopyReadBuffer, CopyBufferSubDataTarget.CopyWriteBuffer, 0, 0, _currentIndexCapacity * sizeof(ushort));
+        Gl.BindBuffer(BufferTargetARB.CopyReadBuffer, _ebo);
+        Gl.CopyBufferSubData(CopyBufferSubDataTarget.CopyReadBuffer, CopyBufferSubDataTarget.CopyWriteBuffer, 0, 0, _currentIndexCapacity * sizeof(ushort));
 
-        _gl.DeleteBuffer(_ebo);
+        Gl.DeleteBuffer(_ebo);
         _ebo = newEbo;
 
         _indexAllocator.Grow(newCapacity);
@@ -154,29 +150,29 @@ public sealed unsafe class ChunkRenderer : IChunkRenderer
         _indexAllocator.Free(geometry.FirstIndex);
     }
 
-    public void Bind() => _gl.BindVertexArray(_vao);
+    public void Bind() => Gl.BindVertexArray(_vao);
 
     public void DrawGPUIndirectCount(uint indirectBuffer, uint instanceBuffer, uint countBuffer, int maxDrawCount)
     {
-        _gl.BindVertexArray(_vao);
+        Gl.BindVertexArray(_vao);
 
-        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, instanceBuffer);
-        _gl.VertexAttribPointer(4, 3, VertexAttribPointerType.Float, false, 16, (void*)0);
-        _gl.VertexAttribDivisor(4, 1);
+        Gl.BindBuffer(BufferTargetARB.ArrayBuffer, instanceBuffer);
+        Gl.VertexAttribPointer(4, 3, VertexAttribPointerType.Float, false, 16, (void*)0);
+        Gl.VertexAttribDivisor(4, 1);
 
-        _gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, indirectBuffer);
-        _gl.BindBuffer(BufferTargetARB.ParameterBuffer, countBuffer);
+        Gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, indirectBuffer);
+        Gl.BindBuffer(BufferTargetARB.ParameterBuffer, countBuffer);
 
-        _gl.MultiDrawElementsIndirectCount(PrimitiveType.Triangles, DrawElementsType.UnsignedShort, (void*)0, 0, (uint)maxDrawCount, 0);
+        Gl.MultiDrawElementsIndirectCount(PrimitiveType.Triangles, DrawElementsType.UnsignedShort, (void*)0, 0, (uint)maxDrawCount, 0);
 
-        _gl.BindBuffer(BufferTargetARB.ParameterBuffer, 0);
-        _gl.BindVertexArray(0);
+        Gl.BindBuffer(BufferTargetARB.ParameterBuffer, 0);
+        Gl.BindVertexArray(0);
     }
 
     public void Dispose()
     {
-        _gl.DeleteVertexArray(_vao);
-        _gl.DeleteBuffer(_vbo);
-        _gl.DeleteBuffer(_ebo);
+        Gl.DeleteVertexArray(_vao);
+        Gl.DeleteBuffer(_vbo);
+        Gl.DeleteBuffer(_ebo);
     }
 }

@@ -1,10 +1,13 @@
-﻿using StbTrueTypeSharp;
+﻿using Minecraft.NET.Graphics.Rendering;
+using StbTrueTypeSharp;
 
 namespace Minecraft.NET.Services;
 
-public unsafe class FontService(string fontPath) : IDisposable
+public unsafe class FontService(IGlContextAccessor glAccessor) : IDisposable
 {
-    private GL? _gl;
+    private const string DefaultFontPath = "Assets/Fonts/CascadiaCode-VariableFont_wght.ttf";
+
+    private GL Gl => glAccessor.Gl;
     private uint _textureHandle;
     private const int BitmapWidth = 512;
     private const int BitmapHeight = 512;
@@ -12,12 +15,11 @@ public unsafe class FontService(string fontPath) : IDisposable
     private readonly StbTrueType.stbtt_packedchar[] _charData = new StbTrueType.stbtt_packedchar[96];
     private bool _isInitialized;
 
-    public void Initialize(GL gl)
+    public void Initialize()
     {
         if (_isInitialized)
             return;
-        _gl = gl;
-        LoadFont(fontPath);
+        LoadFont(DefaultFontPath);
         _isInitialized = true;
     }
 
@@ -45,19 +47,19 @@ public unsafe class FontService(string fontPath) : IDisposable
             StbTrueType.stbtt_PackEnd(context);
         }
 
-        _textureHandle = _gl!.GenTexture();
-        _gl.BindTexture(TextureTarget.Texture2D, _textureHandle);
+        _textureHandle = Gl!.GenTexture();
+        Gl.BindTexture(TextureTarget.Texture2D, _textureHandle);
 
-        _gl.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
-        _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.R8, BitmapWidth, BitmapHeight, 0, PixelFormat.Red, PixelType.UnsignedByte, bitmap);
+        Gl.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
+        Gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.R8, BitmapWidth, BitmapHeight, 0, PixelFormat.Red, PixelType.UnsignedByte, bitmap);
 
-        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)GLEnum.Linear);
-        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)GLEnum.Linear);
-        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)GLEnum.ClampToEdge);
-        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)GLEnum.ClampToEdge);
-        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMaxLevel, 0);
+        Gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)GLEnum.Linear);
+        Gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)GLEnum.Linear);
+        Gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)GLEnum.ClampToEdge);
+        Gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)GLEnum.ClampToEdge);
+        Gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMaxLevel, 0);
 
-        _gl.PixelStore(PixelStoreParameter.UnpackAlignment, 4);
+        Gl.PixelStore(PixelStoreParameter.UnpackAlignment, 4);
     }
 
     public StbTrueType.stbtt_aligned_quad GetQuad(char c, ref float x, ref float y)
@@ -91,9 +93,9 @@ public unsafe class FontService(string fontPath) : IDisposable
     {
         if (!_isInitialized)
             return;
-        _gl!.ActiveTexture(unit);
-        _gl.BindTexture(TextureTarget.Texture2D, _textureHandle);
+        Gl!.ActiveTexture(unit);
+        Gl.BindTexture(TextureTarget.Texture2D, _textureHandle);
     }
 
-    public void Dispose() { if (_isInitialized) _gl?.DeleteTexture(_textureHandle); }
+    public void Dispose() { if (_isInitialized) Gl?.DeleteTexture(_textureHandle); }
 }
