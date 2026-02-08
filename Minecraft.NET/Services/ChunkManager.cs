@@ -22,6 +22,8 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
     private readonly List<Vector2D<int>> _chunksToRemove = new(256);
     private readonly ConcurrentStack<ChunkColumn> _chunkPool = new();
 
+    private readonly Vector2D<int>[] _sortedChunkOffsets = GenerateSortedOffsets();
+
     private Vector2D<int> _lastPlayerChunkPos = new(int.MaxValue, int.MaxValue);
 
     private static readonly Vector2D<int>[] NeighborOffsets =
@@ -72,42 +74,46 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
 
     public IReadOnlyList<ChunkColumn> GetRenderChunks() => _renderChunksList;
 
-    private void LoadCloseChunks(Vector2D<int> playerChunkPos)
+    private static Vector2D<int>[] GenerateSortedOffsets()
     {
-        bool addedAny = false;
+        var offsets = new List<Vector2D<int>>();
         int rd = RenderDistance;
         int rdSq = rd * rd;
 
         for (int x = -rd; x <= rd; x++)
-        {
             for (int z = -rd; z <= rd; z++)
+                if (x * x + z * z <= rdSq)
+                    offsets.Add(new Vector2D<int>(x, z));
+
+        return [.. offsets.OrderBy(v => v.X * v.X + v.Y * v.Y)];
+    }
+
+    private void LoadCloseChunks(Vector2D<int> playerChunkPos)
+    {
+        bool addedAny = false;
+        foreach (var offset in _sortedChunkOffsets)
+        {
+            var targetPos = playerChunkPos + offset;
+
+            if (!_chunks.ContainsKey(targetPos))
             {
-                int distSq = x * x + z * z;
-                if (distSq > rdSq)
-                    continue;
+                if (!_chunkPool.TryPop(out var newChunk))
+                    newChunk = new ChunkColumn();
 
-                var targetPos = new Vector2D<int>(playerChunkPos.X + x, playerChunkPos.Y + z);
+                newChunk.Reset(targetPos);
+                newChunk.OnFreeMeshGeometry = _meshFreeHandler;
 
-                if (!_chunks.ContainsKey(targetPos))
+                if (_chunks.TryAdd(targetPos, newChunk))
                 {
-                    if (!_chunkPool.TryPop(out var newChunk))
-                        newChunk = new ChunkColumn();
-
-                    newChunk.Reset(targetPos);
-                    newChunk.OnFreeMeshGeometry = _meshFreeHandler;
-
-                    if (_chunks.TryAdd(targetPos, newChunk))
+                    _ = ThreadPool.QueueUserWorkItem(static state =>
                     {
-                        _ = ThreadPool.QueueUserWorkItem(static state =>
-                        {
-                            var args = (object[])state;
-                            var manager = (ChunkManager)args[0];
-                            var chunk = (ChunkColumn)args[1];
-                            manager.GenerateChunkData(chunk);
-                        }, new object[] { this, newChunk });
+                        var args = (object[])state!;
+                        var manager = (ChunkManager)args[0];
+                        var chunk = (ChunkColumn)args[1];
+                        manager.GenerateChunkData(chunk);
+                    }, new object[] { this, newChunk });
 
-                        addedAny = true;
-                    }
+                    addedAny = true;
                 }
             }
         }
@@ -172,6 +178,7 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
     {
         if (_meshRequestHandler is null)
             return;
+
         var state = column.SectionStates[sectionY];
 
         if (state == ChunkSectionState.Rendered || state == ChunkSectionState.Empty)
