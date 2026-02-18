@@ -13,8 +13,7 @@ public readonly record struct BlockDefinition(BlockId Id, string Name, BlockFace
 
 public static class BlockRegistry
 {
-    public static Dictionary<BlockId, BlockDefinition> Definitions { get; } = [];
-
+    public static BlockDefinition[] Definitions { get; } = new BlockDefinition[256];
     public static List<string> TextureFiles { get; } = [];
     private static readonly Dictionary<string, int> _textureCache = [];
 
@@ -42,5 +41,5 @@ public static class BlockRegistry
         return index;
     }
 
-    private static void Register(BlockDefinition def) => Definitions.Add(def.Id, def);
+    private static void Register(BlockDefinition def) => Definitions[(int)def.Id] = def;
 }

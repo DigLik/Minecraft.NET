@@ -28,8 +28,8 @@ public sealed unsafe class ChunkRenderer(IGlContextAccessor glAccessor) : IChunk
     private MemoryAllocator _vertexAllocator = null!;
     private MemoryAllocator _indexAllocator = null!;
 
-    private nuint _currentVertexCapacity = 1024 * 256;
-    private nuint _currentIndexCapacity = 1024 * 512;
+    private nuint _currentVertexCapacity = 1024 * 1024 * 8;
+    private nuint _currentIndexCapacity = 1024 * 1024 * 12;
 
     public void Initialize()
     {

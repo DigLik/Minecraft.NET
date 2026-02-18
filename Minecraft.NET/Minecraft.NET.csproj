@@ -32,7 +32,7 @@
 	<PublishTrimmed>true</PublishTrimmed>
 	<TrimMode>full</TrimMode>
 	<PublishReadyToRun>false</PublishReadyToRun>
-	<PublishAot>false</PublishAot>
+	<PublishAot>true</PublishAot>
 	<TieredPGO>true</TieredPGO>
   </PropertyGroup>
 	
