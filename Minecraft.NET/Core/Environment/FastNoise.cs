@@ -90,15 +90,10 @@ public sealed class FastNoise(int seed)
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector<float> Fade(Vector<float> t)
-    {
-        return t * t * t * (t * (t * 6.0f - new Vector<float>(15.0f)) + new Vector<float>(10.0f));
-    }
+        => t * t * t * (t * (t * 6.0f - new Vector<float>(15.0f)) + new Vector<float>(10.0f));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector<float> Lerp(Vector<float> t, Vector<float> a, Vector<float> b)
-    {
-        return a + t * (b - a);
-    }
+    private static Vector<float> Lerp(Vector<float> t, Vector<float> a, Vector<float> b) => a + t * (b - a);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector<int> Hash(Vector<int> x, Vector<int> y, Vector<int> seed)

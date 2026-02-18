@@ -66,7 +66,7 @@ public unsafe class FontService(IGlContextAccessor glAccessor) : IDisposable
     {
         if (!_isInitialized)
             return default;
-        if (c < 32 || c > 126)
+        if (c is < (char)32 or > (char)126)
             c = '?';
 
         StbTrueType.stbtt_aligned_quad q = new();

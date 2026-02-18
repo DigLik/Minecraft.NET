@@ -1,6 +1,7 @@
-﻿using Minecraft.NET.Engine;
+﻿using System.Runtime.InteropServices;
+
+using Minecraft.NET.Engine;
 using Minecraft.NET.Graphics.Models;
-using System.Runtime.InteropServices;
 
 namespace Minecraft.NET.Graphics.Rendering;
 
@@ -22,10 +23,7 @@ public readonly record struct ChunkMeshGeometry(
 public sealed unsafe class ChunkRenderer(IGlContextAccessor glAccessor) : IChunkRenderer
 {
     private GL Gl => glAccessor.Gl;
-
-    private uint _vao;
-    private uint _vbo;
-    private uint _ebo;
+    private uint _vao, _vbo, _ebo;
 
     private MemoryAllocator _vertexAllocator = null!;
     private MemoryAllocator _indexAllocator = null!;
@@ -36,8 +34,8 @@ public sealed unsafe class ChunkRenderer(IGlContextAccessor glAccessor) : IChunk
     public void Initialize()
     {
         _vbo = Gl.GenBuffer();
-        Gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
-        Gl.BufferData(BufferTargetARB.ArrayBuffer, _currentVertexCapacity * ChunkVertex.Stride, null, BufferUsageARB.DynamicDraw);
+        Gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, _vbo);
+        Gl.BufferData(BufferTargetARB.ShaderStorageBuffer, _currentVertexCapacity * ChunkVertex.Stride, null, BufferUsageARB.DynamicDraw);
 
         _ebo = Gl.GenBuffer();
         Gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
@@ -51,21 +49,10 @@ public sealed unsafe class ChunkRenderer(IGlContextAccessor glAccessor) : IChunk
 
     private void SetupVao()
     {
-        if (_vao != 0)
-            Gl.DeleteVertexArray(_vao);
-
+        if (_vao != 0) Gl.DeleteVertexArray(_vao);
         _vao = Gl.GenVertexArray();
         Gl.BindVertexArray(_vao);
-
-        Gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
         Gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _ebo);
-
-        ChunkVertex.SetVertexAttribPointers(Gl);
-
-        uint loc = 4;
-        Gl.EnableVertexAttribArray(loc);
-        Gl.VertexAttribDivisor(loc, 1);
-
         Gl.BindVertexArray(0);
     }
 
@@ -107,8 +94,8 @@ public sealed unsafe class ChunkRenderer(IGlContextAccessor glAccessor) : IChunk
     private void ResizeVertexBuffer(nuint requiredExtraSize)
     {
         nuint newCapacity = Math.Max(_currentVertexCapacity * 2, _currentVertexCapacity + requiredExtraSize + 1024);
-
         uint newVbo = Gl.GenBuffer();
+
         Gl.BindBuffer(BufferTargetARB.CopyWriteBuffer, newVbo);
         Gl.BufferData(BufferTargetARB.CopyWriteBuffer, newCapacity * ChunkVertex.Stride, null, BufferUsageARB.DynamicDraw);
 
@@ -156,9 +143,14 @@ public sealed unsafe class ChunkRenderer(IGlContextAccessor glAccessor) : IChunk
     {
         Gl.BindVertexArray(_vao);
 
+        Gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, 0, _vbo);
+
         Gl.BindBuffer(BufferTargetARB.ArrayBuffer, instanceBuffer);
-        Gl.VertexAttribPointer(4, 3, VertexAttribPointerType.Float, false, 16, (void*)0);
-        Gl.VertexAttribDivisor(4, 1);
+
+        uint locInstance = 4;
+        Gl.EnableVertexAttribArray(locInstance);
+        Gl.VertexAttribPointer(locInstance, 3, VertexAttribPointerType.Float, false, 16, (void*)0);
+        Gl.VertexAttribDivisor(locInstance, 1);
 
         Gl.BindBuffer(BufferTargetARB.DrawIndirectBuffer, indirectBuffer);
         Gl.BindBuffer(BufferTargetARB.ParameterBuffer, countBuffer);

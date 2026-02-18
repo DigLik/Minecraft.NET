@@ -10,7 +10,7 @@ public class MemoryAllocator
         public readonly int CompareTo(FreeBlock other) => Offset.CompareTo(other.Offset);
     }
 
-    private readonly List<FreeBlock> _freeList = new();
+    private readonly List<FreeBlock> _freeList = [];
     private readonly Dictionary<nuint, nuint> _allocations = [];
     public nuint Capacity { get; private set; }
 

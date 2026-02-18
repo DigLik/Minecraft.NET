@@ -4,7 +4,7 @@ namespace Minecraft.NET.Core.Environment;
 
 public class TerrainWorldGenerator : IWorldGenerator
 {
-    private readonly FastNoise _noise;
+    private readonly FastNoise _noise = new(12345);
 
     private const float Frequency = 0.008f;
     private const int Octaves = 5;
@@ -15,11 +15,6 @@ public class TerrainWorldGenerator : IWorldGenerator
     private const float MinHeight = 50.0f;
     private const float MaxHeight = 250.0f;
     private const float HeightExponent = 1.0f;
-
-    public TerrainWorldGenerator()
-    {
-        _noise = new FastNoise(12345);
-    }
 
     public unsafe void Generate(ChunkColumn column)
     {

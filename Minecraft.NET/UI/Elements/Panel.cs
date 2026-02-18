@@ -2,8 +2,5 @@
 
 public class Panel : UiElement
 {
-    public Panel()
-    {
-        Style.Color = Vector4.Zero;
-    }
+    public Panel() => Style.Color = Vector4.Zero;
 }

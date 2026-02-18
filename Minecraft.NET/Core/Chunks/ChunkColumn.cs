@@ -61,7 +61,7 @@ public unsafe sealed class ChunkColumn : IDisposable
     {
         lock (StateLock)
         {
-            if (y < 0 || y >= WorldHeightInBlocks)
+            if (y is < 0 or >= WorldHeightInBlocks)
                 return;
             int sectionIndex = y >> ChunkShift;
             int localY = y & ChunkMask;
@@ -73,7 +73,7 @@ public unsafe sealed class ChunkColumn : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void FillSection(int sectionY, BlockId id)
     {
-        if (sectionY < 0 || sectionY >= WorldHeightInChunks)
+        if (sectionY is < 0 or >= WorldHeightInChunks)
             return;
         lock (StateLock)
             Sections[sectionY].Fill(id);
@@ -82,7 +82,7 @@ public unsafe sealed class ChunkColumn : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public BlockId GetBlock(int x, int y, int z)
     {
-        if (y < 0 || y >= WorldHeightInBlocks)
+        if (y is < 0 or >= WorldHeightInBlocks)
             return BlockId.Air;
         return Sections[y >> ChunkShift].GetBlock(x, y & ChunkMask, z);
     }

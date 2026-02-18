@@ -58,7 +58,7 @@ public class PerformanceMonitor(IGlContextAccessor glAccessor) : IPerformanceMon
             Gl.GetQueryObject(_queryIds[queryToRead], GLEnum.QueryResult, out ulong timeElapsedNs);
             double currentGpuMs = timeElapsedNs / 1_000_000.0;
 
-            if (currentGpuMs > 0 && currentGpuMs < 1000)
+            if (currentGpuMs is > 0 and < 1000)
                 AvgGpuTimeMs = (AvgGpuTimeMs * SmoothingFactor) + (currentGpuMs * (1.0 - SmoothingFactor));
         }
 

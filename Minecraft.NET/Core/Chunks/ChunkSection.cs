@@ -89,10 +89,7 @@ public unsafe struct ChunkSection
         NonAirBlockCount = (first == BlockId.Air) ? 0 : SectionSize;
     }
 
-    public void Free()
-    {
-        Reset();
-    }
+    public void Free() => Reset();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int GetIndex(int x, int y, int z)

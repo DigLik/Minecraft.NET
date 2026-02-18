@@ -30,7 +30,7 @@ public sealed class World(ChunkManager chunkManager, WorldStorage storage) : IDi
         int localZ = worldZ_i & ChunkMask;
         int worldY = worldY_i + (VerticalChunkOffset << ChunkShift);
 
-        if (worldY < 0 || worldY >= WorldHeightInBlocks)
+        if (worldY is < 0 or >= WorldHeightInBlocks)
             return;
 
         column.SetBlock(localX, worldY, localZ, id);

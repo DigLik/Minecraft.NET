@@ -307,7 +307,7 @@ public static class ChunkMesher
         else if (y >= ChunkSize)
         { absoluteSectionIndex++; localY -= ChunkSize; }
 
-        if (absoluteSectionIndex < 0 || absoluteSectionIndex >= WorldHeightInChunks)
+        if (absoluteSectionIndex is < 0 or >= WorldHeightInChunks)
             return BlockId.Air;
 
         ref var section = ref targetColumn.Sections[absoluteSectionIndex];

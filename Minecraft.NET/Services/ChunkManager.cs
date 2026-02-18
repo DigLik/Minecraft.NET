@@ -105,14 +105,11 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
 
                 if (_chunks.TryAdd(targetPos, newChunk))
                 {
-                    _ = ThreadPool.QueueUserWorkItem(static state =>
-                    {
-                        var args = (object[])state!;
-                        var manager = (ChunkManager)args[0];
-                        var chunk = (ChunkColumn)args[1];
-                        manager.GenerateChunkData(chunk);
-                    }, new object[] { this, newChunk });
-
+                    ThreadPool.QueueUserWorkItem(
+                        static state => state.Manager.GenerateChunkData(state.Chunk),
+                        (Manager: this, Chunk: newChunk),
+                        preferLocal: false
+                    );
                     addedAny = true;
                 }
             }
@@ -181,7 +178,7 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
 
         var state = column.SectionStates[sectionY];
 
-        if (state == ChunkSectionState.Rendered || state == ChunkSectionState.Empty)
+        if (state is ChunkSectionState.Rendered or ChunkSectionState.Empty)
             column.SectionStates[sectionY] = ChunkSectionState.AwaitingMesh;
 
         if (column.SectionStates[sectionY] == ChunkSectionState.AwaitingMesh)

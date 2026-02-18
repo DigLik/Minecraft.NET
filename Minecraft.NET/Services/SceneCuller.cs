@@ -35,7 +35,7 @@ public unsafe class SceneCuller(Player player, ChunkManager chunkManager, IGlCon
     private uint _instanceBuffer;
     private uint _atomicCounterBuffer;
 
-    private ChunkInputGPU[] _cpuInputBuffer = [];
+    private ChunkInputGPU[] _cpuInputBuffer = new ChunkInputGPU[MaxVisibleSections];
     private readonly int _maxCapacity = MaxVisibleSections;
     private readonly Vector4[] _frustumPlanes = new Vector4[6];
     private long _lastStateHash = -1;

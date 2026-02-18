@@ -46,22 +46,18 @@ services.AddSingleton<CreativePlayerController>();
 services.AddSingleton<SpectatorPlayerController>();
 
 services.AddSingleton<IReadOnlyDictionary<GameMode, IPhysicsStrategy>>(_ =>
-{
-    return new Dictionary<GameMode, IPhysicsStrategy>
-    {
-        { GameMode.Creative, new CreativePhysicsStrategy() },
-        { GameMode.Spectator, new SpectatorPhysicsStrategy() }
-    };
-});
+    new Dictionary<GameMode, IPhysicsStrategy>
+        {
+            { GameMode.Creative, new CreativePhysicsStrategy() },
+            { GameMode.Spectator, new SpectatorPhysicsStrategy() }
+        });
 
 services.AddSingleton<IReadOnlyDictionary<GameMode, IPlayerController>>(provider =>
-{
-    return new Dictionary<GameMode, IPlayerController>
-    {
-        { GameMode.Creative, provider.GetRequiredService<CreativePlayerController>() },
-        { GameMode.Spectator, provider.GetRequiredService<SpectatorPlayerController>() }
-    };
-});
+    new Dictionary<GameMode, IPlayerController>
+        {
+            { GameMode.Creative, provider.GetRequiredService<CreativePlayerController>() },
+            { GameMode.Spectator, provider.GetRequiredService<SpectatorPlayerController>() }
+        });
 
 services.AddSingleton<IGlContextAccessor, GlContextAccessor>();
 
