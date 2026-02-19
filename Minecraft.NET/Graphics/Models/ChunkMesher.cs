@@ -35,36 +35,31 @@ public static class ChunkMesher
         var builder = _threadLocalBuilder.Value!;
         builder.Reset();
 
-        ProcessAxisSimd(builder, paddedBlocks, 1, 0, 2, Y_STRIDE, X_STRIDE, Z_STRIDE);
-
+        ProcessAxisNaiveSimd(builder, paddedBlocks, 0);
         if (token.IsCancellationRequested) return default;
 
-        ProcessAxisSimd(builder, paddedBlocks, 2, 0, 1, Z_STRIDE, X_STRIDE, Y_STRIDE);
-
+        ProcessAxisNaiveSimd(builder, paddedBlocks, 1);
         if (token.IsCancellationRequested) return default;
 
-        ProcessAxisScalar(builder, paddedBlocks, 0, 2, 1, X_STRIDE, Z_STRIDE, Y_STRIDE);
+        ProcessAxisNaiveSimd(builder, paddedBlocks, 2);
 
         return builder.BuildToData();
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static unsafe void ProcessAxisSimd(
-        MeshBuilder builder, BlockId* blocks,
-        int axisNum, int uAxis, int vAxis,
-        int axisStride, int uStride, int vStride)
+    private static unsafe void ProcessAxisNaiveSimd(MeshBuilder builder, BlockId* blocks, int axisNum)
     {
-        for (int layer = 0; layer < ChunkSize; layer++)
+        int axisStride = axisNum == 0 ? X_STRIDE : (axisNum == 1 ? Y_STRIDE : Z_STRIDE);
+
+        for (int y = 0; y < ChunkSize; y++)
         {
-            BlockId* layerPtr = blocks + (layer + 1) * axisStride + 1 * vStride + 1 * uStride;
-
-            for (int dir = 0; dir < 2; dir++)
+            for (int z = 0; z < ChunkSize; z++)
             {
-                int neighborOffset = (dir == 1 ? 1 : -1) * axisStride;
+                BlockId* rowPtr = blocks + (y + 1) * Y_STRIDE + (z + 1) * Z_STRIDE + 1 * X_STRIDE;
 
-                for (int v = 0; v < ChunkSize; v++)
+                for (int dir = 0; dir < 2; dir++)
                 {
-                    BlockId* rowPtr = layerPtr + v * vStride;
+                    int neighborOffset = (dir == 1 ? 1 : -1) * axisStride;
                     BlockId* neighborPtr = rowPtr + neighborOffset;
 
                     Vector128<byte> vCurrent = Vector128.Load((byte*)rowPtr);
@@ -78,15 +73,8 @@ public static class ChunkMesher
 
                     while (mask != 0)
                     {
-                        int u = BitOperations.TrailingZeroCount(mask);
-
-                        BlockId blockId = rowPtr[u];
-
-                        int x, y, z;
-                        if (axisNum == 1)
-                        { x = u; y = layer; z = v; }
-                        else
-                        { x = u; y = v; z = layer; }
+                        int x = BitOperations.TrailingZeroCount(mask);
+                        BlockId blockId = rowPtr[x];
 
                         int aoX = x + (axisNum == 0 ? (dir == 1 ? 1 : -1) : 0);
                         int aoY = y + (axisNum == 1 ? (dir == 1 ? 1 : -1) : 0);
@@ -94,209 +82,62 @@ public static class ChunkMesher
 
                         uint aoData = CalculateFaceAO(blocks, axisNum, dir, aoX, aoY, aoZ);
 
-                        int w = 1;
-                        while (true)
-                        {
-                            int nextU = u + w;
-                            if (nextU >= ChunkSize) break;
+                        AddQuadNaive(builder, axisNum, dir, x, y, z, blockId, aoData);
 
-                            if ((mask & (1u << nextU)) == 0) break;
-                            if (rowPtr[nextU] != blockId) break;
-
-                            int nextAoX = x + (axisNum == 0 ? 0 : w);
-                            int nextAoY = y + (axisNum == 1 ? 0 : (axisNum == 2 ? w : 0));
-
-                            uint nextAoData = CalculateFaceAO(blocks, axisNum, dir, aoX + w, aoY, aoZ);
-
-                            if (nextAoData != aoData) break;
-
-                            w++;
-                        }
-
-                        AddQuad(builder, axisNum, dir, u, v, w, 1, layer, blockId, aoData);
-
-                        uint clearMask = ((1u << w) - 1) << u;
-                        mask &= ~clearMask;
+                        mask &= ~(1u << x);
                     }
                 }
             }
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static unsafe void ProcessAxisScalar(
-        MeshBuilder builder, BlockId* blocks,
-        int axisNum, int uAxis, int vAxis,
-        int axisStride, int uStride, int vStride)
-    {
-        for (int layer = 0; layer < ChunkSize; layer++)
-        {
-            BlockId* layerPtr = blocks + (layer + 1) * axisStride + 1 * vStride + 1 * uStride;
-
-            for (int dir = 0; dir < 2; dir++)
-            {
-                int neighborOffset = (dir == 1 ? 1 : -1) * axisStride;
-
-                for (int v = 0; v < ChunkSize; v++)
-                {
-                    BlockId* rowPtr = layerPtr + v * vStride;
-                    BlockId* neighborPtr = rowPtr + neighborOffset;
-
-                    uint mask = 0;
-                    for (int u = 0; u < ChunkSize; u++)
-                    {
-                        BlockId curr = rowPtr[u * uStride];
-                        BlockId neigh = neighborPtr[u * uStride];
-
-                        if (curr != BlockId.Air && neigh == BlockId.Air)
-                        {
-                            mask |= (1u << u);
-                        }
-                    }
-
-                    while (mask != 0)
-                    {
-                        int u = BitOperations.TrailingZeroCount(mask);
-
-                        BlockId blockId = rowPtr[u * uStride];
-
-                        int x = layer;
-                        int y = v;
-                        int z = u;
-
-                        int aoX = x + (dir == 1 ? 1 : -1);
-                        int aoY = y;
-                        int aoZ = z;
-
-                        uint aoData = CalculateFaceAO(blocks, axisNum, dir, aoX, aoY, aoZ);
-
-                        int w = 1;
-                        while (true)
-                        {
-                            int nextU = u + w;
-                            if (nextU >= ChunkSize) break;
-                            if ((mask & (1u << nextU)) == 0) break;
-                            if (rowPtr[nextU * uStride] != blockId) break;
-
-                            uint nextAoData = CalculateFaceAO(blocks, axisNum, dir, aoX, aoY, aoZ + w);
-                            if (nextAoData != aoData) break;
-
-                            w++;
-                        }
-
-                        AddQuad(builder, axisNum, dir, u, v, w, 1, layer, blockId, aoData);
-
-                        uint clearMask = ((1u << w) - 1) << u;
-                        mask &= ~clearMask;
-                    }
-                }
-            }
-        }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static unsafe uint CalculateFaceAO(BlockId* blocks, int axis, int dir, int x, int y, int z)
-    {
-        int px = x + 1;
-        int py = y + 1;
-        int pz = z + 1;
-
-        BlockId* ptr = blocks + px * X_STRIDE + pz * Z_STRIDE + py * Y_STRIDE;
-
-        int uOff, vOff;
-
-        if (axis == 0)
-        {
-            uOff = Z_STRIDE;
-            vOff = Y_STRIDE;
-        }
-        else if (axis == 1)
-        {
-            uOff = X_STRIDE;
-            vOff = Z_STRIDE;
-        }
-        else
-        {
-            uOff = X_STRIDE;
-            vOff = Y_STRIDE;
-        }
-
-        bool l = ptr[-uOff] != BlockId.Air;
-        bool r = ptr[uOff] != BlockId.Air;
-        bool b = ptr[-vOff] != BlockId.Air;
-        bool t = ptr[vOff] != BlockId.Air;
-
-        bool bl = ptr[-uOff - vOff] != BlockId.Air;
-        bool br = ptr[uOff - vOff] != BlockId.Air;
-        bool tl = ptr[-uOff + vOff] != BlockId.Air;
-        bool tr = ptr[uOff + vOff] != BlockId.Air;
-
-        return VertexAO(l, bl, b) |
-            (VertexAO(r, br, b) << 8) |
-            (VertexAO(r, tr, t) << 16) |
-            (VertexAO(l, tl, t) << 24);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static uint VertexAO(bool side1, bool corner, bool side2)
-    {
-        if (side1 && side2) return 0;
-        return (uint)(3 - ((side1 ? 1 : 0) + (side2 ? 1 : 0) + (corner ? 1 : 0)));
-    }
-
-    private static void AddQuad(
+    private static void AddQuadNaive(
         MeshBuilder builder,
         int axis, int dir,
-        int u, int v, int w, int h,
-        int layer,
+        int x, int y, int z,
         BlockId blockId, uint aoData)
     {
         var blockDef = BlockRegistry.Definitions[(int)blockId];
-        if (blockId == 0) return;
 
-        int texIndex;
-        if (axis == 1)
-            texIndex = (dir == 1) ? blockDef.Textures.Top : blockDef.Textures.Bottom;
-        else
-            texIndex = blockDef.Textures.Side;
+        int texIndex = axis == 1
+            ? ((dir == 1) ? blockDef.Textures.Top : blockDef.Textures.Bottom)
+            : blockDef.Textures.Side;
 
-        float x1, y1, z1;
-        float x2, y2, z2;
-        float x3, y3, z3;
-        float x4, y4, z4;
+        float x1, x2, x3, x4;
+        float y1, y2, y3, y4;
+        float z1, z2, z3, z4;
 
         if (axis == 1)
         {
-            float y = layer + (dir == 1 ? 1 : 0);
-            x1 = u; z1 = v; y1 = y;
-            x2 = u + w; z2 = v; y2 = y;
-            x3 = u + w; z3 = v + h; y3 = y;
-            x4 = u; z4 = v + h; y4 = y;
+            float yPos = y + (dir == 1 ? 1 : 0);
+            x1 = x; z1 = z; y1 = yPos;
+            x2 = x + 1; z2 = z; y2 = yPos;
+            x3 = x + 1; z3 = z + 1; y3 = yPos;
+            x4 = x; z4 = z + 1; y4 = yPos;
         }
         else if (axis == 2)
         {
-            float z = layer + (dir == 1 ? 1 : 0);
-            x1 = u; y1 = v; z1 = z;
-            x2 = u + w; y2 = v; z2 = z;
-            x3 = u + w; y3 = v + h; z3 = z;
-            x4 = u; y4 = v + h; z4 = z;
+            float zPos = z + (dir == 1 ? 1 : 0);
+            x1 = x; y1 = y; z1 = zPos;
+            x2 = x + 1; y2 = y; z2 = zPos;
+            x3 = x + 1; y3 = y + 1; z3 = zPos;
+            x4 = x; y4 = y + 1; z4 = zPos;
         }
         else
         {
-            float x = layer + (dir == 1 ? 1 : 0);
-            z1 = u; y1 = v; x1 = x;
-            z2 = u + w; y2 = v; x2 = x;
-            z3 = u + w; y3 = v + h; x3 = x;
-            z4 = u; y4 = v + h; x4 = x;
+            float xPos = x + (dir == 1 ? 1 : 0);
+            z1 = z; y1 = y; x1 = xPos;
+            z2 = z + 1; y2 = y; x2 = xPos;
+            z3 = z + 1; y3 = y + 1; x3 = xPos;
+            z4 = z; y4 = y + 1; x4 = xPos;
         }
 
-        Vector3 v1, v2, v3, v4;
-        bool reversed = axis == 2 ? (dir == 0) : (dir == 1);
+        Vector3 v1 = new(x1, y1, z1);
+        Vector3 v2 = new(x2, y2, z2);
+        Vector3 v3 = new(x3, y3, z3);
+        Vector3 v4 = new(x4, y4, z4);
 
-        v1 = new Vector3(x1, y1, z1);
-        v2 = new Vector3(x2, y2, z2);
-        v3 = new Vector3(x3, y3, z3);
-        v4 = new Vector3(x4, y4, z4);
+        bool reversed = axis == 2 ? (dir == 0) : (dir == 1);
 
         float ao_bl = AO_Factors[aoData & 0xFF];
         float ao_br = AO_Factors[(aoData >> 8) & 0xFF];
@@ -305,9 +146,9 @@ public static class ChunkMesher
 
         ushort baseIndex = (ushort)builder.VertexCount;
 
-        builder.AddVertex(new ChunkVertex(v1, texIndex, new Vector2(0, h), ao_bl));
-        builder.AddVertex(new ChunkVertex(v2, texIndex, new Vector2(w, h), ao_br));
-        builder.AddVertex(new ChunkVertex(v3, texIndex, new Vector2(w, 0), ao_tr));
+        builder.AddVertex(new ChunkVertex(v1, texIndex, new Vector2(0, 1), ao_bl));
+        builder.AddVertex(new ChunkVertex(v2, texIndex, new Vector2(1, 1), ao_br));
+        builder.AddVertex(new ChunkVertex(v3, texIndex, new Vector2(1, 0), ao_tr));
         builder.AddVertex(new ChunkVertex(v4, texIndex, new Vector2(0, 0), ao_tl));
 
         bool flipDiagonal = ao_bl + ao_tr < ao_br + ao_tl;
@@ -340,15 +181,54 @@ public static class ChunkMesher
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static unsafe uint CalculateFaceAO(BlockId* blocks, int axis, int dir, int x, int y, int z)
+    {
+        int px = x + 1;
+        int py = y + 1;
+        int pz = z + 1;
+
+        BlockId* ptr = blocks + px * X_STRIDE + pz * Z_STRIDE + py * Y_STRIDE;
+
+        int uOff, vOff;
+        if (axis == 0) { uOff = Z_STRIDE; vOff = Y_STRIDE; }
+        else if (axis == 1) { uOff = X_STRIDE; vOff = Z_STRIDE; }
+        else { uOff = X_STRIDE; vOff = Y_STRIDE; }
+
+        bool l = ptr[-uOff] != BlockId.Air;
+        bool r = ptr[uOff] != BlockId.Air;
+        bool b = ptr[-vOff] != BlockId.Air;
+        bool t = ptr[vOff] != BlockId.Air;
+
+        bool bl = ptr[-uOff - vOff] != BlockId.Air;
+        bool br = ptr[uOff - vOff] != BlockId.Air;
+        bool tl = ptr[-uOff + vOff] != BlockId.Air;
+        bool tr = ptr[uOff + vOff] != BlockId.Air;
+
+        return VertexAO(l, bl, b) |
+            (VertexAO(r, br, b) << 8) |
+            (VertexAO(r, tr, t) << 16) |
+            (VertexAO(l, tl, t) << 24);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static uint VertexAO(bool side1, bool corner, bool side2)
+    {
+        if (side1 && side2) return 0;
+        return (uint)(3 - ((side1 ? 1 : 0) + (side2 ? 1 : 0) + (corner ? 1 : 0)));
+    }
+
     private static bool AreAllNeighborsFull(ChunkColumn column, int sectionY, World world)
     {
         if (sectionY < WorldHeightInChunks - 1 && !column.Sections[sectionY + 1].IsFull) return false;
         if (sectionY > 0 && !column.Sections[sectionY - 1].IsFull) return false;
+
         var pos = column.Position;
         if (!IsNeighborFull(world, pos.X + 1, pos.Y, sectionY)) return false;
         if (!IsNeighborFull(world, pos.X - 1, pos.Y, sectionY)) return false;
         if (!IsNeighborFull(world, pos.X, pos.Y + 1, sectionY)) return false;
         if (!IsNeighborFull(world, pos.X, pos.Y - 1, sectionY)) return false;
+
         return true;
     }
 
@@ -361,6 +241,7 @@ public static class ChunkMesher
     private static unsafe void FillPaddedBufferOptimized(BlockId* buffer, ChunkColumn center, int sectionY, World world)
     {
         ref var section = ref center.Sections[sectionY];
+
         if (section.IsAllocated)
         {
             BlockId* srcPtr = section.Blocks;
@@ -398,7 +279,6 @@ public static class ChunkMesher
                         continue;
 
                     BlockId b = GetBlockSafeSmart(sectionY, x, y, z, center, world);
-
                     int pIndex = (x + 1) + (z + 1) * Z_STRIDE + (y + 1) * Y_STRIDE;
                     buffer[pIndex] = b;
                 }
@@ -426,8 +306,8 @@ public static class ChunkMesher
         if (cy is < 0 or >= WorldHeightInChunks) return BlockId.Air;
 
         ChunkColumn? target = (cx == cur.Position.X && cz == cur.Position.Y) ? cur : world.GetColumn(new Vector2D<int>(cx, cz));
-
         if (target == null) return BlockId.Air;
+
         return target.Sections[cy].GetBlock(x, y, z);
     }
 }
