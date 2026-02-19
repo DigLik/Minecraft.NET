@@ -34,8 +34,9 @@ public class GameStatsService(
 
             int loaded = chunkManager.GetLoadedChunkCount();
             int meshed = chunkManager.GetMeshedSectionCount();
+            long polygons = chunkManager.GetTotalPolygonCount();
 
-            ChunkLabel?.SetText($"Chunks: {loaded} (Meshed: {meshed})");
+            ChunkLabel?.SetText($"Chunks: {loaded} (Meshed: {meshed}) | Polys: {polygons:N0}");
 
             _statsUpdateTimer = 0;
             _frameCount = 0;

@@ -207,6 +207,21 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
         return total;
     }
 
+    public long GetTotalPolygonCount()
+    {
+        long totalIndices = 0;
+        foreach (var chunk in _chunks.Values)
+        {
+            var meshes = chunk.MeshGeometries;
+            for (int i = 0; i < WorldHeightInChunks; i++)
+            {
+                totalIndices += meshes[i].IndexCount;
+            }
+        }
+
+        return totalIndices / 3;
+    }
+
     public void Dispose()
     {
         foreach (var chunk in _chunks.Values)
