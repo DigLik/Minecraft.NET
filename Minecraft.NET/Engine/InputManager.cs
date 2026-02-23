@@ -100,7 +100,7 @@ public class InputManager(
 
     public void Dispose()
     {
-        if (_mouse != null) _mouse.MouseMove -= OnMouseMove;
-        if (_keyboard != null) _keyboard.KeyDown -= OnKeyDown;
+        _mouse?.MouseMove -= OnMouseMove;
+        _keyboard?.KeyDown -= OnKeyDown;
     }
 }

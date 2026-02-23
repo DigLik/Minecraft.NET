@@ -17,8 +17,6 @@ public static class Constants
     public const int MaxVisibleSections = (RenderDistance * 2 + 1) * (RenderDistance * 2 + 1) * WorldHeightInChunks;
 
     public const float TileSize = 16.0f;
-    public const float AtlasWidth = 1024.0f;
-    public const float AtlasHeight = 512.0f;
 
     public const double PlayerHeight = 1.8;
     public const double PlayerWidth = 0.6;

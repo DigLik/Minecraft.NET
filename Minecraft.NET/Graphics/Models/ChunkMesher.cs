@@ -1,5 +1,4 @@
 ﻿using System.Runtime.CompilerServices;
-using System.Runtime.Intrinsics;
 
 using Minecraft.NET.Core.Blocks;
 using Minecraft.NET.Core.Chunks;
@@ -62,29 +61,25 @@ public static class ChunkMesher
                     int neighborOffset = (dir == 1 ? 1 : -1) * axisStride;
                     BlockId* neighborPtr = rowPtr + neighborOffset;
 
-                    Vector128<byte> vCurrent = Vector128.Load((byte*)rowPtr);
-                    Vector128<byte> vNeighbor = Vector128.Load((byte*)neighborPtr);
-
-                    var vSolid = ~Vector128.Equals(vCurrent, Vector128<byte>.Zero);
-                    var vNeighborAir = Vector128.Equals(vNeighbor, Vector128<byte>.Zero);
-                    var vFaceMask = vSolid & vNeighborAir;
-
-                    uint mask = vFaceMask.ExtractMostSignificantBits();
-
-                    while (mask != 0)
+                    for (int x = 0; x < ChunkSize; x++)
                     {
-                        int x = BitOperations.TrailingZeroCount(mask);
-                        BlockId blockId = rowPtr[x];
+                        BlockId current = rowPtr[x];
 
-                        int aoX = x + (axisNum == 0 ? (dir == 1 ? 1 : -1) : 0);
-                        int aoY = y + (axisNum == 1 ? (dir == 1 ? 1 : -1) : 0);
-                        int aoZ = z + (axisNum == 2 ? (dir == 1 ? 1 : -1) : 0);
+                        if (current == BlockId.Air)
+                            continue;
 
-                        uint aoData = CalculateFaceAO(blocks, axisNum, dir, aoX, aoY, aoZ);
+                        BlockId neighbor = neighborPtr[x];
 
-                        AddQuadNaive(builder, axisNum, dir, x, y, z, blockId, aoData);
+                        if (IsFaceVisible(current, neighbor))
+                        {
+                            int aoX = x + (axisNum == 0 ? (dir == 1 ? 1 : -1) : 0);
+                            int aoY = y + (axisNum == 1 ? (dir == 1 ? 1 : -1) : 0);
+                            int aoZ = z + (axisNum == 2 ? (dir == 1 ? 1 : -1) : 0);
 
-                        mask &= ~(1u << x);
+                            uint aoData = CalculateFaceAO(blocks, axisNum, dir, aoX, aoY, aoZ);
+
+                            AddQuadNaive(builder, axisNum, dir, x, y, z, current, aoData);
+                        }
                     }
                 }
             }
@@ -309,5 +304,27 @@ public static class ChunkMesher
         if (target == null) return BlockId.Air;
 
         return target.Sections[cy].GetBlock(x, y, z);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsFaceVisible(BlockId current, BlockId neighbor)
+    {
+        if (neighbor == BlockId.Air) return true;
+
+        var currentDef = BlockRegistry.Definitions[(int)current];
+        var neighborDef = BlockRegistry.Definitions[(int)neighbor];
+
+        if (neighborDef.Transparency == BlockTransparency.Opaque)
+            return false;
+
+        if (current == neighbor)
+        {
+            if (currentDef.Transparency == BlockTransparency.Transparent)
+                return false;
+            if (currentDef.Transparency == BlockTransparency.Foliage)
+                return true;
+        }
+
+        return true;
     }
 }

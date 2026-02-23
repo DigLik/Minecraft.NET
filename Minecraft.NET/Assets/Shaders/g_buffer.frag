@@ -22,6 +22,26 @@ void main()
         
         if (texColor.a < 0.1) discard;
 
+        int texIndex = int(round(vTexCoord.z)); 
+        
+        vec3 grassColor = vec3(145.0 / 255.0, 189.0 / 255.0, 89.0 / 255.0);
+        vec3 leavesColor = vec3(119.0 / 255.0, 171.0 / 255.0, 47.0 / 255.0);
+        
+        if (texIndex == 2)
+        {
+            texColor.rgb *= grassColor;
+        }
+        else if (texIndex == 3)
+        {
+            vec4 overlay = texture(uTextureArray, vec3(vTexCoord.xy, 4.0));
+            overlay.rgb *= grassColor;
+            texColor.rgb = mix(texColor.rgb, overlay.rgb, overlay.a);
+        }
+        else if (texIndex == 7)
+        {
+            texColor.rgb *= leavesColor;
+        }
+
         vec3 lighting = texColor.rgb * v_ao;
         vec3 finalColor = mix(lighting, u_fogColor, v_fogFactor);
 
