@@ -14,10 +14,9 @@ public class RenderPipeline(
     IChunkRenderer chunkRenderer,
     RenderResources resources,
     IEnumerable<IRenderPass> renderPasses,
-    IGlContextAccessor glAccessor
+    GL gl
 ) : IRenderPipeline
 {
-    private GL Gl => glAccessor.Gl;
     private readonly List<IRenderPass> _orderedPasses = [.. renderPasses.OrderBy(p => p.Priority)];
 
     public IChunkRenderer ChunkRenderer => chunkRenderer;
@@ -30,19 +29,19 @@ public class RenderPipeline(
         foreach (var pass in _orderedPasses)
             pass.Initialize(0, 0);
 
-        Gl.ClearColor(0.53f, 0.81f, 0.92f, 1.0f);
-        Gl.ClipControl(ClipControlOrigin.LowerLeft, ClipControlDepth.ZeroToOne);
-        Gl.Enable(EnableCap.DepthTest);
-        Gl.DepthFunc(DepthFunction.Greater);
-        Gl.Enable(EnableCap.CullFace);
+        gl.ClearColor(0.53f, 0.81f, 0.92f, 1.0f);
+        gl.ClipControl(ClipControlOrigin.LowerLeft, ClipControlDepth.ZeroToOne);
+        gl.Enable(EnableCap.DepthTest);
+        gl.DepthFunc(DepthFunction.Greater);
+        gl.Enable(EnableCap.CullFace);
     }
 
     public void OnFramebufferResize(Vector2D<int> newSize)
     {
-        if (Gl == null)
+        if (gl == null)
             return;
 
-        Gl.Viewport(newSize);
+        gl.Viewport(newSize);
         frameContext.ViewportSize = new Vector2((uint)newSize.X, (uint)newSize.Y);
 
         foreach (var pass in _orderedPasses)
@@ -51,7 +50,7 @@ public class RenderPipeline(
 
     public void OnRender(double deltaTime)
     {
-        if (Gl == null)
+        if (gl == null)
             return;
 
         performanceMonitor.BeginGpuFrame();

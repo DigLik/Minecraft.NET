@@ -10,17 +10,21 @@ using Minecraft.NET.Graphics.Rendering.Passes;
 using Minecraft.NET.Services;
 using Minecraft.NET.Services.Physics;
 using Minecraft.NET.UI;
-using Silk.NET.Windowing;
+using Minecraft.NET.Windowing;
+
+var window = new GlfwWindow(WindowOptions.Default with
+{
+    Title = "Minecraft.NET",
+    Size = new(1200, 800)
+});
+
+var glfw = Glfw.GetApi();
+var gl = GL.GetApi(glfw.GetProcAddress);
 
 var services = new ServiceCollection();
 
-services.AddSingleton(Window.Create(WindowOptions.Default with
-{
-    Title = "Minecraft.NET",
-    Size = new(1200, 800),
-    VSync = false,
-    API = new GraphicsAPI(ContextAPI.OpenGL, new(4, 6)),
-}));
+services.AddSingleton<IWindow>(window);
+services.AddSingleton<GL>(gl);
 
 services.AddSingleton(new Player(new(16, 80, 16)));
 services.AddSingleton(_ => new WorldStorage("world"));
@@ -59,14 +63,13 @@ services.AddSingleton<IReadOnlyDictionary<GameMode, IPlayerController>>(provider
             { GameMode.Spectator, provider.GetRequiredService<SpectatorPlayerController>() }
         });
 
-services.AddSingleton<IGlContextAccessor, GlContextAccessor>();
-
 services.AddSingleton<FontService>();
 services.AddSingleton<UiContext>();
 services.AddSingleton<IRenderPipeline, RenderPipeline>();
 
 services.AddSingleton<IRenderPass, GBufferPass>();
 services.AddSingleton<IRenderPass, LightingPass>();
+services.AddSingleton<IRenderPass, FogPass>();
 services.AddSingleton<IRenderPass, SmaaPass>();
 services.AddSingleton<IRenderPass, UiRenderPass>();
 
@@ -74,9 +77,8 @@ services.AddSingleton<SceneCuller>();
 services.AddSingleton<Game>();
 
 var serviceProvider = services.BuildServiceProvider();
-var window = serviceProvider.GetRequiredService<IWindow>();
 var game = serviceProvider.GetRequiredService<Game>();
 game.Run();
 
 serviceProvider.Dispose();
-window.Dispose();
+gl.Dispose();

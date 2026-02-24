@@ -3,6 +3,7 @@
 public class RenderResources : IDisposable
 {
     public Framebuffer? GBuffer { get; set; }
+    public Framebuffer? LightingFbo { get; set; }
     public Framebuffer? PostProcessFbo { get; set; }
 
     public Framebuffer? SmaaEdges { get; set; }
@@ -11,6 +12,7 @@ public class RenderResources : IDisposable
     public void Dispose()
     {
         GBuffer?.Dispose();
+        LightingFbo?.Dispose();
         PostProcessFbo?.Dispose();
         SmaaEdges?.Dispose();
         SmaaBlend?.Dispose();

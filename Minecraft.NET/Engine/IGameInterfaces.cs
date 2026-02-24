@@ -1,16 +1,20 @@
 ﻿using Minecraft.NET.Graphics.Models;
 using Minecraft.NET.Graphics.Rendering;
-using Silk.NET.Input;
 
 namespace Minecraft.NET.Engine;
 
-public interface IInputManager : IDisposable
+public interface IInputManager
 {
-    IMouse Mouse { get; }
-    void Initialize(IInputContext inputContext);
+    Vector2 MousePosition { get; }
+    bool IsMouseCaptured { get; }
+
     void OnUpdate(double deltaTime);
-    bool IsKeyPressed(Key key);
+
+    bool IsKeyPressed(Keys key);
     bool IsMouseButtonPressed(MouseButton button);
+
+    void ToggleMouseCapture();
+    void CloseWindow();
 }
 
 public interface IRenderPipeline : IDisposable
@@ -31,7 +35,7 @@ public interface IChunkRenderer : IDisposable
 
     void Bind();
 
-    void DrawGPUIndirectCount(uint indirectBuffer, uint instanceBuffer, uint countBuffer, int maxDrawCount);
+    void DrawGpuIndirectCount(uint indirectBuffer, uint instanceBuffer, uint countBuffer, int maxDrawCount);
 }
 
 public interface IPerformanceMonitor : IDisposable

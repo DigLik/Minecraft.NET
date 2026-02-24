@@ -1,5 +1,5 @@
-﻿using Minecraft.NET.Services;
-using Silk.NET.Input;
+﻿using Minecraft.NET.Engine;
+using Minecraft.NET.Services;
 
 namespace Minecraft.NET.UI;
 
@@ -12,13 +12,13 @@ public class UiContext(FontService fontService)
 
     public void OnResize(Vector2 size) => _viewportSize = size;
 
-    public void Update(IMouse mouse)
+    public void Update(IInputManager inputManager)
     {
         Root.ComputedPosition = Vector2.Zero;
         Root.Style.Width = _viewportSize.X;
         Root.Style.Height = _viewportSize.Y;
         Root.CalculateLayout(_viewportSize, fontService);
-        Root.UpdateInteraction(mouse.Position, mouse.IsButtonPressed(MouseButton.Left));
+        Root.UpdateInteraction(inputManager.MousePosition, inputManager.IsMouseButtonPressed(MouseButton.Left));
     }
 
     public void Render(UiRenderer renderer)

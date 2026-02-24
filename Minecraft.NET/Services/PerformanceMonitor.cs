@@ -1,12 +1,10 @@
 ﻿using Minecraft.NET.Engine;
-using Minecraft.NET.Graphics.Rendering;
 using System.Diagnostics;
 
 namespace Minecraft.NET.Services;
 
-public class PerformanceMonitor(IGlContextAccessor glAccessor) : IPerformanceMonitor
+public class PerformanceMonitor(GL gl) : IPerformanceMonitor
 {
-    private GL Gl => glAccessor.Gl;
     private readonly Stopwatch _cpuStopwatch = new();
     private readonly Stopwatch _totalStopwatch = new();
 
@@ -22,11 +20,11 @@ public class PerformanceMonitor(IGlContextAccessor glAccessor) : IPerformanceMon
 
     public void Initialize()
     {
-        Gl.GenQueries(NumFramesInFlight, _queryIds);
+        gl.GenQueries(NumFramesInFlight, _queryIds);
         for (int i = 0; i < NumFramesInFlight; i++)
         {
-            Gl.BeginQuery(QueryTarget.TimeElapsed, _queryIds[i]);
-            Gl.EndQuery(QueryTarget.TimeElapsed);
+            gl.BeginQuery(QueryTarget.TimeElapsed, _queryIds[i]);
+            gl.EndQuery(QueryTarget.TimeElapsed);
         }
         _queriesInitialized = true;
         _totalStopwatch.Start();
@@ -51,11 +49,11 @@ public class PerformanceMonitor(IGlContextAccessor glAccessor) : IPerformanceMon
     {
         if (!_queriesInitialized) return;
         int queryToRead = _queryFrameIndex;
-        Gl.GetQueryObject(_queryIds[queryToRead], GLEnum.QueryResultAvailable, out int available);
+        gl.GetQueryObject(_queryIds[queryToRead], GLEnum.QueryResultAvailable, out int available);
 
         if (available == 1)
         {
-            Gl.GetQueryObject(_queryIds[queryToRead], GLEnum.QueryResult, out ulong timeElapsedNs);
+            gl.GetQueryObject(_queryIds[queryToRead], GLEnum.QueryResult, out ulong timeElapsedNs);
             double currentGpuMs = timeElapsedNs / 1_000_000.0;
 
             if (currentGpuMs is > 0 and < 1000)
@@ -63,22 +61,22 @@ public class PerformanceMonitor(IGlContextAccessor glAccessor) : IPerformanceMon
         }
 
         int queryToWrite = (_queryFrameIndex + 1) % NumFramesInFlight;
-        Gl.BeginQuery(QueryTarget.TimeElapsed, _queryIds[queryToWrite]);
+        gl.BeginQuery(QueryTarget.TimeElapsed, _queryIds[queryToWrite]);
     }
 
     public void EndGpuFrame()
     {
         if (!_queriesInitialized) return;
         int queryToWrite = (_queryFrameIndex + 1) % NumFramesInFlight;
-        Gl.EndQuery(QueryTarget.TimeElapsed);
+        gl.EndQuery(QueryTarget.TimeElapsed);
         _queryFrameIndex = queryToWrite;
     }
 
     public void Dispose()
     {
-        if (_queriesInitialized && Gl != null)
+        if (_queriesInitialized && gl != null)
         {
-            Gl.DeleteQueries(NumFramesInFlight, _queryIds);
+            gl.DeleteQueries(NumFramesInFlight, _queryIds);
             _queriesInitialized = false;
         }
     }

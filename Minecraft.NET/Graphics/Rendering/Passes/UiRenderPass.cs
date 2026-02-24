@@ -3,17 +3,16 @@ using Minecraft.NET.UI;
 
 namespace Minecraft.NET.Graphics.Rendering.Passes;
 
-public class UiRenderPass(IGlContextAccessor glAccessor, UiContext uiContext, FontService fontService) : IRenderPass
+public class UiRenderPass(GL gl, UiContext uiContext, FontService fontService) : IRenderPass
 {
     public int Priority => 5000;
     public string Name => "User Interface";
-    public GL Gl => glAccessor.Gl;
 
     private UiRenderer _renderer = null!;
 
     public void Initialize(uint width, uint height)
     {
-        _renderer = new UiRenderer(Gl, fontService);
+        _renderer = new UiRenderer(gl, fontService);
         if (width > 0 && height > 0)
             OnResize(width, height);
     }

@@ -1,13 +1,11 @@
-﻿using Minecraft.NET.Graphics.Rendering;
-using StbTrueTypeSharp;
+﻿using StbTrueTypeSharp;
 
 namespace Minecraft.NET.Services;
 
-public unsafe class FontService(IGlContextAccessor glAccessor) : IDisposable
+public unsafe class FontService(GL gl) : IDisposable
 {
     private const string DefaultFontPath = "Assets/Fonts/CascadiaCode-VariableFont_wght.ttf";
 
-    private GL Gl => glAccessor.Gl;
     private uint _textureHandle;
     private const int BitmapWidth = 512;
     private const int BitmapHeight = 512;
@@ -47,19 +45,19 @@ public unsafe class FontService(IGlContextAccessor glAccessor) : IDisposable
             StbTrueType.stbtt_PackEnd(context);
         }
 
-        _textureHandle = Gl!.GenTexture();
-        Gl.BindTexture(TextureTarget.Texture2D, _textureHandle);
+        _textureHandle = gl!.GenTexture();
+        gl.BindTexture(TextureTarget.Texture2D, _textureHandle);
 
-        Gl.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
-        Gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.R8, BitmapWidth, BitmapHeight, 0, PixelFormat.Red, PixelType.UnsignedByte, bitmap);
+        gl.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
+        gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.R8, BitmapWidth, BitmapHeight, 0, PixelFormat.Red, PixelType.UnsignedByte, bitmap);
 
-        Gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)GLEnum.Linear);
-        Gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)GLEnum.Linear);
-        Gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)GLEnum.ClampToEdge);
-        Gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)GLEnum.ClampToEdge);
-        Gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMaxLevel, 0);
+        gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)GLEnum.Linear);
+        gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)GLEnum.Linear);
+        gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)GLEnum.ClampToEdge);
+        gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)GLEnum.ClampToEdge);
+        gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMaxLevel, 0);
 
-        Gl.PixelStore(PixelStoreParameter.UnpackAlignment, 4);
+        gl.PixelStore(PixelStoreParameter.UnpackAlignment, 4);
     }
 
     public StbTrueType.stbtt_aligned_quad GetQuad(char c, ref float x, ref float y)
@@ -93,9 +91,9 @@ public unsafe class FontService(IGlContextAccessor glAccessor) : IDisposable
     {
         if (!_isInitialized)
             return;
-        Gl!.ActiveTexture(unit);
-        Gl.BindTexture(TextureTarget.Texture2D, _textureHandle);
+        gl!.ActiveTexture(unit);
+        gl.BindTexture(TextureTarget.Texture2D, _textureHandle);
     }
 
-    public void Dispose() { if (_isInitialized) Gl?.DeleteTexture(_textureHandle); }
+    public void Dispose() { if (_isInitialized) gl?.DeleteTexture(_textureHandle); }
 }

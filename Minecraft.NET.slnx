@@ -2,5 +2,6 @@
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
   </Folder>
+  <Project Path="Minecraft.NET.Windowing/Minecraft.NET.Windowing.csproj" Id="6c4149a0-38bd-4896-8756-cc039a975402" />
   <Project Path="Minecraft.NET/Minecraft.NET.csproj" />
 </Solution>

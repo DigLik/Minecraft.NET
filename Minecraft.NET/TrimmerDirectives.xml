@@ -11,13 +11,13 @@
 	<type fullname="Silk.NET.Input.IInputContext" preserve="all" />
 	<type fullname="Silk.NET.Input.InputWindowExtensions" preserve="all" />
 
-	<type fullname="Silk.NET.Input.Glfw.GlfwInputPlatform" preserve="all" />
+	<type fullname="Silk.NET.Input.Glfw.glfwInputPlatform" preserve="all" />
 
 	<!-- Для Linux -->
-	<!--<type fullname="Silk.NET.Input.Glfw.GlfwInputPlatform" preserve="all" /> 
+	<!--<type fullname="Silk.NET.Input.Glfw.glfwInputPlatform" preserve="all" /> 
 	<type fullname="Silk.NET.Input.Linux.Input.LinuxInputPlatform" preserve="all" />--> 
 
 	<!-- Для macOS -->
-	<!--<type fullname="Silk.NET.Input.Glfw.GlfwInputPlatform" preserve="all" /> 
+	<!--<type fullname="Silk.NET.Input.Glfw.glfwInputPlatform" preserve="all" /> 
 	<type fullname="Silk.NET.Input.Mac.Input.CocoaInputPlatform" preserve="all" />--> 
 </linker>

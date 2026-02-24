@@ -1,0 +1,46 @@
+#version 460 core
+out vec4 FragColor;
+
+in vec2 vTexCoords;
+
+uniform sampler2D uColorTex;
+uniform sampler2D uDepthTex;
+
+uniform vec3 u_fogColor;
+uniform float u_fogStart;
+uniform float u_fogEnd;
+
+uniform mat4 u_inverseView;
+uniform mat4 u_inverseProjection;
+
+vec3 ReconstructWorldPos(float depth, vec2 uv)
+{
+    float z = depth;
+    vec4 clipSpacePosition = vec4(uv * 2.0 - 1.0, z, 1.0);
+    vec4 viewSpacePosition = u_inverseProjection * clipSpacePosition;
+
+    viewSpacePosition /= viewSpacePosition.w;
+    vec4 worldSpacePosition = u_inverseView * viewSpacePosition;
+    return worldSpacePosition.xyz;
+}
+
+void main()
+{
+    vec3 color = texture(uColorTex, vTexCoords).rgb;
+    float depth = texture(uDepthTex, vTexCoords).r;
+
+    if (depth <= 0.00001 || depth >= 0.99999) 
+    {
+        FragColor = vec4(u_fogColor, 1.0);
+        return;
+    }
+
+    vec3 worldPos = ReconstructWorldPos(depth, vTexCoords);
+    float distance = length(worldPos);
+    
+    float fogFactor = smoothstep(u_fogStart, u_fogEnd, distance);
+
+    vec3 finalColor = mix(color, u_fogColor, fogFactor);
+
+    FragColor = vec4(finalColor, 1.0);
+}

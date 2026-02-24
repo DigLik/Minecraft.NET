@@ -1,11 +1,9 @@
 ﻿using Minecraft.NET.Core.Chunks;
 using Minecraft.NET.Core.Environment;
-using Minecraft.NET.Graphics.Rendering;
 using Minecraft.NET.Services;
 using Minecraft.NET.UI;
 using Minecraft.NET.UI.Elements;
-using Silk.NET.Input;
-using Silk.NET.Windowing;
+using Minecraft.NET.Windowing;
 
 namespace Minecraft.NET.Engine;
 
@@ -22,9 +20,7 @@ public sealed class Game : IDisposable
     private readonly World _world;
     private readonly UiContext _uiContext;
     private readonly FontService _fontService;
-
-    private readonly IGlContextAccessor _glContextAccessor;
-    private GL _gl = null!;
+    private readonly GL _gl;
 
     public Game(
         IWindow window,
@@ -38,8 +34,7 @@ public sealed class Game : IDisposable
         World world,
         UiContext uiContext,
         FontService fontService,
-        IGlContextAccessor glContextAccessor
-    )
+        GL gl)
     {
         _window = window;
         _renderPipeline = renderPipeline;
@@ -52,7 +47,7 @@ public sealed class Game : IDisposable
         _world = world;
         _uiContext = uiContext;
         _fontService = fontService;
-        _glContextAccessor = glContextAccessor;
+        _gl = gl;
 
         _window.Load += OnLoad;
         _window.Update += OnUpdate;
@@ -63,20 +58,12 @@ public sealed class Game : IDisposable
 
     public void Run() => _window.Run();
 
-    private void OnLoad()
+    private unsafe void OnLoad()
     {
-        _gl = _window.CreateOpenGL();
-        var inputContext = _window.CreateInput();
-
-        _glContextAccessor.SetGl(_gl);
         _world.OnLoad();
-
         _fontService.Initialize();
         _performanceMonitor.Initialize();
         _renderPipeline.Initialize();
-
-        _inputManager.Initialize(inputContext);
-
         _chunkMesherService.SetDependencies(_world, _chunkManager);
         _chunkManager.SetHandlers(
             _chunkMesherService.QueueForMeshing,
@@ -87,7 +74,7 @@ public sealed class Game : IDisposable
         var fpsLabel = new Label("FPS: ...") { FontSize = 28 };
         var chunkLabel = new Label("Chunks: ...") { FontSize = 28 };
         var posLabel = new Label("XYZ: ...") { FontSize = 28 };
-        var exitButton = new UI.Elements.Button
+        var exitButton = new Button
         {
             Style =
             {
@@ -150,7 +137,7 @@ public sealed class Game : IDisposable
         _inputManager.OnUpdate(deltaTime);
         _physicsService.OnUpdate(deltaTime);
         _gameStatsService.OnUpdate(deltaTime);
-        _uiContext.Update(_inputManager.Mouse);
+        _uiContext.Update(_inputManager);
     }
 
     private void OnRender(double deltaTime)
@@ -165,16 +152,17 @@ public sealed class Game : IDisposable
 
     private void OnClose()
     {
+        _window.Load -= OnLoad;
+        _window.Update -= OnUpdate;
+        _window.Render -= OnRender;
+        _window.FramebufferResize -= OnFramebufferResize;
+        _window.Closing -= OnClose;
+
         _performanceMonitor.Dispose();
         _world.Dispose();
-        _inputManager.Dispose();
         _chunkMesherService.Dispose();
         _renderPipeline.Dispose();
     }
 
-    public void Dispose()
-    {
-        OnClose();
-        _gl?.Dispose();
-    }
+    public void Dispose() => OnClose();
 }

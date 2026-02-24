@@ -1,24 +1,25 @@
 ﻿namespace Minecraft.NET.Graphics.Rendering.Passes;
 
-public class LightingPass(
-    GL gl,
-    RenderResources resources) : IRenderPass
+public class FogPass(GL gl, FrameContext frameContext, RenderResources resources) : IRenderPass
 {
-    public int Priority => 1000;
-    public string Name => "Deferred Lighting";
+    public int Priority => 1500;
+    public string Name => "Fog Pass";
 
-    private Shader _lightingShader = null!;
+    private Shader _fogShader = null!;
     private uint _quadVao, _quadVbo;
 
     public unsafe void Initialize(uint width, uint height)
     {
-        if (_lightingShader == null)
+        if (_fogShader == null)
         {
-            _lightingShader = new Shader(gl, Shader.LoadFromFile("Assets/Shaders/lighting.vert"), Shader.LoadFromFile("Assets/Shaders/lighting.frag"));
-            _lightingShader.Use();
-            _lightingShader.SetInt(_lightingShader.GetUniformLocation("gNormal"), 0);
-            _lightingShader.SetInt(_lightingShader.GetUniformLocation("gAlbedo"), 1);
-            _lightingShader.SetInt(_lightingShader.GetUniformLocation("gDepth"), 2);
+            _fogShader = new Shader(gl, Shader.LoadFromFile("Assets/Shaders/fog.vert"), Shader.LoadFromFile("Assets/Shaders/fog.frag"));
+            _fogShader.Use();
+            _fogShader.SetInt(_fogShader.GetUniformLocation("uColorTex"), 0);
+            _fogShader.SetInt(_fogShader.GetUniformLocation("uDepthTex"), 1);
+
+            _fogShader.SetVector3(_fogShader.GetUniformLocation("u_fogColor"), new Vector3(0.53f, 0.81f, 0.92f));
+            _fogShader.SetFloat(_fogShader.GetUniformLocation("u_fogStart"), RenderDistance * ChunkSize * 0.5f);
+            _fogShader.SetFloat(_fogShader.GetUniformLocation("u_fogEnd"), RenderDistance * ChunkSize * 0.95f);
 
             float[] quadVertices =
             [
@@ -43,16 +44,17 @@ public class LightingPass(
 
     public void OnResize(uint width, uint height)
     {
-        resources.LightingFbo?.Dispose();
-        resources.LightingFbo = new Framebuffer(gl, width, height, InternalFormat.Rgba8, PixelFormat.Rgba, PixelType.UnsignedByte);
+        resources.PostProcessFbo?.Dispose();
+        resources.PostProcessFbo = new Framebuffer(gl, width, height, InternalFormat.Rgba8, PixelFormat.Rgba, PixelType.UnsignedByte);
     }
 
     public void Execute(RenderResources renderResources)
     {
+        var lightingFbo = renderResources.LightingFbo;
         var gBuffer = renderResources.GBuffer;
-        var outFbo = renderResources.LightingFbo;
+        var outFbo = renderResources.PostProcessFbo;
 
-        if (gBuffer == null || outFbo == null)
+        if (lightingFbo == null || gBuffer == null || outFbo == null)
             return;
 
         outFbo.Bind();
@@ -61,13 +63,18 @@ public class LightingPass(
 
         gl.Clear(ClearBufferMask.ColorBufferBit);
 
-        _lightingShader.Use();
+        _fogShader.Use();
+
+        Matrix4x4.Invert(frameContext.RelativeViewMatrix, out var invView);
+        Matrix4x4.Invert(frameContext.ProjectionMatrix, out var invProj);
+
+        _fogShader.SetMatrix4x4(_fogShader.GetUniformLocation("u_inverseView"), invView);
+        _fogShader.SetMatrix4x4(_fogShader.GetUniformLocation("u_inverseProjection"), invProj);
 
         gl.ActiveTexture(TextureUnit.Texture0);
-        gl.BindTexture(TextureTarget.Texture2D, gBuffer.ColorAttachments[0]);
+        gl.BindTexture(TextureTarget.Texture2D, lightingFbo.ColorAttachments[0]);
+
         gl.ActiveTexture(TextureUnit.Texture1);
-        gl.BindTexture(TextureTarget.Texture2D, gBuffer.ColorAttachments[1]);
-        gl.ActiveTexture(TextureUnit.Texture2);
         gl.BindTexture(TextureTarget.Texture2D, gBuffer.DepthAttachment);
 
         gl.BindVertexArray(_quadVao);
@@ -79,7 +86,7 @@ public class LightingPass(
 
     public void Dispose()
     {
-        _lightingShader?.Dispose();
+        _fogShader?.Dispose();
         gl.DeleteVertexArray(_quadVao);
         gl.DeleteBuffer(_quadVbo);
     }
