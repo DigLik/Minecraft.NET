@@ -6,6 +6,8 @@ using Silk.NET.Core.Native;
 using Silk.NET.Direct3D12;
 using Silk.NET.DXGI;
 
+using UnmanagedType = System.Runtime.InteropServices.UnmanagedType;
+
 namespace Minecraft.NET.Graphics.Rendering;
 
 public unsafe partial class D3D12Context : IDisposable
@@ -33,19 +35,22 @@ public unsafe partial class D3D12Context : IDisposable
 
     public uint RtvDescriptorSize;
     public uint FrameIndex;
-    public const int FrameCount = 2;
+    public const int FrameCount = 3;
+
+    public bool IsTearingSupported;
+    public const uint SwapChainFlagAllowTearing = 2048;
 
     private bool _isDisposed;
     private readonly IWindow _window;
 
-    [LibraryImport("kernel32.dll", EntryPoint = "CreateEventExW", StringMarshalling = StringMarshalling.Utf16)]
-    private static partial void* CreateEventEx(void* lpEventAttributes, string? lpName, uint dwFlags, uint dwDesiredAccess);
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateEventW")]
+    private static partial void* CreateEvent(void* lpEventAttributes, int bManualReset, int bInitialState, void* lpName);
 
     [LibraryImport("kernel32.dll")]
     private static partial uint WaitForSingleObject(void* hHandle, uint dwMilliseconds);
 
     [LibraryImport("kernel32.dll")]
-    [return: MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool CloseHandle(void* hObject);
 
     public D3D12Context(IWindow window)
@@ -57,10 +62,33 @@ public unsafe partial class D3D12Context : IDisposable
         D3D = D3D12.GetApi();
         Dxgi = DXGI.GetApi(null);
 
+#if DEBUG
+        var riidDebug = SilkMarshal.GuidPtrOf<ID3D12Debug>();
+        void* debugPtr;
+        if (D3D.GetDebugInterface(riidDebug, &debugPtr) >= 0)
+        {
+            var debug = (ID3D12Debug*)debugPtr;
+            debug->EnableDebugLayer();
+            debug->Release();
+        }
+#endif
+
         var riidFactory = SilkMarshal.GuidPtrOf<IDXGIFactory4>();
         void* factoryPtr;
         Dxgi.CreateDXGIFactory1(riidFactory, &factoryPtr);
         var factory = new ComPtr<IDXGIFactory4>((IDXGIFactory4*)factoryPtr);
+
+        IsTearingSupported = false;
+        var riidFactory5 = SilkMarshal.GuidPtrOf<IDXGIFactory5>();
+        void* factory5Ptr;
+        if (factory.Get().QueryInterface(riidFactory5, &factory5Ptr) >= 0)
+        {
+            var factory5 = (IDXGIFactory5*)factory5Ptr;
+            int allowTearing = 0;
+            factory5->CheckFeatureSupport(Silk.NET.DXGI.Feature.PresentAllowTearing, &allowTearing, sizeof(int));
+            IsTearingSupported = allowTearing != 0;
+            factory5->Release();
+        }
 
         var riidDevice = SilkMarshal.GuidPtrOf<ID3D12Device>();
         void* devicePtr;
@@ -73,11 +101,14 @@ public unsafe partial class D3D12Context : IDisposable
         Device.Get().CreateCommandQueue(&queueDesc, riidQueue, &queuePtr);
         CommandQueue = new ComPtr<ID3D12CommandQueue>((ID3D12CommandQueue*)queuePtr);
 
+        uint swapChainFlags = IsTearingSupported ? SwapChainFlagAllowTearing : 0u;
+
         SwapChainDesc1 swapChainDesc = new SwapChainDesc1
         {
             BufferCount = FrameCount, Width = (uint)window.Size.X, Height = (uint)window.Size.Y,
             Format = Format.FormatR8G8B8A8Unorm, BufferUsage = DXGI.UsageRenderTargetOutput,
-            SwapEffect = SwapEffect.FlipDiscard, SampleDesc = new SampleDesc(1, 0)
+            SwapEffect = SwapEffect.FlipDiscard, SampleDesc = new SampleDesc(1, 0),
+            Flags = swapChainFlags
         };
 
         void* swapChainPtr;
@@ -119,7 +150,7 @@ public unsafe partial class D3D12Context : IDisposable
         Fence = new ComPtr<ID3D12Fence>((ID3D12Fence*)fencePtr);
         FenceValues[0] = 1;
 
-        FenceEvent = CreateEventEx(null, null, 0, 0x1F0003);
+        FenceEvent = CreateEvent(null, 0, 0, null);
 
         CreateRenderTargets((uint)window.Size.X, (uint)window.Size.Y);
         factory.Dispose();
@@ -140,7 +171,6 @@ public unsafe partial class D3D12Context : IDisposable
         }
 
         HeapProperties depthHeapProps = new HeapProperties(HeapType.Default, CpuPageProperty.Unknown, MemoryPool.Unknown, 1, 1);
-
         ResourceDesc depthDesc = new ResourceDesc
         {
             Dimension = ResourceDimension.Texture2D, Alignment = 0, Width = width, Height = height,
@@ -176,15 +206,20 @@ public unsafe partial class D3D12Context : IDisposable
     public void WaitForGpu()
     {
         ulong fenceValue = FenceValues[FrameIndex];
-        CommandQueue.Get().Signal(Fence.Handle, fenceValue);
-        Fence.Get().SetEventOnCompletion(fenceValue, FenceEvent);
-        _ = WaitForSingleObject(FenceEvent, 0xFFFFFFFF);
+        int hr = CommandQueue.Get().Signal(Fence.Handle, fenceValue);
+        if (hr < 0) return;
+
+        if (Fence.Get().GetCompletedValue() < fenceValue)
+        {
+            Fence.Get().SetEventOnCompletion(fenceValue, FenceEvent);
+            _ = WaitForSingleObject(FenceEvent, 0xFFFFFFFF);
+        }
         FenceValues[FrameIndex]++;
     }
 
     public void Resize(Vector2D<int> size)
     {
-        if (size.X == 0 || size.Y == 0) return;
+        if (size.X <= 0 || size.Y <= 0) return;
 
         WaitForGpu();
 
@@ -196,9 +231,17 @@ public unsafe partial class D3D12Context : IDisposable
                 RenderTargets[i] = null;
             }
         }
-        DepthStencilBuffer.Dispose();
 
-        SwapChain.Get().ResizeBuffers(FrameCount, (uint)size.X, (uint)size.Y, Format.FormatR8G8B8A8Unorm, 0);
+        if (DepthStencilBuffer.Handle != null)
+        {
+            DepthStencilBuffer.Dispose();
+            DepthStencilBuffer = default;
+        }
+
+        uint swapChainFlags = IsTearingSupported ? SwapChainFlagAllowTearing : 0u;
+        int hr = SwapChain.Get().ResizeBuffers(FrameCount, (uint)size.X, (uint)size.Y, Format.FormatR8G8B8A8Unorm, swapChainFlags);
+        if (hr < 0) return;
+
         FrameIndex = SwapChain.Get().GetCurrentBackBufferIndex();
         CreateRenderTargets((uint)size.X, (uint)size.Y);
     }
@@ -206,21 +249,25 @@ public unsafe partial class D3D12Context : IDisposable
     public void Dispose()
     {
         if (_isDisposed) return;
+        _isDisposed = true;
 
         WaitForGpu();
         CloseHandle(FenceEvent);
         Fence.Dispose();
 
         for (int i = 0; i < FrameCount; i++) if (RenderTargets[i] != null) RenderTargets[i]->Release();
-        DepthStencilBuffer.Dispose();
-        CommandList.Dispose();
+
+        if (DepthStencilBuffer.Handle != null) DepthStencilBuffer.Dispose();
+        if (CommandList.Handle != null) CommandList.Dispose();
 
         for (int i = 0; i < FrameCount; i++) CommandAllocators[i].Dispose();
 
-        RtvHeap.Dispose(); DsvHeap.Dispose();
-        SwapChain.Dispose(); CommandQueue.Dispose();
-        Device.Dispose(); Dxgi.Dispose(); D3D.Dispose();
-
-        _isDisposed = true;
+        RtvHeap.Dispose();
+        DsvHeap.Dispose();
+        SwapChain.Dispose();
+        CommandQueue.Dispose();
+        Device.Dispose();
+        Dxgi.Dispose();
+        D3D.Dispose();
     }
 }

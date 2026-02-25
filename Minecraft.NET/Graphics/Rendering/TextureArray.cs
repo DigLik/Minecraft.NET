@@ -53,7 +53,7 @@ public sealed unsafe class TextureArray : IDisposable
         var riidResource = SilkMarshal.GuidPtrOf<ID3D12Resource>();
         void* resPtr;
         int hr = device.CreateCommittedResource(&defaultHeapProps, HeapFlags.None, &desc, ResourceStates.CopyDest, null, riidResource, &resPtr);
-        if (hr < 0) SilkMarshal.ThrowHResult(hr);
+        if (hr < 0) throw new Exception("Failed to create default heap for TextureArray.");
 
         Resource = new ComPtr<ID3D12Resource>((ID3D12Resource*)resPtr);
 
@@ -63,26 +63,20 @@ public sealed unsafe class TextureArray : IDisposable
 
         var uploadDesc = new ResourceDesc
         {
-            Dimension = ResourceDimension.Buffer,
-            Width = uploadBufferSize,
-            Height = 1,
-            DepthOrArraySize = 1,
-            MipLevels = 1,
-            Format = Format.FormatUnknown,
-            SampleDesc = new SampleDesc(1, 0),
-            Layout = TextureLayout.LayoutRowMajor,
-            Flags = ResourceFlags.None
+            Dimension = ResourceDimension.Buffer, Width = uploadBufferSize, Height = 1, DepthOrArraySize = 1,
+            MipLevels = 1, Format = Format.FormatUnknown, SampleDesc = new SampleDesc(1, 0),
+            Layout = TextureLayout.LayoutRowMajor, Flags = ResourceFlags.None
         };
 
         void* uploadPtr;
         hr = device.CreateCommittedResource(&uploadHeapProps, HeapFlags.None, &uploadDesc, ResourceStates.GenericRead, null, riidResource, &uploadPtr);
-        if (hr < 0) SilkMarshal.ThrowHResult(hr);
+        if (hr < 0) throw new Exception("Failed to create upload heap for TextureArray.");
 
         UploadHeap = new ComPtr<ID3D12Resource>((ID3D12Resource*)uploadPtr);
 
         void* mappedData;
         hr = UploadHeap.Get().Map(0, null, &mappedData);
-        if (hr < 0) SilkMarshal.ThrowHResult(hr);
+        if (hr < 0) throw new Exception("Failed to map upload heap.");
 
         byte* pData = (byte*)mappedData;
 
@@ -104,40 +98,23 @@ public sealed unsafe class TextureArray : IDisposable
         }
         UploadHeap.Get().Unmap(0, null);
 
-        var cmdAllocator = (ID3D12CommandAllocator*)_d3d.CommandAllocators[0].Handle;
-        var cmdList = (ID3D12GraphicsCommandList*)_d3d.CommandList.Handle;
+        var cmdAllocator = _d3d.CommandAllocators[0].Handle;
+        var cmdList = _d3d.CommandList.Handle;
 
         cmdAllocator->Reset();
         cmdList->Reset(cmdAllocator, null);
 
         for (uint i = 0; i < layers; i++)
         {
-            var destLoc = new TextureCopyLocation(
-                pResource: Resource.Handle,
-                type: TextureCopyType.SubresourceIndex,
-                subresourceIndex: i
-            );
-
-            var srcLoc = new TextureCopyLocation(
-                pResource: UploadHeap.Handle,
-                type: TextureCopyType.PlacedFootprint,
-                placedFootprint: layouts[i]
-            );
-
+            var destLoc = new TextureCopyLocation(pResource: Resource.Handle, type: TextureCopyType.SubresourceIndex, subresourceIndex: i);
+            var srcLoc = new TextureCopyLocation(pResource: UploadHeap.Handle, type: TextureCopyType.PlacedFootprint, placedFootprint: layouts[i]);
             cmdList->CopyTextureRegion(&destLoc, 0, 0, 0, &srcLoc, null);
         }
 
         var barrier = new ResourceBarrier
         {
-            Type = ResourceBarrierType.Transition,
-            Flags = ResourceBarrierFlags.None,
-            Transition = new ResourceTransitionBarrier
-            {
-                PResource = Resource.Handle,
-                StateBefore = ResourceStates.CopyDest,
-                StateAfter = ResourceStates.PixelShaderResource,
-                Subresource = uint.MaxValue
-            }
+            Type = ResourceBarrierType.Transition, Flags = ResourceBarrierFlags.None,
+            Transition = new ResourceTransitionBarrier { PResource = Resource.Handle, StateBefore = ResourceStates.CopyDest, StateAfter = ResourceStates.PixelShaderResource, Subresource = uint.MaxValue }
         };
 
         cmdList->ResourceBarrier(1, &barrier);
@@ -147,27 +124,19 @@ public sealed unsafe class TextureArray : IDisposable
         _d3d.CommandQueue.Get().ExecuteCommandLists(1, &ppCommandList);
         _d3d.WaitForGpu();
 
-        var srvHeapDesc = new DescriptorHeapDesc
-        {
-            NumDescriptors = 1,
-            Type = DescriptorHeapType.CbvSrvUav,
-            Flags = DescriptorHeapFlags.ShaderVisible
-        };
-
+        var srvHeapDesc = new DescriptorHeapDesc { NumDescriptors = 1, Type = DescriptorHeapType.CbvSrvUav, Flags = DescriptorHeapFlags.ShaderVisible };
         var riidHeap = SilkMarshal.GuidPtrOf<ID3D12DescriptorHeap>();
         void* srvHeapPtr;
         hr = device.CreateDescriptorHeap(&srvHeapDesc, riidHeap, &srvHeapPtr);
-        if (hr < 0) SilkMarshal.ThrowHResult(hr);
+        if (hr < 0) throw new Exception("Failed to create SRV Heap.");
 
         SrvHeap = new ComPtr<ID3D12DescriptorHeap>((ID3D12DescriptorHeap*)srvHeapPtr);
-
         device.CreateShaderResourceView(Resource.Handle, null, SrvHeap.Get().GetCPUDescriptorHandleForHeapStart());
     }
 
     public void Bind(ID3D12GraphicsCommandList* cmdList, uint rootParameterIndex)
     {
         if (_isDisposed || _d3d == null) return;
-
         ID3D12DescriptorHeap* ppHeaps = SrvHeap.Handle;
         cmdList->SetDescriptorHeaps(1, &ppHeaps);
         cmdList->SetGraphicsRootDescriptorTable(rootParameterIndex, SrvHeap.Get().GetGPUDescriptorHandleForHeapStart());

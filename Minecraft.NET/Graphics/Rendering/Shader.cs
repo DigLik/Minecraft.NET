@@ -31,23 +31,24 @@ public sealed unsafe class Shader : IDisposable
         var vsTarget = SilkMarshal.StringToPtr("vs_5_0");
         var psTarget = SilkMarshal.StringToPtr("ps_5_0");
         var sourcePtr = SilkMarshal.StringToPtr(source);
-
         nuint sourceLen = (nuint)source.Length;
 
-        compiler.Compile((void*)sourcePtr, sourceLen, (byte*)null, (D3DShaderMacro*)null, (ID3DInclude*)null, (byte*)vsEntry, (byte*)vsTarget, 0, 0, &vsBlob, &errorBlob);
+        int hr = compiler.Compile((void*)sourcePtr, sourceLen, (byte*)null, (D3DShaderMacro*)null, (ID3DInclude*)null, (byte*)vsEntry, (byte*)vsTarget, 0, 0, &vsBlob, &errorBlob);
 
         if (errorBlob != null)
         {
+            string err = SilkMarshal.PtrToString((nint)errorBlob->GetBufferPointer());
             errorBlob->Release();
-            errorBlob = null;
+            throw new Exception($"Vertex Shader Compilation Error: {err}");
         }
 
-        compiler.Compile((void*)sourcePtr, sourceLen, (byte*)null, (D3DShaderMacro*)null, (ID3DInclude*)null, (byte*)psEntry, (byte*)psTarget, 0, 0, &psBlob, &errorBlob);
+        hr = compiler.Compile((void*)sourcePtr, sourceLen, (byte*)null, (D3DShaderMacro*)null, (ID3DInclude*)null, (byte*)psEntry, (byte*)psTarget, 0, 0, &psBlob, &errorBlob);
 
         if (errorBlob != null)
         {
+            string err = SilkMarshal.PtrToString((nint)errorBlob->GetBufferPointer());
             errorBlob->Release();
-            errorBlob = null;
+            throw new Exception($"Pixel Shader Compilation Error: {err}");
         }
 
         VertexShader = new ComPtr<ID3D10Blob>(vsBlob);
@@ -63,11 +64,6 @@ public sealed unsafe class Shader : IDisposable
         SilkMarshal.Free(vsTarget);
         SilkMarshal.Free(psTarget);
         SilkMarshal.Free(sourcePtr);
-    }
-
-    public void Bind()
-    {
-        if (_isDisposed || _d3d == null) return;
     }
 
     public void Dispose()
