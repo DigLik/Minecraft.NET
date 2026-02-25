@@ -7,7 +7,6 @@ using Minecraft.NET.Core.Environment;
 using Minecraft.NET.Engine;
 using Minecraft.NET.Graphics;
 using Minecraft.NET.Graphics.Rendering;
-using Minecraft.NET.Graphics.Rendering.Passes;
 using Minecraft.NET.Services;
 using Minecraft.NET.Services.Physics;
 using Minecraft.NET.Windowing;
@@ -32,7 +31,6 @@ services.AddSingleton<IWorldGenerator, TerrainWorldGenerator>();
 services.AddSingleton<FrameContext>();
 services.AddSingleton<RenderSettings>();
 services.AddSingleton<GameModeManager>();
-services.AddSingleton<RenderResources>();
 
 services.AddSingleton<PhysicsService>();
 services.AddSingleton<WorldInteractionService>();
@@ -60,9 +58,6 @@ services.AddSingleton<IReadOnlyDictionary<GameMode, IPlayerController>>(provider
             { GameMode.Creative, provider.GetRequiredService<CreativePlayerController>() },
             { GameMode.Spectator, provider.GetRequiredService<SpectatorPlayerController>() }
         });
-
-services.AddSingleton<IRenderPass, GBufferPass>();
-services.AddSingleton<IRenderPass, LightingPass>();
 
 services.AddSingleton<Game>();
 
