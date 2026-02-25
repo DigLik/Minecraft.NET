@@ -47,7 +47,6 @@
   </ItemGroup>
 
   <ItemGroup>
-	<TrimmerRootDescriptor Include="TrimmerDirectives.xml" />
     <None Update="Assets\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

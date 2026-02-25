@@ -8,13 +8,11 @@ public static class Constants
     public const int ChunkShift = 4;
     public const int BlocksInChunk = ChunkSize * ChunkSize * ChunkSize; // 4096
 
-    public const int RenderDistance = 64; // Расстояние рендеринга в чанках
+    public const int RenderDistance = 16; // Расстояние рендеринга в чанках
 
     public const int WorldHeightInChunks = 16;
     public const int WorldHeightInBlocks = ChunkSize * WorldHeightInChunks; // 256
     public const int VerticalChunkOffset = WorldHeightInChunks / 2; // 8
-
-    public const int MaxVisibleSections = (RenderDistance * 2 + 1) * (RenderDistance * 2 + 1) * WorldHeightInChunks;
 
     public const float TileSize = 16.0f;
 
