@@ -8,7 +8,6 @@ namespace Minecraft.NET.Graphics.Models;
 
 public static class ChunkMesher
 {
-    private static readonly float[] AO_Factors = [0.5f, 0.7f, 0.85f, 1.0f];
     private static readonly ThreadLocal<MeshBuilder> _threadLocalBuilder = new(() => new MeshBuilder());
 
     private const int PaddedSize = ChunkSize + 2;
@@ -22,6 +21,7 @@ public static class ChunkMesher
     public static unsafe MeshData GenerateMesh(ChunkColumn column, int sectionY, World world, CancellationToken token)
     {
         ref var section = ref column.Sections[sectionY];
+
         if (section.IsEmpty)
             return default;
 
@@ -72,13 +72,7 @@ public static class ChunkMesher
 
                         if (IsFaceVisible(current, neighbor))
                         {
-                            int aoX = x + (axisNum == 0 ? (dir == 1 ? 1 : -1) : 0);
-                            int aoY = y + (axisNum == 1 ? (dir == 1 ? 1 : -1) : 0);
-                            int aoZ = z + (axisNum == 2 ? (dir == 1 ? 1 : -1) : 0);
-
-                            uint aoData = CalculateFaceAO(blocks, axisNum, dir, aoX, aoY, aoZ);
-
-                            AddQuadNaive(builder, axisNum, dir, x, y, z, current, aoData);
+                            AddQuadNaive(builder, axisNum, dir, x, y, z, current);
                         }
                     }
                 }
@@ -90,7 +84,7 @@ public static class ChunkMesher
         MeshBuilder builder,
         int axis, int dir,
         int x, int y, int z,
-        BlockId blockId, uint aoData)
+        BlockId blockId)
     {
         var blockDef = BlockRegistry.Definitions[(int)blockId];
 
@@ -134,83 +128,23 @@ public static class ChunkMesher
 
         bool reversed = axis == 2 ? (dir == 0) : (dir == 1);
 
-        float ao_bl = AO_Factors[aoData & 0xFF];
-        float ao_br = AO_Factors[(aoData >> 8) & 0xFF];
-        float ao_tr = AO_Factors[(aoData >> 16) & 0xFF];
-        float ao_tl = AO_Factors[(aoData >> 24) & 0xFF];
-
         ushort baseIndex = (ushort)builder.VertexCount;
 
-        builder.AddVertex(new ChunkVertex(v1, texIndex, new Vector2(0, 1), ao_bl));
-        builder.AddVertex(new ChunkVertex(v2, texIndex, new Vector2(1, 1), ao_br));
-        builder.AddVertex(new ChunkVertex(v3, texIndex, new Vector2(1, 0), ao_tr));
-        builder.AddVertex(new ChunkVertex(v4, texIndex, new Vector2(0, 0), ao_tl));
-
-        bool flipDiagonal = ao_bl + ao_tr < ao_br + ao_tl;
+        builder.AddVertex(new ChunkVertex(v1, texIndex, new Vector2(0, 1)));
+        builder.AddVertex(new ChunkVertex(v2, texIndex, new Vector2(1, 1)));
+        builder.AddVertex(new ChunkVertex(v3, texIndex, new Vector2(1, 0)));
+        builder.AddVertex(new ChunkVertex(v4, texIndex, new Vector2(0, 0)));
 
         if (reversed)
         {
-            if (flipDiagonal)
-            {
-                builder.AddIndices((ushort)(baseIndex + 0), (ushort)(baseIndex + 2), (ushort)(baseIndex + 1));
-                builder.AddIndices((ushort)(baseIndex + 0), (ushort)(baseIndex + 3), (ushort)(baseIndex + 2));
-            }
-            else
-            {
-                builder.AddIndices((ushort)(baseIndex + 0), (ushort)(baseIndex + 3), (ushort)(baseIndex + 1));
-                builder.AddIndices((ushort)(baseIndex + 1), (ushort)(baseIndex + 3), (ushort)(baseIndex + 2));
-            }
+            builder.AddIndices((ushort)(baseIndex + 0), (ushort)(baseIndex + 3), (ushort)(baseIndex + 1));
+            builder.AddIndices((ushort)(baseIndex + 1), (ushort)(baseIndex + 3), (ushort)(baseIndex + 2));
         }
         else
         {
-            if (flipDiagonal)
-            {
-                builder.AddIndices((ushort)(baseIndex + 1), (ushort)(baseIndex + 2), (ushort)(baseIndex + 0));
-                builder.AddIndices((ushort)(baseIndex + 2), (ushort)(baseIndex + 3), (ushort)(baseIndex + 0));
-            }
-            else
-            {
-                builder.AddIndices((ushort)(baseIndex + 1), (ushort)(baseIndex + 3), (ushort)(baseIndex + 0));
-                builder.AddIndices((ushort)(baseIndex + 2), (ushort)(baseIndex + 3), (ushort)(baseIndex + 1));
-            }
+            builder.AddIndices((ushort)(baseIndex + 1), (ushort)(baseIndex + 3), (ushort)(baseIndex + 0));
+            builder.AddIndices((ushort)(baseIndex + 2), (ushort)(baseIndex + 3), (ushort)(baseIndex + 1));
         }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static unsafe uint CalculateFaceAO(BlockId* blocks, int axis, int dir, int x, int y, int z)
-    {
-        int px = x + 1;
-        int py = y + 1;
-        int pz = z + 1;
-
-        BlockId* ptr = blocks + px * X_STRIDE + pz * Z_STRIDE + py * Y_STRIDE;
-
-        int uOff, vOff;
-        if (axis == 0) { uOff = Z_STRIDE; vOff = Y_STRIDE; }
-        else if (axis == 1) { uOff = X_STRIDE; vOff = Z_STRIDE; }
-        else { uOff = X_STRIDE; vOff = Y_STRIDE; }
-
-        bool l = ptr[-uOff] != BlockId.Air;
-        bool r = ptr[uOff] != BlockId.Air;
-        bool b = ptr[-vOff] != BlockId.Air;
-        bool t = ptr[vOff] != BlockId.Air;
-
-        bool bl = ptr[-uOff - vOff] != BlockId.Air;
-        bool br = ptr[uOff - vOff] != BlockId.Air;
-        bool tl = ptr[-uOff + vOff] != BlockId.Air;
-        bool tr = ptr[uOff + vOff] != BlockId.Air;
-
-        return VertexAO(l, bl, b) |
-            (VertexAO(r, br, b) << 8) |
-            (VertexAO(r, tr, t) << 16) |
-            (VertexAO(l, tl, t) << 24);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static uint VertexAO(bool side1, bool corner, bool side2)
-    {
-        if (side1 && side2) return 0;
-        return (uint)(3 - ((side1 ? 1 : 0) + (side2 ? 1 : 0) + (corner ? 1 : 0)));
     }
 
     private static bool AreAllNeighborsFull(ChunkColumn column, int sectionY, World world)
@@ -219,6 +153,7 @@ public static class ChunkMesher
         if (sectionY > 0 && !column.Sections[sectionY - 1].IsFull) return false;
 
         var pos = column.Position;
+
         if (!IsNeighborFull(world, pos.X + 1, pos.Y, sectionY)) return false;
         if (!IsNeighborFull(world, pos.X - 1, pos.Y, sectionY)) return false;
         if (!IsNeighborFull(world, pos.X, pos.Y + 1, sectionY)) return false;
@@ -240,6 +175,7 @@ public static class ChunkMesher
         if (section.IsAllocated)
         {
             BlockId* srcPtr = section.Blocks;
+
             for (int y = 0; y < ChunkSize; y++)
             {
                 int dstOffset = (y + 1) * Y_STRIDE + 1 * Z_STRIDE + 1;
@@ -258,9 +194,11 @@ public static class ChunkMesher
         else
         {
             byte val = (byte)section.UniformId;
+
             for (int y = 0; y < ChunkSize; y++)
             {
                 int dstOffset = (y + 1) * Y_STRIDE + 1 * Z_STRIDE + 1;
+
                 for (int z = 0; z < ChunkSize; z++)
                     Unsafe.InitBlock(buffer + dstOffset + z * Z_STRIDE, val, ChunkSize);
             }
@@ -301,6 +239,7 @@ public static class ChunkMesher
         if (cy is < 0 or >= WorldHeightInChunks) return BlockId.Air;
 
         ChunkColumn? target = (cx == cur.Position.X && cz == cur.Position.Y) ? cur : world.GetColumn(new Vector2D<int>(cx, cz));
+
         if (target == null) return BlockId.Air;
 
         return target.Sections[cy].GetBlock(x, y, z);
@@ -321,6 +260,7 @@ public static class ChunkMesher
         {
             if (currentDef.Transparency == BlockTransparency.Transparent)
                 return false;
+
             if (currentDef.Transparency == BlockTransparency.Foliage)
                 return true;
         }

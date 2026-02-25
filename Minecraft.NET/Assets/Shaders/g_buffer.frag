@@ -1,7 +1,10 @@
 #version 460 core
-layout (location = 0) out vec4 FragColor;
-in vec3 vTexCoord;
-in float v_ao;
+layout(location = 0) out vec4 gNormal;
+layout(location = 1) out vec4 gAlbedo;
+
+in vec3 FragPos;
+in vec2 TexCoords;
+flat in uint TexIndex;
 
 uniform sampler2DArray uTextureArray;
 uniform bool u_UseWireframeColor;
@@ -11,33 +14,16 @@ void main()
 {
     if (u_UseWireframeColor)
     {
-        FragColor = u_WireframeColor;
+        gAlbedo = u_WireframeColor;
+        gNormal = vec4(0.0, 1.0, 0.0, 1.0);
+        return;
     }
-    else
-    {
-        vec4 texColor = texture(uTextureArray, vTexCoord);
-        if (texColor.a < 0.1) discard;
 
-        int texIndex = int(round(vTexCoord.z)); 
-        
-        vec3 grassColor = vec3(145.0 / 255.0, 189.0 / 255.0, 89.0 / 255.0);
-        vec3 leavesColor = vec3(119.0 / 255.0, 171.0 / 255.0, 47.0 / 255.0);
-        if (texIndex == 2)
-        {
-            texColor.rgb *= grassColor;
-        }
-        else if (texIndex == 3)
-        {
-            vec4 overlay = texture(uTextureArray, vec3(vTexCoord.xy, 4.0));
-            overlay.rgb *= grassColor;
-            texColor.rgb = mix(texColor.rgb, overlay.rgb, overlay.a);
-        }
-        else if (texIndex == 7)
-        {
-            texColor.rgb *= leavesColor;
-        }
+    vec4 texColor = texture(uTextureArray, vec3(TexCoords, float(TexIndex)));
+    if(texColor.a < 0.1)
+        discard;
 
-        vec3 finalColor = texColor.rgb * v_ao;
-        FragColor = vec4(finalColor, 1.0);
-    }
+    gAlbedo = texColor;
+    vec3 normal = normalize(cross(dFdx(FragPos), dFdy(FragPos)));
+    gNormal = vec4(normal, 1.0);
 }

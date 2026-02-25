@@ -46,7 +46,7 @@ public static class BlockRegistry
 
         int grassTop = RegisterTexture("Assets/Textures/Blocks/grass_top.png");
         int grassSide = RegisterTexture("Assets/Textures/Blocks/grass_side.png");
-        int grassSideOverlay = RegisterTexture("Assets/Textures/Blocks/grass_side_overlay.png");
+        _ = RegisterTexture("Assets/Textures/Blocks/grass_side_overlay.png");
         Register(new BlockDefinition(
             BlockId.Grass, "Grass", new(grassTop, dirt, grassSide)));
 
@@ -57,7 +57,7 @@ public static class BlockRegistry
 
         int oakLeaves = RegisterTexture("Assets/Textures/Blocks/oak_leaves.png");
         Register(new BlockDefinition(
-            BlockId.OakLeaves, "OakLeaves", new(oakLeaves, oakLeaves, oakLeaves), BlockTransparency.Foliage));
+            BlockId.OakLeaves, "OakLeaves", new(oakLeaves, oakLeaves, oakLeaves), BlockTransparency.Transparent));
     }
 
     private static int RegisterTexture(string path)

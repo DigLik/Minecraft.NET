@@ -33,6 +33,5 @@ public interface IChunkRenderer : IDisposable
     ChunkMeshGeometry UploadChunkMesh(MeshData meshData);
     void FreeChunkMesh(ChunkMeshGeometry geometry);
 
-    void Bind();
-    void DrawGpuIndirectCount(uint indirectBuffer, uint instanceBuffer, uint countBuffer, int maxDrawCount);
+    void DrawChunk(ChunkMeshGeometry geometry);
 }

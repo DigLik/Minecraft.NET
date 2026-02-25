@@ -61,12 +61,9 @@ services.AddSingleton<IReadOnlyDictionary<GameMode, IPlayerController>>(provider
             { GameMode.Spectator, provider.GetRequiredService<SpectatorPlayerController>() }
         });
 
-services.AddSingleton<IRenderPipeline, RenderPipeline>();
-
 services.AddSingleton<IRenderPass, GBufferPass>();
 services.AddSingleton<IRenderPass, LightingPass>();
 
-services.AddSingleton<SceneCuller>();
 services.AddSingleton<Game>();
 
 var serviceProvider = services.BuildServiceProvider();

@@ -2,13 +2,11 @@
 using Minecraft.NET.Core.Common;
 using Minecraft.NET.Engine;
 using Minecraft.NET.Graphics.Rendering.Passes;
-using Minecraft.NET.Services;
 
 namespace Minecraft.NET.Graphics.Rendering;
 
 public class RenderPipeline(
     Player player,
-    SceneCuller sceneCuller,
     FrameContext frameContext,
     IChunkRenderer chunkRenderer,
     RenderResources resources,
@@ -23,7 +21,6 @@ public class RenderPipeline(
     public unsafe void Initialize()
     {
         chunkRenderer.Initialize();
-        sceneCuller.Initialize();
 
         foreach (var pass in _orderedPasses)
             pass.Initialize(0, 0);
@@ -54,8 +51,6 @@ public class RenderPipeline(
 
         UpdateCamera();
 
-        sceneCuller.Cull(frameContext.ProjectionMatrix, frameContext.RelativeViewMatrix);
-
         foreach (var pass in _orderedPasses)
             pass.Execute(resources);
     }
@@ -74,7 +69,6 @@ public class RenderPipeline(
         var cameraRenderPos = (Vector3)(camera.Position - cameraOrigin);
 
         frameContext.RelativeViewMatrix = Matrix4x4.CreateLookAt(cameraRenderPos, cameraRenderPos + camera.Front, camera.Up);
-
         frameContext.ViewMatrix = camera.GetViewMatrix();
     }
 
