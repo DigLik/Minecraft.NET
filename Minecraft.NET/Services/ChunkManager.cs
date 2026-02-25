@@ -9,7 +9,7 @@ namespace Minecraft.NET.Services;
 
 public delegate void ChunkMeshRequestHandler(ChunkColumn column, int sectionY);
 
-public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenerator generator) : IDisposable
+public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenerator generator, D3D12Context d3d) : IDisposable
 {
     private Action<ChunkMeshGeometry>? _meshFreeHandler = null;
     private ChunkMeshRequestHandler? _meshRequestHandler = null;
@@ -141,6 +141,8 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
 
         if (_chunksToRemove.Count > 0)
         {
+            d3d.WaitForGpu();
+
             int count = _chunksToRemove.Count;
             for (int i = 0; i < count; i++)
             {

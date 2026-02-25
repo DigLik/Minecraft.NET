@@ -29,7 +29,10 @@ public static class ChunkMesher
             return default;
 
         BlockId* paddedBlocks = stackalloc BlockId[TotalSize];
-        FillPaddedBufferOptimized(paddedBlocks, column, sectionY, world);
+        lock (column.StateLock)
+        {
+            FillPaddedBufferOptimized(paddedBlocks, column, sectionY, world);
+        }
 
         var builder = _threadLocalBuilder.Value!;
         builder.Reset();

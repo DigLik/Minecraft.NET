@@ -9,7 +9,7 @@ using System.Threading.Channels;
 
 namespace Minecraft.NET.Core.Chunks;
 
-public class ChunkMesherService(IChunkRenderer chunkRenderer) : IDisposable
+public class ChunkMesherService(IChunkRenderer chunkRenderer, D3D12Context d3d) : IDisposable
 {
     private World _world = null!;
     private ChunkManager _chunkManager = null!;
@@ -52,8 +52,14 @@ public class ChunkMesherService(IChunkRenderer chunkRenderer) : IDisposable
 
     public void OnUpdate(double _)
     {
-        while (_generatedMeshes.TryDequeue(out var result))
+        bool gpuWaited = false;
+
+        const int MaxUploadsPerFrame = 15;
+        int uploadsThisFrame = 0;
+
+        while (uploadsThisFrame < MaxUploadsPerFrame && _generatedMeshes.TryDequeue(out var result))
         {
+            uploadsThisFrame++;
             var (column, sectionY, meshData) = result;
 
             if (_chunkManager.GetColumn(column.Position) is null || column.SectionStates[sectionY] != ChunkSectionState.Meshing)
@@ -65,6 +71,11 @@ public class ChunkMesherService(IChunkRenderer chunkRenderer) : IDisposable
             var oldGeometry = column.MeshGeometries[sectionY];
             if (oldGeometry.IndexCount > 0)
             {
+                if (!gpuWaited)
+                {
+                    d3d.WaitForGpu();
+                    gpuWaited = true;
+                }
                 chunkRenderer.FreeChunkMesh(oldGeometry);
             }
 
@@ -110,8 +121,7 @@ public class ChunkMesherService(IChunkRenderer chunkRenderer) : IDisposable
 
     public void Dispose()
     {
-        if (_isDisposed)
-            return;
+        if (_isDisposed) return;
         _isDisposed = true;
         _cts?.Cancel();
         _cts?.Dispose();

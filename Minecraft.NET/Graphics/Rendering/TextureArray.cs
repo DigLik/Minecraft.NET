@@ -104,11 +104,11 @@ public sealed unsafe class TextureArray : IDisposable
         }
         UploadHeap.Get().Unmap(0, null);
 
-        ref var cmdAllocator = ref _d3d.CommandAllocator.Get();
-        ref var cmdList = ref _d3d.CommandList.Get();
+        var cmdAllocator = (ID3D12CommandAllocator*)_d3d.CommandAllocators[0].Handle;
+        var cmdList = (ID3D12GraphicsCommandList*)_d3d.CommandList.Handle;
 
-        cmdAllocator.Reset();
-        cmdList.Reset(_d3d.CommandAllocator.Handle, null);
+        cmdAllocator->Reset();
+        cmdList->Reset(cmdAllocator, null);
 
         for (uint i = 0; i < layers; i++)
         {
@@ -124,7 +124,7 @@ public sealed unsafe class TextureArray : IDisposable
                 placedFootprint: layouts[i]
             );
 
-            cmdList.CopyTextureRegion(&destLoc, 0, 0, 0, &srcLoc, null);
+            cmdList->CopyTextureRegion(&destLoc, 0, 0, 0, &srcLoc, null);
         }
 
         var barrier = new ResourceBarrier
@@ -139,10 +139,11 @@ public sealed unsafe class TextureArray : IDisposable
                 Subresource = uint.MaxValue
             }
         };
-        cmdList.ResourceBarrier(1, &barrier);
-        cmdList.Close();
 
-        ID3D12CommandList* ppCommandList = (ID3D12CommandList*)_d3d.CommandList.Handle;
+        cmdList->ResourceBarrier(1, &barrier);
+        cmdList->Close();
+
+        ID3D12CommandList* ppCommandList = (ID3D12CommandList*)cmdList;
         _d3d.CommandQueue.Get().ExecuteCommandLists(1, &ppCommandList);
         _d3d.WaitForGpu();
 
@@ -152,6 +153,7 @@ public sealed unsafe class TextureArray : IDisposable
             Type = DescriptorHeapType.CbvSrvUav,
             Flags = DescriptorHeapFlags.ShaderVisible
         };
+
         var riidHeap = SilkMarshal.GuidPtrOf<ID3D12DescriptorHeap>();
         void* srvHeapPtr;
         hr = device.CreateDescriptorHeap(&srvHeapDesc, riidHeap, &srvHeapPtr);
@@ -165,6 +167,7 @@ public sealed unsafe class TextureArray : IDisposable
     public void Bind(ID3D12GraphicsCommandList* cmdList, uint rootParameterIndex)
     {
         if (_isDisposed || _d3d == null) return;
+
         ID3D12DescriptorHeap* ppHeaps = SrvHeap.Handle;
         cmdList->SetDescriptorHeaps(1, &ppHeaps);
         cmdList->SetGraphicsRootDescriptorTable(rootParameterIndex, SrvHeap.Get().GetGPUDescriptorHandleForHeapStart());
