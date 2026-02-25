@@ -1,5 +1,4 @@
-﻿// Minecraft.NET.Windowing/GlfwWindow.cs
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 using Silk.NET.GLFW;

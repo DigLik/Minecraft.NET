@@ -19,8 +19,6 @@ public struct WindowOptions
         Size = new(600, 400),
         VSync = false,
         TargetFPS = 0,
-        TargetUPS = 100.0,
-        ContextVersionMajor = 4,
-        ContextVersionMinor = 6
+        TargetUPS = 100.0
     };
 }

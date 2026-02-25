@@ -33,7 +33,7 @@ public sealed unsafe class ChunkRenderer(D3D11Context d3d) : IChunkRenderer
 
         BufferDesc ibd = new BufferDesc
         {
-            ByteWidth = (uint)(meshData.IndexCount * sizeof(ushort)),
+            ByteWidth = (uint)(meshData.IndexCount * sizeof(uint)),
             Usage = Usage.Default,
             BindFlags = (uint)BindFlag.IndexBuffer
         };
@@ -60,7 +60,7 @@ public sealed unsafe class ChunkRenderer(D3D11Context d3d) : IChunkRenderer
         ID3D11Buffer* vbo = (ID3D11Buffer*)geometry.Vbo;
 
         d3d.Context.IASetVertexBuffers(0, 1, &vbo, &stride, &offset);
-        d3d.Context.IASetIndexBuffer((ID3D11Buffer*)geometry.Ebo, Silk.NET.DXGI.Format.FormatR16Uint, 0);
+        d3d.Context.IASetIndexBuffer((ID3D11Buffer*)geometry.Ebo, Silk.NET.DXGI.Format.FormatR32Uint, 0);
         d3d.Context.DrawIndexed(geometry.IndexCount, 0, 0);
     }
 

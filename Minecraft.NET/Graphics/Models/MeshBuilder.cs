@@ -6,7 +6,7 @@ namespace Minecraft.NET.Graphics.Models;
 public unsafe class MeshBuilder
 {
     private ChunkVertex* _vertices;
-    private ushort* _indices;
+    private uint* _indices;
 
     private int _vertexCapacity;
     private int _indexCapacity;
@@ -19,7 +19,7 @@ public unsafe class MeshBuilder
         _vertexCapacity = initialVertexCapacity;
         _indexCapacity = initialIndexCapacity;
         _vertices = (ChunkVertex*)NativeMemory.Alloc((nuint)_vertexCapacity, (nuint)sizeof(ChunkVertex));
-        _indices = (ushort*)NativeMemory.Alloc((nuint)_indexCapacity, sizeof(ushort));
+        _indices = (uint*)NativeMemory.Alloc((nuint)_indexCapacity, sizeof(uint));
     }
 
     public void Reset()
@@ -39,12 +39,12 @@ public unsafe class MeshBuilder
         _vertices[VertexCount++] = vertex;
     }
 
-    public void AddIndices(ushort i1, ushort i2, ushort i3)
+    public void AddIndices(uint i1, uint i2, uint i3)
     {
         if (IndexCount + 3 > _indexCapacity)
         {
             _indexCapacity *= 2;
-            _indices = (ushort*)NativeMemory.Realloc(_indices, (nuint)_indexCapacity * sizeof(ushort));
+            _indices = (uint*)NativeMemory.Realloc(_indices, (nuint)_indexCapacity * sizeof(uint));
         }
 
         int currentOffset = IndexCount;
@@ -59,10 +59,10 @@ public unsafe class MeshBuilder
         if (IndexCount == 0) return default;
 
         ChunkVertex* outVertices = (ChunkVertex*)NativeMemory.Alloc((nuint)VertexCount, (nuint)sizeof(ChunkVertex));
-        ushort* outIndices = (ushort*)NativeMemory.Alloc((nuint)IndexCount, sizeof(ushort));
+        uint* outIndices = (uint*)NativeMemory.Alloc((nuint)IndexCount, sizeof(uint));
 
         Unsafe.CopyBlock(outVertices, _vertices, (uint)(VertexCount * sizeof(ChunkVertex)));
-        Unsafe.CopyBlock(outIndices, _indices, (uint)(IndexCount * sizeof(ushort)));
+        Unsafe.CopyBlock(outIndices, _indices, (uint)(IndexCount * sizeof(uint)));
 
         return new MeshData((nint)outVertices, VertexCount, outIndices, IndexCount);
     }

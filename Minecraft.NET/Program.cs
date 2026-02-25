@@ -1,5 +1,4 @@
-﻿// Program.cs
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 
 using Minecraft.NET.Character;
 using Minecraft.NET.Character.Controllers;

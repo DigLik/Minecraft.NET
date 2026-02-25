@@ -55,7 +55,11 @@ public unsafe class D3D11Context : IDisposable
                 null,
                 D3DDriverType.Hardware,
                 0,
+#if RELEASE
                 (uint)CreateDeviceFlag.None,
+#elif DEBUG
+                (uint)CreateDeviceFlag.Debug,
+#endif
                 &featureLevel,
                 1,
                 D3D11.SdkVersion,

@@ -46,8 +46,28 @@ float4 PS(PS_INPUT input) : SV_Target
     }
     
     float4 texColor = blockTextures.Sample(samLinear, float3(input.UV, input.TexIndex));
+    
     if (texColor.a < 0.1f)
         discard;
+        
+    if (input.TexIndex == 2)
+    {
+        texColor.rgb *= float3(0.569f, 0.741f, 0.349f);
+    }
+    else if (input.TexIndex == 7)
+    {
+        texColor.rgb *= float3(0.467f, 0.671f, 0.184f);
+    }
+    else if (input.TexIndex == 3)
+    {
+        float4 overlay = blockTextures.Sample(samLinear, float3(input.UV, 4));
+        
+        if (overlay.a > 0.1f)
+        {
+            overlay.rgb *= float3(0.569f, 0.741f, 0.349f);
+            texColor.rgb = lerp(texColor.rgb, overlay.rgb, overlay.a);
+        }
+    }
         
     return texColor;
 }
