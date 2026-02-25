@@ -13,14 +13,14 @@ using Minecraft.NET.Windowing;
 
 var window = new GlfwWindow(WindowOptions.Default with
 {
-    Title = "Minecraft.NET D3D11",
+    Title = "Minecraft.NET D3D12",
     Size = new(1200, 800)
 });
 
 var services = new ServiceCollection();
 
 services.AddSingleton<IWindow>(window);
-services.AddSingleton<D3D11Context>();
+services.AddSingleton<D3D12Context>();
 
 services.AddSingleton(new Player(new(16, 80, 16)));
 services.AddSingleton(_ => new WorldStorage("world"));

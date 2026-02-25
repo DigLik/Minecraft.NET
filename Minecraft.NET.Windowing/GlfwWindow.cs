@@ -61,7 +61,6 @@ public unsafe partial class GlfwWindow : IWindow
     {
         _options = options;
         _title = options.Title;
-
         _glfw = Glfw.GetApi();
 
         if (!_glfw.Init())
@@ -71,7 +70,7 @@ public unsafe partial class GlfwWindow : IWindow
 
         _windowHandle = _glfw.CreateWindow(options.Size.X, options.Size.Y, _title, null, null);
 
-        if (_windowHandle == null)
+        if ((nint)_windowHandle == 0)
             throw new Exception("Failed to create GLFW window.");
 
         _framebufferSizeCallback = OnFramebufferResize;
@@ -89,6 +88,7 @@ public unsafe partial class GlfwWindow : IWindow
 
         var sw = Stopwatch.StartNew();
         double previousTime = sw.Elapsed.TotalSeconds;
+
         double updateAccumulator = 0.0;
         double lastRenderTime = previousTime;
 

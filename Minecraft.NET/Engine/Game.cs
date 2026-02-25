@@ -15,7 +15,7 @@ public sealed class Game : IDisposable
     private readonly ChunkMesherService _chunkMesherService;
     private readonly PhysicsService _physicsService;
     private readonly World _world;
-    private readonly D3D11Context _d3d;
+    private readonly D3D12Context _d3d;
 
     private bool _isDisposed;
 
@@ -27,7 +27,7 @@ public sealed class Game : IDisposable
         ChunkMesherService chunkMesherService,
         PhysicsService physicsService,
         World world,
-        D3D11Context d3d)
+        D3D12Context d3d)
     {
         _window = window;
         _renderPipeline = renderPipeline;

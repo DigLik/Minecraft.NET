@@ -1,14 +1,11 @@
-﻿using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 
 using Minecraft.NET.Character;
 using Minecraft.NET.Core.Blocks;
 using Minecraft.NET.Engine;
-using Minecraft.NET.Services;
 
 using Silk.NET.Core.Native;
-using Silk.NET.Direct3D11;
-using Silk.NET.DXGI;
+using Silk.NET.Direct3D12;
 
 namespace Minecraft.NET.Graphics.Rendering;
 
@@ -27,68 +24,25 @@ public sealed unsafe class RenderPipeline(
     Player player,
     FrameContext frameContext,
     IChunkRenderer chunkRenderer,
-    ChunkManager chunkManager,
-    RenderSettings renderSettings,
-    D3D11Context d3d) : IRenderPipeline
+    D3D12Context d3d) : IRenderPipeline
 {
     public IChunkRenderer ChunkRenderer => chunkRenderer;
 
     private Shader _mainShader = null!;
     private TextureArray _blockTextures = null!;
-    private ComPtr<ID3D11Buffer> _constantBuffer;
-    private ComPtr<ID3D11RasterizerState> _rasterizerStateFill;
-    private ComPtr<ID3D11RasterizerState> _rasterizerStateWireframe;
-    private ComPtr<ID3D11DepthStencilState> _depthState;
+
+    private ComPtr<ID3D12Resource> _constantBuffer;
+    private ComPtr<ID3D12RootSignature> _rootSignature;
+    private ComPtr<ID3D12PipelineState> _pipelineStateFill;
+    private ComPtr<ID3D12PipelineState> _pipelineStateWireframe;
 
     private bool _isDisposed;
 
     public void Initialize()
     {
         chunkRenderer.Initialize();
-
         _blockTextures = new TextureArray(d3d, BlockRegistry.TextureFiles);
         _mainShader = new Shader(d3d, "Assets/Shaders/main.hlsl");
-
-        BufferDesc cbDesc = new BufferDesc
-        {
-            ByteWidth = (uint)sizeof(ShaderConstants),
-            Usage = Usage.Dynamic,
-            BindFlags = (uint)BindFlag.ConstantBuffer,
-            CPUAccessFlags = (uint)CpuAccessFlag.Write
-        };
-        fixed (ComPtr<ID3D11Buffer>* cbPtr = &_constantBuffer)
-            d3d.Device.CreateBuffer(&cbDesc, (SubresourceData*)null, (ID3D11Buffer**)cbPtr);
-
-        RasterizerDesc rsFillDesc = new RasterizerDesc
-        {
-            FillMode = FillMode.Solid,
-            CullMode = CullMode.Back,
-            FrontCounterClockwise = false,
-            DepthClipEnable = true
-        };
-        fixed (ComPtr<ID3D11RasterizerState>* rsPtr = &_rasterizerStateFill)
-            d3d.Device.CreateRasterizerState(&rsFillDesc, (ID3D11RasterizerState**)rsPtr);
-
-        RasterizerDesc rsWireDesc = new RasterizerDesc
-        {
-            FillMode = FillMode.Wireframe,
-            CullMode = CullMode.None,
-            FrontCounterClockwise = false,
-            DepthClipEnable = true,
-            DepthBias = -1000,
-            SlopeScaledDepthBias = -1.0f
-        };
-        fixed (ComPtr<ID3D11RasterizerState>* rsPtr = &_rasterizerStateWireframe)
-            d3d.Device.CreateRasterizerState(&rsWireDesc, (ID3D11RasterizerState**)rsPtr);
-
-        DepthStencilDesc dsDesc = new DepthStencilDesc
-        {
-            DepthEnable = true,
-            DepthWriteMask = DepthWriteMask.All,
-            DepthFunc = ComparisonFunc.Greater
-        };
-        fixed (ComPtr<ID3D11DepthStencilState>* dsPtr = &_depthState)
-            d3d.Device.CreateDepthStencilState(&dsDesc, (ID3D11DepthStencilState**)dsPtr);
     }
 
     public void OnFramebufferResize(Vector2D<int> newSize)
@@ -100,70 +54,54 @@ public sealed unsafe class RenderPipeline(
     {
         UpdateCamera();
 
-        float* clearColor = stackalloc float[4] { 0.53f, 0.81f, 0.92f, 1.0f };
-        ID3D11RenderTargetView* rtv = d3d.RenderTargetView;
-        d3d.Context.ClearRenderTargetView(rtv, clearColor);
-        d3d.Context.ClearDepthStencilView(d3d.DepthStencilView, (uint)ClearFlag.Depth, 0.0f, 0);
+        var cmdAllocator = d3d.CommandAllocator.Handle;
+        var cmdList = d3d.CommandList.Handle;
+        var cmdQueue = d3d.CommandQueue.Handle;
+        var swapChain = d3d.SwapChain.Handle;
 
-        d3d.Context.OMSetRenderTargets(1, &rtv, d3d.DepthStencilView);
-        d3d.Context.OMSetDepthStencilState(_depthState, 0);
+        cmdAllocator->Reset();
+        cmdList->Reset(cmdAllocator, null);
 
-        Viewport vp = new Viewport
+        var backBuffer = d3d.RenderTargets[d3d.FrameIndex];
+
+        var barrier = new ResourceBarrier
         {
-            TopLeftX = 0,
-            TopLeftY = 0,
-            Width = frameContext.ViewportSize.X,
-            Height = frameContext.ViewportSize.Y,
-            MinDepth = 0.0f,
-            MaxDepth = 1.0f
-        };
-        d3d.Context.RSSetViewports(1, &vp);
-
-        _mainShader.Bind();
-        _blockTextures.Bind(0);
-
-        fixed (ComPtr<ID3D11Buffer>* cbPtr = &_constantBuffer)
-        {
-            d3d.Context.VSSetConstantBuffers(0, 1, (ID3D11Buffer**)cbPtr);
-            d3d.Context.PSSetConstantBuffers(0, 1, (ID3D11Buffer**)cbPtr);
-        }
-
-        if (renderSettings.IsWireframeEnabled)
-            d3d.Context.RSSetState(_rasterizerStateWireframe);
-        else
-            d3d.Context.RSSetState(_rasterizerStateFill);
-
-        ShaderConstants constants = new ShaderConstants
-        {
-            View = Matrix4x4.Transpose(frameContext.ViewMatrix),
-            Projection = Matrix4x4.Transpose(frameContext.ProjectionMatrix),
-            UseWireframeColor = renderSettings.IsWireframeEnabled ? 1 : 0,
-            WireframeColor = new Vector4(0.0f, 0.0f, 0.0f, 1.0f)
-        };
-
-        foreach (var chunk in chunkManager.GetRenderChunks())
-        {
-            float colX = chunk.Position.X * ChunkSize;
-            float colZ = chunk.Position.Y * ChunkSize;
-
-            for (int y = 0; y < WorldHeightInChunks; y++)
+            Type = ResourceBarrierType.Transition,
+            Flags = ResourceBarrierFlags.None,
+            Transition = new ResourceTransitionBarrier
             {
-                var geometry = chunk.MeshGeometries[y];
-                if (geometry.IndexCount == 0) continue;
-
-                float colY = y * ChunkSize - VerticalChunkOffset * ChunkSize;
-                constants.Model = Matrix4x4.Transpose(Matrix4x4.CreateTranslation(new Vector3(colX, colY, colZ)));
-
-                MappedSubresource mapped;
-                d3d.Context.Map((ID3D11Resource*)_constantBuffer.Handle, 0, Map.WriteDiscard, 0, &mapped);
-                Unsafe.Write(mapped.PData, constants);
-                d3d.Context.Unmap((ID3D11Resource*)_constantBuffer.Handle, 0);
-
-                chunkRenderer.DrawChunk(geometry);
+                PResource = backBuffer,
+                StateBefore = ResourceStates.Present,
+                StateAfter = ResourceStates.RenderTarget,
+                Subresource = uint.MaxValue
             }
-        }
+        };
+        cmdList->ResourceBarrier(1, &barrier);
 
-        d3d.SwapChain.Present(1, 0);
+        var rtvHeap = d3d.RtvHeap.Handle;
+        var rtvHandle = rtvHeap->GetCPUDescriptorHandleForHeapStart();
+        rtvHandle.Ptr += d3d.FrameIndex * d3d.RtvDescriptorSize;
+
+        var dsvHeap = d3d.DsvHeap.Handle;
+        var dsvHandle = dsvHeap->GetCPUDescriptorHandleForHeapStart();
+
+        float* clearColor = stackalloc float[4] { 0.53f, 0.81f, 0.92f, 1.0f };
+        cmdList->ClearRenderTargetView(rtvHandle, clearColor, 0, null);
+        cmdList->ClearDepthStencilView(dsvHandle, ClearFlags.Depth, 1.0f, 0, 0, null);
+
+        barrier.Transition.StateBefore = ResourceStates.RenderTarget;
+        barrier.Transition.StateAfter = ResourceStates.Present;
+        cmdList->ResourceBarrier(1, &barrier);
+
+        cmdList->Close();
+
+        ID3D12CommandList** ppCommandLists = stackalloc ID3D12CommandList*[1] { (ID3D12CommandList*)cmdList };
+        cmdQueue->ExecuteCommandLists(1, ppCommandLists);
+
+        swapChain->Present(1, 0);
+
+        d3d.WaitForGpu();
+        d3d.FrameIndex = swapChain->GetCurrentBackBufferIndex();
     }
 
     private void UpdateCamera()
@@ -185,9 +123,10 @@ public sealed unsafe class RenderPipeline(
         _mainShader?.Dispose();
         _blockTextures?.Dispose();
         chunkRenderer?.Dispose();
-        _constantBuffer.Dispose();
-        _rasterizerStateFill.Dispose();
-        _rasterizerStateWireframe.Dispose();
-        _depthState.Dispose();
+
+        if (_constantBuffer.Handle != null) _constantBuffer.Dispose();
+        if (_rootSignature.Handle != null) _rootSignature.Dispose();
+        if (_pipelineStateFill.Handle != null) _pipelineStateFill.Dispose();
+        if (_pipelineStateWireframe.Handle != null) _pipelineStateWireframe.Dispose();
     }
 }
