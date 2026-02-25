@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
+
 using Minecraft.NET.Character;
 using Minecraft.NET.Character.Controllers;
 using Minecraft.NET.Core.Chunks;
@@ -9,7 +10,6 @@ using Minecraft.NET.Graphics.Rendering;
 using Minecraft.NET.Graphics.Rendering.Passes;
 using Minecraft.NET.Services;
 using Minecraft.NET.Services.Physics;
-using Minecraft.NET.UI;
 using Minecraft.NET.Windowing;
 
 var window = new GlfwWindow(WindowOptions.Default with
@@ -43,8 +43,6 @@ services.AddSingleton<ChunkMesherService>();
 services.AddSingleton<IInputManager, InputManager>();
 services.AddSingleton<IChunkRenderer, ChunkRenderer>();
 services.AddSingleton<IRenderPipeline, RenderPipeline>();
-services.AddSingleton<IPerformanceMonitor, PerformanceMonitor>();
-services.AddSingleton<IGameStatsService, GameStatsService>();
 
 services.AddSingleton<CreativePlayerController>();
 services.AddSingleton<SpectatorPlayerController>();
@@ -63,20 +61,18 @@ services.AddSingleton<IReadOnlyDictionary<GameMode, IPlayerController>>(provider
             { GameMode.Spectator, provider.GetRequiredService<SpectatorPlayerController>() }
         });
 
-services.AddSingleton<FontService>();
-services.AddSingleton<UiContext>();
 services.AddSingleton<IRenderPipeline, RenderPipeline>();
 
 services.AddSingleton<IRenderPass, GBufferPass>();
 services.AddSingleton<IRenderPass, LightingPass>();
 services.AddSingleton<IRenderPass, FogPass>();
 services.AddSingleton<IRenderPass, SmaaPass>();
-services.AddSingleton<IRenderPass, UiRenderPass>();
 
 services.AddSingleton<SceneCuller>();
 services.AddSingleton<Game>();
 
 var serviceProvider = services.BuildServiceProvider();
+
 var game = serviceProvider.GetRequiredService<Game>();
 game.Run();
 

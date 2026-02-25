@@ -34,24 +34,5 @@ public interface IChunkRenderer : IDisposable
     void FreeChunkMesh(ChunkMeshGeometry geometry);
 
     void Bind();
-
     void DrawGpuIndirectCount(uint indirectBuffer, uint instanceBuffer, uint countBuffer, int maxDrawCount);
-}
-
-public interface IPerformanceMonitor : IDisposable
-{
-    void Initialize();
-    void BeginCpuFrame();
-    void EndCpuFrame();
-    void BeginGpuFrame();
-    void EndGpuFrame();
-    double AvgCpuTimeMs { get; }
-    double AvgGpuTimeMs { get; }
-    double AvgTotalTimeMs { get; }
-}
-
-public interface IGameStatsService
-{
-    void OnUpdate(double deltaTime);
-    void OnRender(double deltaTime);
 }

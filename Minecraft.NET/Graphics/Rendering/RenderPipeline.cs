@@ -9,7 +9,6 @@ namespace Minecraft.NET.Graphics.Rendering;
 public class RenderPipeline(
     Player player,
     SceneCuller sceneCuller,
-    IPerformanceMonitor performanceMonitor,
     FrameContext frameContext,
     IChunkRenderer chunkRenderer,
     RenderResources resources,
@@ -53,16 +52,12 @@ public class RenderPipeline(
         if (gl == null)
             return;
 
-        performanceMonitor.BeginGpuFrame();
-
         UpdateCamera();
 
         sceneCuller.Cull(frameContext.ProjectionMatrix, frameContext.RelativeViewMatrix);
 
         foreach (var pass in _orderedPasses)
             pass.Execute(resources);
-
-        performanceMonitor.EndGpuFrame();
     }
 
     private void UpdateCamera()
@@ -79,6 +74,7 @@ public class RenderPipeline(
         var cameraRenderPos = (Vector3)(camera.Position - cameraOrigin);
 
         frameContext.RelativeViewMatrix = Matrix4x4.CreateLookAt(cameraRenderPos, cameraRenderPos + camera.Front, camera.Up);
+
         frameContext.ViewMatrix = camera.GetViewMatrix();
     }
 
