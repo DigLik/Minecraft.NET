@@ -65,8 +65,6 @@ services.AddSingleton<IRenderPipeline, RenderPipeline>();
 
 services.AddSingleton<IRenderPass, GBufferPass>();
 services.AddSingleton<IRenderPass, LightingPass>();
-services.AddSingleton<IRenderPass, FogPass>();
-services.AddSingleton<IRenderPass, SmaaPass>();
 
 services.AddSingleton<SceneCuller>();
 services.AddSingleton<Game>();

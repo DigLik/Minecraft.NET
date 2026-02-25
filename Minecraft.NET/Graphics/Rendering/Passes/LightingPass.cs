@@ -1,8 +1,6 @@
 ﻿namespace Minecraft.NET.Graphics.Rendering.Passes;
 
-public class LightingPass(
-    GL gl,
-    RenderResources resources) : IRenderPass
+public class LightingPass(GL gl) : IRenderPass
 {
     public int Priority => 1000;
     public string Name => "Deferred Lighting";
@@ -43,19 +41,16 @@ public class LightingPass(
 
     public void OnResize(uint width, uint height)
     {
-        resources.LightingFbo?.Dispose();
-        resources.LightingFbo = new Framebuffer(gl, width, height, InternalFormat.Rgba8, PixelFormat.Rgba, PixelType.UnsignedByte);
     }
 
     public void Execute(RenderResources renderResources)
     {
         var gBuffer = renderResources.GBuffer;
-        var outFbo = renderResources.LightingFbo;
 
-        if (gBuffer == null || outFbo == null)
+        if (gBuffer == null)
             return;
 
-        outFbo.Bind();
+        gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
         gl.Disable(EnableCap.DepthTest);
         gl.Disable(EnableCap.CullFace);
 
