@@ -1,4 +1,5 @@
 ﻿using Minecraft.NET.Graphics.Rendering;
+
 using System.Runtime.CompilerServices;
 
 namespace Minecraft.NET.Core.Chunks;
@@ -14,8 +15,6 @@ public unsafe sealed class ChunkColumn : IDisposable
     public ChunkMeshGeometry[] MeshGeometries { get; }
     public ChunkSectionState[] SectionStates { get; }
     public volatile bool IsGenerated;
-    public ushort ActiveMask;
-    public int Version;
 
     private volatile bool _isDisposed;
 
@@ -32,25 +31,20 @@ public unsafe sealed class ChunkColumn : IDisposable
         {
             Position = newPosition;
             IsGenerated = false;
-            // [NEW] Обновляем версию при сбросе
-            Version++;
-
             Array.Clear(SectionStates);
 
             if (OnFreeMeshGeometry != null)
-                while (ActiveMask != 0)
+            {
+                for (int i = 0; i < MeshGeometries.Length; i++)
                 {
-                    int i = BitOperations.TrailingZeroCount(ActiveMask);
                     if (MeshGeometries[i].IndexCount > 0)
                     {
                         OnFreeMeshGeometry(MeshGeometries[i]);
                         MeshGeometries[i] = default;
                     }
-
-                    ActiveMask &= (ushort)~(1 << i);
                 }
+            }
 
-            ActiveMask = 0;
             for (int i = 0; i < Sections.Length; i++)
                 Sections[i].Reset();
         }

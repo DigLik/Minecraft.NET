@@ -1,10 +1,7 @@
 ﻿using Minecraft.NET.Character;
 using Minecraft.NET.Core.Blocks;
-using Minecraft.NET.Core.Common;
 using Minecraft.NET.Engine;
 using Minecraft.NET.Services;
-
-using System.Numerics;
 
 namespace Minecraft.NET.Graphics.Rendering;
 
@@ -74,7 +71,7 @@ public class RenderPipeline(
         gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
         _mainShader.Use();
-        _mainShader.SetMatrix4x4(_viewLoc, frameContext.RelativeViewMatrix);
+        _mainShader.SetMatrix4x4(_viewLoc, frameContext.ViewMatrix);
         _mainShader.SetMatrix4x4(_projLoc, frameContext.ProjectionMatrix);
 
         if (renderSettings.IsWireframeEnabled)
@@ -94,22 +91,17 @@ public class RenderPipeline(
 
         _blockTextures.Bind(TextureUnit.Texture0);
 
-        var camPos = player.Position;
-        float camX = (float)Math.Floor(camPos.X);
-        float camY = (float)Math.Floor(camPos.Y);
-        float camZ = (float)Math.Floor(camPos.Z);
-
         foreach (var chunk in chunkManager.GetRenderChunks())
         {
-            float colX = chunk.Position.X * ChunkSize - camX;
-            float colZ = chunk.Position.Y * ChunkSize - camZ;
+            float colX = chunk.Position.X * ChunkSize;
+            float colZ = chunk.Position.Y * ChunkSize;
 
             for (int y = 0; y < WorldHeightInChunks; y++)
             {
                 var geometry = chunk.MeshGeometries[y];
                 if (geometry.IndexCount == 0) continue;
 
-                float colY = y * ChunkSize - VerticalChunkOffset * ChunkSize - camY;
+                float colY = y * ChunkSize - VerticalChunkOffset * ChunkSize;
                 var model = Matrix4x4.CreateTranslation(new Vector3(colX, colY, colZ));
 
                 _mainShader.SetMatrix4x4(_modelLoc, model);
@@ -134,11 +126,6 @@ public class RenderPipeline(
             : 1.0f;
 
         frameContext.ProjectionMatrix = camera.GetProjectionMatrix(aspect);
-
-        var cameraOrigin = new Vector3d(Math.Floor(camera.Position.X), Math.Floor(camera.Position.Y), Math.Floor(camera.Position.Z));
-        var cameraRenderPos = (Vector3)(camera.Position - cameraOrigin);
-
-        frameContext.RelativeViewMatrix = Matrix4x4.CreateLookAt(cameraRenderPos, cameraRenderPos + camera.Front, camera.Up);
         frameContext.ViewMatrix = camera.GetViewMatrix();
     }
 

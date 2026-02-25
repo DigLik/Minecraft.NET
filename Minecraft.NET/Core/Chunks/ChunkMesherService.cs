@@ -3,6 +3,7 @@ using Minecraft.NET.Engine;
 using Minecraft.NET.Graphics.Models;
 using Minecraft.NET.Graphics.Rendering;
 using Minecraft.NET.Services;
+
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 
@@ -15,7 +16,6 @@ public class ChunkMesherService(IChunkRenderer chunkRenderer) : IDisposable
 
     private readonly Channel<(Vector2D<int> position, int sectionY)> _meshChannel =
         Channel.CreateUnbounded<(Vector2D<int>, int)>(new UnboundedChannelOptions { SingleReader = true });
-
     private readonly ConcurrentQueue<(ChunkColumn column, int sectionY, MeshData? meshData)> _generatedMeshes = new();
     private CancellationTokenSource? _cts;
     private bool _isDisposed;
@@ -55,6 +55,7 @@ public class ChunkMesherService(IChunkRenderer chunkRenderer) : IDisposable
         while (_generatedMeshes.TryDequeue(out var result))
         {
             var (column, sectionY, meshData) = result;
+
             if (_chunkManager.GetColumn(column.Position) is null || column.SectionStates[sectionY] != ChunkSectionState.Meshing)
             {
                 meshData?.Dispose();
@@ -65,7 +66,6 @@ public class ChunkMesherService(IChunkRenderer chunkRenderer) : IDisposable
             if (oldGeometry.IndexCount > 0)
             {
                 chunkRenderer.FreeChunkMesh(oldGeometry);
-                column.ActiveMask &= (ushort)~(1 << sectionY);
             }
 
             ChunkMeshGeometry newGeometry = meshData.HasValue
@@ -73,11 +73,7 @@ public class ChunkMesherService(IChunkRenderer chunkRenderer) : IDisposable
                 : default;
 
             column.MeshGeometries[sectionY] = newGeometry;
-            if (newGeometry.IndexCount > 0)
-                column.ActiveMask |= (ushort)(1 << sectionY);
-
             column.SectionStates[sectionY] = ChunkSectionState.Rendered;
-            column.Version++;
         }
     }
 
