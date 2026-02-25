@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿// Program.cs
+using Microsoft.Extensions.DependencyInjection;
 
 using Minecraft.NET.Character;
 using Minecraft.NET.Character.Controllers;
@@ -13,17 +14,14 @@ using Minecraft.NET.Windowing;
 
 var window = new GlfwWindow(WindowOptions.Default with
 {
-    Title = "Minecraft.NET",
+    Title = "Minecraft.NET D3D11",
     Size = new(1200, 800)
 });
-
-var glfw = Glfw.GetApi();
-var gl = GL.GetApi(glfw.GetProcAddress);
 
 var services = new ServiceCollection();
 
 services.AddSingleton<IWindow>(window);
-services.AddSingleton<GL>(gl);
+services.AddSingleton<D3D11Context>();
 
 services.AddSingleton(new Player(new(16, 80, 16)));
 services.AddSingleton(_ => new WorldStorage("world"));
@@ -67,4 +65,3 @@ var game = serviceProvider.GetRequiredService<Game>();
 game.Run();
 
 serviceProvider.Dispose();
-gl.Dispose();

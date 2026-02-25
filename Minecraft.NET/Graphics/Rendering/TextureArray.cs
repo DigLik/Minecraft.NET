@@ -1,65 +1,105 @@
-﻿using StbImageSharp;
+﻿using Silk.NET.Core.Native;
+using Silk.NET.Direct3D11;
+
+using StbImageSharp;
 
 namespace Minecraft.NET.Graphics.Rendering;
 
-public sealed class TextureArray : IDisposable
+public sealed unsafe class TextureArray : IDisposable
 {
-    private readonly GL _gl;
-    public readonly uint Handle;
+    private readonly D3D11Context _d3d;
+    public ComPtr<ID3D11Texture2D> Texture;
+    public ComPtr<ID3D11ShaderResourceView> SRV;
+    public ComPtr<ID3D11SamplerState> Sampler;
 
-    public unsafe TextureArray(GL gl, List<string> filePaths)
+    private bool _isDisposed;
+
+    public TextureArray(D3D11Context d3d, List<string> filePaths)
     {
-        _gl = gl;
-        Handle = _gl.GenTexture();
-        Bind();
-
-        if (filePaths.Count == 0)
-            throw new ArgumentException("No files provided for TextureArray");
-
+        _d3d = d3d;
         using var firstStream = File.OpenRead(filePaths[0]);
         var firstImage = ImageResult.FromStream(firstStream, ColorComponents.RedGreenBlueAlpha);
         uint width = (uint)firstImage.Width;
         uint height = (uint)firstImage.Height;
         uint layers = (uint)filePaths.Count;
-        uint mipLevels = (uint)Math.Floor(Math.Log2(Math.Max(width, height))) + 1;
 
-        _gl.TexStorage3D(TextureTarget.Texture2DArray, mipLevels, SizedInternalFormat.Rgba8, width, height, layers);
+        Texture2DDesc desc = new Texture2DDesc
+        {
+            Width = width,
+            Height = height,
+            MipLevels = 1,
+            ArraySize = layers,
+            Format = Silk.NET.DXGI.Format.FormatR8G8B8A8Unorm,
+            SampleDesc = new Silk.NET.DXGI.SampleDesc(1, 0),
+            Usage = Usage.Default,
+            BindFlags = (uint)BindFlag.ShaderResource,
+            CPUAccessFlags = 0,
+            MiscFlags = 0
+        };
+
+        SubresourceData* subresources = stackalloc SubresourceData[(int)layers];
+        List<byte[]> buffers = [];
 
         for (int i = 0; i < layers; i++)
         {
             using var stream = File.OpenRead(filePaths[i]);
             var image = ImageResult.FromStream(stream, ColorComponents.RedGreenBlueAlpha);
+            buffers.Add(image.Data);
+        }
 
-            if (image.Width != width || image.Height != height)
-                throw new Exception($"Texture {filePaths[i]} has incorrect size. All textures in array must be same size.");
-
-            fixed (byte* ptr = image.Data)
+        for (int i = 0; i < layers; i++)
+        {
+            fixed (byte* ptr = buffers[i])
             {
-                _gl.TexSubImage3D(
-                    TextureTarget.Texture2DArray, 0,
-                    0, 0, i,
-                    width, height, 1,
-                    PixelFormat.Rgba,
-                    PixelType.UnsignedByte,
-                    ptr
-                );
+                subresources[i] = new SubresourceData(ptr, width * 4, width * height * 4);
             }
         }
 
-        _gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureWrapS, (int)GLEnum.Repeat);
-        _gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureWrapT, (int)GLEnum.Repeat);
-        _gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureMinFilter, (int)GLEnum.NearestMipmapLinear);
-        _gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureMagFilter, (int)GLEnum.Nearest);
-        _gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureMaxAnisotropy, 16.0f);
+        fixed (ComPtr<ID3D11Texture2D>* texPtr = &Texture)
+            _d3d.Device.CreateTexture2D(&desc, subresources, (ID3D11Texture2D**)texPtr);
 
-        _gl.GenerateMipmap(TextureTarget.Texture2DArray);
+        ShaderResourceViewDesc srvDesc = new ShaderResourceViewDesc
+        {
+            Format = desc.Format,
+            ViewDimension = D3DSrvDimension.D3D101SrvDimensionTexture2Darray
+        };
+        srvDesc.Texture2DArray.ArraySize = layers;
+        srvDesc.Texture2DArray.MipLevels = 1;
+
+        fixed (ComPtr<ID3D11ShaderResourceView>* srvPtr = &SRV)
+            _d3d.Device.CreateShaderResourceView((ID3D11Resource*)Texture.Handle, &srvDesc, (ID3D11ShaderResourceView**)srvPtr);
+
+        SamplerDesc sampDesc = new SamplerDesc
+        {
+            Filter = Filter.MinMagMipPoint,
+            AddressU = TextureAddressMode.Wrap,
+            AddressV = TextureAddressMode.Wrap,
+            AddressW = TextureAddressMode.Wrap,
+            ComparisonFunc = ComparisonFunc.Never,
+            MinLOD = 0,
+            MaxLOD = float.MaxValue
+        };
+
+        fixed (ComPtr<ID3D11SamplerState>* sampPtr = &Sampler)
+            _d3d.Device.CreateSamplerState(&sampDesc, (ID3D11SamplerState**)sampPtr);
     }
 
-    public void Bind(TextureUnit unit = TextureUnit.Texture0)
+    public void Bind(uint slot = 0)
     {
-        _gl.ActiveTexture(unit);
-        _gl.BindTexture(TextureTarget.Texture2DArray, Handle);
+        var srv = SRV.Handle;
+        _d3d.Context.PSSetShaderResources(slot, 1, &srv);
+
+        var samp = Sampler.Handle;
+        _d3d.Context.PSSetSamplers(slot, 1, &samp);
     }
 
-    public void Dispose() => _gl.DeleteTexture(Handle);
+    public void Dispose()
+    {
+        if (_isDisposed) return;
+        _isDisposed = true;
+
+        Sampler.Dispose();
+        SRV.Dispose();
+        Texture.Dispose();
+    }
 }

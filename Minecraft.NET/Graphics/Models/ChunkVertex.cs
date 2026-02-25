@@ -2,14 +2,11 @@
 
 namespace Minecraft.NET.Graphics.Models;
 
-[StructLayout(LayoutKind.Sequential, Pack = 1)]
-public readonly unsafe struct ChunkVertex(Vector3 pos, int texIndex, Vector2 uv)
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+public readonly struct ChunkVertex(Vector3 pos, int texIndex, Vector2 uv)
 {
-    public readonly byte X = (byte)pos.X;
-    public readonly byte Y = (byte)pos.Y;
-    public readonly byte Z = (byte)pos.Z;
-    public readonly ushort TexIndex = (ushort)texIndex;
-    public readonly byte U = (byte)uv.X;
-    public readonly byte V = (byte)uv.Y;
-    public static readonly uint Stride = 7;
+    public readonly Vector3 Pos = pos;
+    public readonly uint TexIndex = (uint)texIndex;
+    public readonly Vector2 UV = uv;
+    public static readonly unsafe uint Stride = (uint)sizeof(ChunkVertex);
 }

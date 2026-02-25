@@ -19,4 +19,5 @@ public interface IWindow : IDisposable
     void Close();
 
     unsafe void* Handle { get; }
+    nint Win32Handle { get; }
 }

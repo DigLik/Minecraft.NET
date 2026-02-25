@@ -1,5 +1,6 @@
 ﻿using Minecraft.NET.Core.Chunks;
 using Minecraft.NET.Core.Environment;
+using Minecraft.NET.Graphics.Rendering;
 using Minecraft.NET.Services;
 using Minecraft.NET.Windowing;
 
@@ -14,7 +15,9 @@ public sealed class Game : IDisposable
     private readonly ChunkMesherService _chunkMesherService;
     private readonly PhysicsService _physicsService;
     private readonly World _world;
-    private readonly GL _gl;
+    private readonly D3D11Context _d3d;
+
+    private bool _isDisposed;
 
     public Game(
         IWindow window,
@@ -24,7 +27,7 @@ public sealed class Game : IDisposable
         ChunkMesherService chunkMesherService,
         PhysicsService physicsService,
         World world,
-        GL gl)
+        D3D11Context d3d)
     {
         _window = window;
         _renderPipeline = renderPipeline;
@@ -33,7 +36,7 @@ public sealed class Game : IDisposable
         _chunkMesherService = chunkMesherService;
         _physicsService = physicsService;
         _world = world;
-        _gl = gl;
+        _d3d = d3d;
 
         _window.Load += OnLoad;
         _window.Update += OnUpdate;
@@ -44,7 +47,7 @@ public sealed class Game : IDisposable
 
     public void Run() => _window.Run();
 
-    private unsafe void OnLoad()
+    private void OnLoad()
     {
         _world.OnLoad();
         _renderPipeline.Initialize();
@@ -54,7 +57,6 @@ public sealed class Game : IDisposable
             _renderPipeline.ChunkRenderer.FreeChunkMesh
         );
         _chunkMesherService.OnLoad();
-
         OnFramebufferResize(_window.FramebufferSize);
     }
 
@@ -72,19 +74,27 @@ public sealed class Game : IDisposable
     }
 
     private void OnFramebufferResize(Vector2D<int> newSize)
-        => _renderPipeline?.OnFramebufferResize(newSize);
+    {
+        _d3d.Resize(newSize);
+        _renderPipeline?.OnFramebufferResize(newSize);
+    }
 
     private void OnClose()
     {
+        if (_isDisposed) return;
+        _isDisposed = true;
+
         _window.Load -= OnLoad;
         _window.Update -= OnUpdate;
         _window.Render -= OnRender;
         _window.FramebufferResize -= OnFramebufferResize;
         _window.Closing -= OnClose;
 
-        _world.Dispose();
         _chunkMesherService.Dispose();
+        _chunkManager.Dispose();
+        _world.Dispose();
         _renderPipeline.Dispose();
+        _d3d.Dispose();
     }
 
     public void Dispose() => OnClose();

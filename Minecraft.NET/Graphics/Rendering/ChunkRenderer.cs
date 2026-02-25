@@ -1,11 +1,13 @@
-﻿using Minecraft.NET.Engine;
+﻿using Silk.NET.Direct3D11;
+
+using Minecraft.NET.Engine;
 using Minecraft.NET.Graphics.Models;
 
 namespace Minecraft.NET.Graphics.Rendering;
 
-public readonly record struct ChunkMeshGeometry(uint Vao, uint Vbo, uint Ebo, uint IndexCount);
+public readonly record struct ChunkMeshGeometry(nint Vbo, nint Ebo, uint IndexCount);
 
-public sealed unsafe class ChunkRenderer(GL gl) : IChunkRenderer
+public sealed unsafe class ChunkRenderer(D3D11Context d3d) : IChunkRenderer
 {
     public void Initialize()
     {
@@ -19,48 +21,47 @@ public sealed unsafe class ChunkRenderer(GL gl) : IChunkRenderer
             return default;
         }
 
-        uint vao = gl.GenVertexArray();
-        uint vbo = gl.GenBuffer();
-        uint ebo = gl.GenBuffer();
+        BufferDesc vbd = new BufferDesc
+        {
+            ByteWidth = (uint)(meshData.VertexCount * ChunkVertex.Stride),
+            Usage = Usage.Default,
+            BindFlags = (uint)BindFlag.VertexBuffer
+        };
+        SubresourceData vData = new SubresourceData { PSysMem = (void*)meshData.Vertices };
+        ID3D11Buffer* vbo;
+        d3d.Device.CreateBuffer(&vbd, &vData, &vbo);
 
-        gl.BindVertexArray(vao);
-
-        gl.BindBuffer(BufferTargetARB.ArrayBuffer, vbo);
-        gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(meshData.VertexCount * ChunkVertex.Stride), (void*)meshData.Vertices, BufferUsageARB.StaticDraw);
-
-        gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, ebo);
-        gl.BufferData(BufferTargetARB.ElementArrayBuffer, (nuint)(meshData.IndexCount * sizeof(ushort)), meshData.Indices, BufferUsageARB.StaticDraw);
-
-        gl.EnableVertexAttribArray(0);
-        gl.VertexAttribPointer(0, 3, VertexAttribPointerType.UnsignedByte, false, ChunkVertex.Stride, (void*)0);
-
-        gl.EnableVertexAttribArray(1);
-        gl.VertexAttribPointer(1, 1, VertexAttribPointerType.UnsignedShort, false, ChunkVertex.Stride, (void*)3);
-
-        gl.EnableVertexAttribArray(2);
-        gl.VertexAttribPointer(2, 2, VertexAttribPointerType.UnsignedByte, false, ChunkVertex.Stride, (void*)5);
-
-        gl.BindVertexArray(0);
-
-        var geometry = new ChunkMeshGeometry(vao, vbo, ebo, (uint)meshData.IndexCount);
+        BufferDesc ibd = new BufferDesc
+        {
+            ByteWidth = (uint)(meshData.IndexCount * sizeof(ushort)),
+            Usage = Usage.Default,
+            BindFlags = (uint)BindFlag.IndexBuffer
+        };
+        SubresourceData iData = new SubresourceData { PSysMem = meshData.Indices };
+        ID3D11Buffer* ebo;
+        d3d.Device.CreateBuffer(&ibd, &iData, &ebo);
 
         meshData.Dispose();
-        return geometry;
+        return new ChunkMeshGeometry((nint)vbo, (nint)ebo, (uint)meshData.IndexCount);
     }
 
     public void FreeChunkMesh(ChunkMeshGeometry geometry)
     {
-        if (geometry.Vao != 0) gl.DeleteVertexArray(geometry.Vao);
-        if (geometry.Vbo != 0) gl.DeleteBuffer(geometry.Vbo);
-        if (geometry.Ebo != 0) gl.DeleteBuffer(geometry.Ebo);
+        if (geometry.Vbo != 0) ((ID3D11Buffer*)geometry.Vbo)->Release();
+        if (geometry.Ebo != 0) ((ID3D11Buffer*)geometry.Ebo)->Release();
     }
 
     public void DrawChunk(ChunkMeshGeometry geometry)
     {
         if (geometry.IndexCount == 0) return;
-        gl.BindVertexArray(geometry.Vao);
-        gl.DrawElements(PrimitiveType.Triangles, geometry.IndexCount, DrawElementsType.UnsignedShort, (void*)0);
-        gl.BindVertexArray(0);
+
+        uint stride = ChunkVertex.Stride;
+        uint offset = 0;
+        ID3D11Buffer* vbo = (ID3D11Buffer*)geometry.Vbo;
+
+        d3d.Context.IASetVertexBuffers(0, 1, &vbo, &stride, &offset);
+        d3d.Context.IASetIndexBuffer((ID3D11Buffer*)geometry.Ebo, Silk.NET.DXGI.Format.FormatR16Uint, 0);
+        d3d.Context.DrawIndexed(geometry.IndexCount, 0, 0);
     }
 
     public void Dispose()

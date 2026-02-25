@@ -1,10 +1,13 @@
-﻿using System.Diagnostics;
+﻿// Minecraft.NET.Windowing/GlfwWindow.cs
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+
 using Silk.NET.GLFW;
 using Silk.NET.Maths;
 
 namespace Minecraft.NET.Windowing;
 
-public unsafe class GlfwWindow : IWindow
+public unsafe partial class GlfwWindow : IWindow
 {
     private readonly Glfw _glfw;
     private readonly WindowHandle* _windowHandle;
@@ -44,12 +47,16 @@ public unsafe class GlfwWindow : IWindow
 
     public bool IsClosing => _glfw.WindowShouldClose(_windowHandle);
     public void* Handle => _windowHandle;
+    public nint Win32Handle => GetWin32Window(_windowHandle);
 
     public event Action? Load;
     public event Action<double>? Update;
     public event Action<double>? Render;
     public event Action<Vector2D<int>>? FramebufferResize;
     public event Action? Closing;
+
+    [LibraryImport("glfw3", EntryPoint = "glfwGetWin32Window")]
+    private static partial nint GetWin32Window(WindowHandle* window);
 
     public GlfwWindow(WindowOptions options)
     {
@@ -61,22 +68,17 @@ public unsafe class GlfwWindow : IWindow
         if (!_glfw.Init())
             throw new Exception("Failed to initialize GLFW.");
 
-        _glfw.WindowHint(WindowHintInt.ContextVersionMajor, options.ContextVersionMajor);
-        _glfw.WindowHint(WindowHintInt.ContextVersionMinor, options.ContextVersionMinor);
-        _glfw.WindowHint(WindowHintBool.OpenGLForwardCompat, true);
-        _glfw.WindowHint(WindowHintOpenGlProfile.OpenGlProfile, OpenGlProfile.Core);
+        _glfw.WindowHint(WindowHintClientApi.ClientApi, ClientApi.NoApi);
 
         _windowHandle = _glfw.CreateWindow(options.Size.X, options.Size.Y, _title, null, null);
+
         if (_windowHandle == null)
             throw new Exception("Failed to create GLFW window.");
-        
+
         _framebufferSizeCallback = OnFramebufferResize;
         _windowCloseCallback = OnWindowClose;
         _glfw.SetFramebufferSizeCallback(_windowHandle, _framebufferSizeCallback);
         _glfw.SetWindowCloseCallback(_windowHandle, _windowCloseCallback);
-
-        _glfw.MakeContextCurrent(_windowHandle);
-        _glfw.SwapInterval(options.VSync ? 1 : 0);
     }
 
     public void Run()
@@ -110,7 +112,6 @@ public unsafe class GlfwWindow : IWindow
             if (targetRenderTime == 0.0 || (currentTime - lastRenderTime) >= targetRenderTime)
             {
                 Render?.Invoke(currentTime - lastRenderTime);
-                _glfw.SwapBuffers(_windowHandle);
                 lastRenderTime = currentTime;
             }
             else

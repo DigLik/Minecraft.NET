@@ -2,6 +2,7 @@
 using Minecraft.NET.Core.Chunks;
 using Minecraft.NET.Core.Environment;
 using Minecraft.NET.Graphics.Rendering;
+
 using System.Collections.Concurrent;
 
 namespace Minecraft.NET.Services;
@@ -31,6 +32,8 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
         new(1, 0), new(-1, 0), new(0, 1), new(0, -1),
         new(1, 1), new(1, -1), new(-1, 1), new(-1, -1)
     ];
+
+    private bool _isDisposed;
 
     public void SetHandlers(ChunkMeshRequestHandler meshRequestHandler, Action<ChunkMeshGeometry> meshFreeHandler)
     {
@@ -66,6 +69,7 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
                     _renderChunksList.Clear();
                     foreach (var kvp in _chunks)
                         _renderChunksList.Add(kvp.Value);
+
                     _isRenderListDirty = false;
                 }
             }
@@ -94,7 +98,6 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
         foreach (var offset in _sortedChunkOffsets)
         {
             var targetPos = playerChunkPos + offset;
-
             if (!_chunks.ContainsKey(targetPos))
             {
                 if (!_chunkPool.TryPop(out var newChunk))
@@ -110,6 +113,7 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
                         (Manager: this, Chunk: newChunk),
                         preferLocal: false
                     );
+
                     addedAny = true;
                 }
             }
@@ -154,7 +158,6 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
     private void GenerateChunkData(ChunkColumn column)
     {
         generator.Generate(column);
-
         int sectionLen = column.Sections.Length;
         for (int i = 0; i < sectionLen; i++)
             column.Sections[i].Optimize();
@@ -214,9 +217,7 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
         {
             var meshes = chunk.MeshGeometries;
             for (int i = 0; i < WorldHeightInChunks; i++)
-            {
                 totalIndices += meshes[i].IndexCount;
-            }
         }
 
         return totalIndices / 3;
@@ -224,6 +225,9 @@ public class ChunkManager(Player playerState, WorldStorage storage, IWorldGenera
 
     public void Dispose()
     {
+        if (_isDisposed) return;
+        _isDisposed = true;
+
         foreach (var chunk in _chunks.Values)
             chunk.Dispose();
         foreach (var chunk in _chunkPool)

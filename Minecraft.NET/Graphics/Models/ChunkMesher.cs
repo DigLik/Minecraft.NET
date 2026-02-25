@@ -99,6 +99,7 @@ public static class ChunkMesher
         if (axis == 1)
         {
             float yPos = y + (dir == 1 ? 1 : 0);
+
             x1 = x; z1 = z; y1 = yPos;
             x2 = x + 1; z2 = z; y2 = yPos;
             x3 = x + 1; z3 = z + 1; y3 = yPos;
@@ -107,6 +108,7 @@ public static class ChunkMesher
         else if (axis == 2)
         {
             float zPos = z + (dir == 1 ? 1 : 0);
+
             x1 = x; y1 = y; z1 = zPos;
             x2 = x + 1; y2 = y; z2 = zPos;
             x3 = x + 1; y3 = y + 1; z3 = zPos;
@@ -115,6 +117,7 @@ public static class ChunkMesher
         else
         {
             float xPos = x + (dir == 1 ? 1 : 0);
+
             z1 = z; y1 = y; x1 = xPos;
             z2 = z + 1; y2 = y; x2 = xPos;
             z3 = z + 1; y3 = y + 1; x3 = xPos;
@@ -126,7 +129,7 @@ public static class ChunkMesher
         Vector3 v3 = new(x3, y3, z3);
         Vector3 v4 = new(x4, y4, z4);
 
-        bool reversed = axis == 2 ? (dir == 0) : (dir == 1);
+        bool reversed = axis == 2 ? (dir == 1) : (dir == 0);
 
         ushort baseIndex = (ushort)builder.VertexCount;
 
@@ -239,7 +242,6 @@ public static class ChunkMesher
         if (cy is < 0 or >= WorldHeightInChunks) return BlockId.Air;
 
         ChunkColumn? target = (cx == cur.Position.X && cz == cur.Position.Y) ? cur : world.GetColumn(new Vector2D<int>(cx, cz));
-
         if (target == null) return BlockId.Air;
 
         return target.Sections[cy].GetBlock(x, y, z);
@@ -260,7 +262,6 @@ public static class ChunkMesher
         {
             if (currentDef.Transparency == BlockTransparency.Transparent)
                 return false;
-
             if (currentDef.Transparency == BlockTransparency.Foliage)
                 return true;
         }

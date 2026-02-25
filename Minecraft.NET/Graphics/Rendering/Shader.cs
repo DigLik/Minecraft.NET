@@ -1,120 +1,91 @@
-﻿using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.Text;
+﻿using Silk.NET.Core.Native;
+using Silk.NET.Direct3D11;
 
 namespace Minecraft.NET.Graphics.Rendering;
 
-public sealed class Shader : IDisposable
+public sealed unsafe class Shader : IDisposable
 {
-    private readonly GL _gl;
-    public readonly uint Handle;
+    private readonly D3D11Context _d3d;
+    public ComPtr<ID3D11VertexShader> VertexShader;
+    public ComPtr<ID3D11PixelShader> PixelShader;
+    public ComPtr<ID3D11InputLayout> InputLayout;
 
-    private readonly ConcurrentDictionary<string, int> _uniformLocationCache = new();
+    private bool _isDisposed;
 
-    public Shader(GL gl, string vertexSource, string fragmentSource)
+    public Shader(D3D11Context d3d, string path)
     {
-        _gl = gl;
+        _d3d = d3d;
+        string source = File.ReadAllText(path);
 
-        var vertexShader = CompileShader(ShaderType.VertexShader, vertexSource);
-        var fragmentShader = CompileShader(ShaderType.FragmentShader, fragmentSource);
+        ID3D10Blob* vsBlob = null;
+        ID3D10Blob* psBlob = null;
+        ID3D10Blob* errorBlob = null;
 
-        Handle = _gl.CreateProgram();
-        _gl.AttachShader(Handle, vertexShader);
-        _gl.AttachShader(Handle, fragmentShader);
-        _gl.LinkProgram(Handle);
+        var vsEntry = SilkMarshal.StringToPtr("VS");
+        var psEntry = SilkMarshal.StringToPtr("PS");
+        var vsTarget = SilkMarshal.StringToPtr("vs_5_0");
+        var psTarget = SilkMarshal.StringToPtr("ps_5_0");
+        var sourcePtr = SilkMarshal.StringToPtr(source);
 
-        _gl.GetProgram(Handle, ProgramPropertyARB.LinkStatus, out var status);
-        if (status == 0)
-            throw new Exception($"Shader program linking failed: {_gl.GetProgramInfoLog(Handle)}");
+        nuint sourceLen = (nuint)source.Length;
 
-        _gl.DetachShader(Handle, vertexShader);
-        _gl.DetachShader(Handle, fragmentShader);
-        _gl.DeleteShader(vertexShader);
-        _gl.DeleteShader(fragmentShader);
+        _d3d.Compiler.Compile((void*)sourcePtr, sourceLen, (byte*)null, (D3DShaderMacro*)null, (ID3DInclude*)null, (byte*)vsEntry, (byte*)vsTarget, 0, 0, &vsBlob, &errorBlob);
+
+        if (errorBlob != null)
+        {
+            Console.WriteLine("VS Compile Error: " + SilkMarshal.PtrToString((nint)errorBlob->GetBufferPointer()));
+            errorBlob->Release();
+        }
+
+        fixed (ComPtr<ID3D11VertexShader>* vsPtr = &VertexShader)
+            _d3d.Device.CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), (ID3D11ClassLinkage*)null, (ID3D11VertexShader**)vsPtr);
+
+        _d3d.Compiler.Compile((void*)sourcePtr, sourceLen, (byte*)null, (D3DShaderMacro*)null, (ID3DInclude*)null, (byte*)psEntry, (byte*)psTarget, 0, 0, &psBlob, &errorBlob);
+
+        if (errorBlob != null)
+        {
+            Console.WriteLine("PS Compile Error: " + SilkMarshal.PtrToString((nint)errorBlob->GetBufferPointer()));
+            errorBlob->Release();
+        }
+
+        fixed (ComPtr<ID3D11PixelShader>* psPtr = &PixelShader)
+            _d3d.Device.CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), (ID3D11ClassLinkage*)null, (ID3D11PixelShader**)psPtr);
+
+        InputElementDesc* elements = stackalloc InputElementDesc[3];
+        elements[0] = new InputElementDesc((byte*)SilkMarshal.StringToPtr("POSITION"), 0, Silk.NET.DXGI.Format.FormatR32G32B32Float, 0, 0, InputClassification.PerVertexData, 0);
+        elements[1] = new InputElementDesc((byte*)SilkMarshal.StringToPtr("TEXCOORD"), 0, Silk.NET.DXGI.Format.FormatR32Uint, 0, 12, InputClassification.PerVertexData, 0);
+        elements[2] = new InputElementDesc((byte*)SilkMarshal.StringToPtr("TEXCOORD"), 1, Silk.NET.DXGI.Format.FormatR32G32Float, 0, 16, InputClassification.PerVertexData, 0);
+
+        fixed (ComPtr<ID3D11InputLayout>* layoutPtr = &InputLayout)
+            _d3d.Device.CreateInputLayout(elements, 3, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), (ID3D11InputLayout**)layoutPtr);
+
+        vsBlob->Release();
+        psBlob->Release();
+        SilkMarshal.Free(vsEntry);
+        SilkMarshal.Free(psEntry);
+        SilkMarshal.Free(vsTarget);
+        SilkMarshal.Free(psTarget);
+        SilkMarshal.Free(sourcePtr);
+        SilkMarshal.Free((nint)elements[0].SemanticName);
+        SilkMarshal.Free((nint)elements[1].SemanticName);
+        SilkMarshal.Free((nint)elements[2].SemanticName);
     }
 
-    public Shader(GL gl, string computeSource)
+    public void Bind()
     {
-        _gl = gl;
-        var computeShader = CompileShader(ShaderType.ComputeShader, computeSource);
-
-        Handle = _gl.CreateProgram();
-        _gl.AttachShader(Handle, computeShader);
-        _gl.LinkProgram(Handle);
-
-        _gl.GetProgram(Handle, ProgramPropertyARB.LinkStatus, out var status);
-        if (status == 0)
-            throw new Exception($"Compute Shader program linking failed: {_gl.GetProgramInfoLog(Handle)}");
-
-        _gl.DetachShader(Handle, computeShader);
-        _gl.DeleteShader(computeShader);
+        _d3d.Context.IASetInputLayout(InputLayout);
+        _d3d.Context.VSSetShader(VertexShader, null, 0);
+        _d3d.Context.PSSetShader(PixelShader, null, 0);
+        _d3d.Context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3D11PrimitiveTopologyTrianglelist);
     }
 
-    public static string LoadFromFile(string path)
+    public void Dispose()
     {
-        string text = File.ReadAllText(path);
+        if (_isDisposed) return;
+        _isDisposed = true;
 
-        bool hasBadChars = false;
-        foreach (char c in text)
-            if (c >= 128)
-            { hasBadChars = true; break; }
-
-        if (!hasBadChars)
-            return text;
-
-        var sb = new StringBuilder(text.Length);
-        foreach (char c in text)
-            if (c < 128)
-                sb.Append(c);
-        return sb.ToString();
+        VertexShader.Dispose();
+        PixelShader.Dispose();
+        InputLayout.Dispose();
     }
-
-    public void Use() => _gl.UseProgram(Handle);
-
-    public void Dispatch(uint numGroupsX, uint numGroupsY, uint numGroupsZ)
-        => _gl.DispatchCompute(numGroupsX, numGroupsY, numGroupsZ);
-
-    public int GetUniformLocation(string name)
-    {
-        if (_uniformLocationCache.TryGetValue(name, out int location))
-            return location;
-
-        location = _gl.GetUniformLocation(Handle, name);
-        if (location == -1)
-            Debug.WriteLine($"[WARNING] Uniform '{name}' not found.");
-
-        _uniformLocationCache[name] = location;
-        return location;
-    }
-
-    public void SetInt(int location, int value) => _gl.Uniform1(location, value);
-    public void SetFloat(int location, float value) => _gl.Uniform1(location, value);
-    public void SetUInt(int location, uint value) => _gl.Uniform1(location, value);
-    public void SetBool(int location, bool value) => _gl.Uniform1(location, value ? 1 : 0);
-
-    public unsafe void SetVector2(int location, Vector2 vector) => _gl.Uniform2(location, 1, (float*)&vector);
-    public unsafe void SetVector3(int location, Vector3 vector) => _gl.Uniform3(location, 1, (float*)&vector);
-    public unsafe void SetVector4(int location, Vector4 vector) => _gl.Uniform4(location, 1, (float*)&vector);
-    public unsafe void SetMatrix4x4(int location, Matrix4x4 matrix) => _gl.UniformMatrix4(location, 1, false, (float*)&matrix);
-
-    public unsafe void SetVector4Array(int location, ReadOnlySpan<Vector4> vectors)
-    {
-        fixed (Vector4* ptr = vectors)
-            _gl.Uniform4(location, (uint)vectors.Length, (float*)ptr);
-    }
-
-    private uint CompileShader(ShaderType type, string source)
-    {
-        var shader = _gl.CreateShader(type);
-        _gl.ShaderSource(shader, source);
-        _gl.CompileShader(shader);
-
-        _gl.GetShader(shader, ShaderParameterName.CompileStatus, out var status);
-        if (status == 0)
-            throw new Exception($"Shader compilation of type {type} failed: {_gl.GetShaderInfoLog(shader)}");
-
-        return shader;
-    }
-
-    public void Dispose() => _gl.DeleteProgram(Handle);
 }
