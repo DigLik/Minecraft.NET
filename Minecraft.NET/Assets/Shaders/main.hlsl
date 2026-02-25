@@ -1,11 +1,14 @@
-cbuffer Constants : register(b0)
+cbuffer FrameConstants : register(b0)
 {
-    matrix Model;
     matrix View;
     matrix Projection;
     float4 WireframeColor;
     int UseWireframeColor;
-    float3 Padding;
+};
+
+cbuffer ChunkData : register(b1)
+{
+    float3 ChunkOffset;
 };
 
 Texture2DArray blockTextures : register(t0);
@@ -28,7 +31,8 @@ struct PS_INPUT
 PS_INPUT VS(VS_INPUT input)
 {
     PS_INPUT output;
-    float4 worldPos = mul(float4(input.Pos, 1.0f), Model);
+    
+    float4 worldPos = float4(input.Pos + ChunkOffset, 1.0f);
     float4 viewPos = mul(worldPos, View);
     output.Pos = mul(viewPos, Projection);
     
