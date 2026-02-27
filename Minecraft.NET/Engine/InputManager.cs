@@ -1,8 +1,10 @@
 ﻿using Minecraft.NET.Character;
 using Minecraft.NET.Character.Controllers;
-using Minecraft.NET.Graphics;
+using Minecraft.NET.Engine.Abstractions;
 using Minecraft.NET.Services;
 using Minecraft.NET.Windowing;
+
+using Silk.NET.GLFW;
 
 namespace Minecraft.NET.Engine;
 
@@ -30,14 +32,13 @@ public unsafe class InputManager : IInputManager
         Player player,
         WorldInteractionService worldInteraction,
         GameModeManager gameModeManager,
-        RenderSettings renderSettings,
         IReadOnlyDictionary<GameMode, IPlayerController> controllers,
         IWindow window)
     {
         _player = player;
         _worldInteraction = worldInteraction;
         _controllers = new(controllers);
-        _systemInputHandler = new SystemInputHandler(this, gameModeManager, renderSettings);
+        _systemInputHandler = new SystemInputHandler(this, gameModeManager);
 
         _glfw = Glfw.GetApi();
         _windowHandle = (WindowHandle*)window.Handle;
@@ -108,23 +109,6 @@ public unsafe class InputManager : IInputManager
 
     private void OnCursorPos(WindowHandle* window, double xpos, double ypos)
     {
-        var currentPos = new Vector2((float)xpos, (float)ypos);
-
-        if (!IsMouseCaptured)
-        {
-            _lastMousePosition = currentPos;
-            return;
-        }
-
-        const float sensitivity = 0.1f;
-        var offset = new Vector2(currentPos.X - _lastMousePosition.X, _lastMousePosition.Y - currentPos.Y);
-        _lastMousePosition = currentPos;
-
-        offset *= sensitivity;
-
-        _player.Camera.Yaw += offset.X;
-        _player.Camera.Pitch += offset.Y;
-        _player.Camera.UpdateVectors();
     }
 
     private void OnKey(WindowHandle* window, Keys key, int scancode, InputAction action, KeyModifiers mods)

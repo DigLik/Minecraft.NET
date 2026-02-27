@@ -5,6 +5,6 @@ namespace Minecraft.NET.Services.Physics;
 
 public class SpectatorPhysicsStrategy : IPhysicsStrategy
 {
-    public void Update(Player player, World world, double deltaTime)
+    public void Update(Player player, World world, float deltaTime)
         => player.Position += player.Velocity * deltaTime;
 }

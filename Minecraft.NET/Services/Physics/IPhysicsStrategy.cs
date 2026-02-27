@@ -5,5 +5,5 @@ namespace Minecraft.NET.Services.Physics;
 
 public interface IPhysicsStrategy
 {
-    void Update(Player player, World world, double deltaTime);
+    void Update(Player player, World world, float deltaTime);
 }

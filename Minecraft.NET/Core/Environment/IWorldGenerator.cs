@@ -4,5 +4,5 @@ namespace Minecraft.NET.Core.Environment;
 
 public interface IWorldGenerator
 {
-    void Generate(ChunkColumn column);
+    void Generate(ChunkSection column);
 }

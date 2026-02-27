@@ -1,14 +1,13 @@
 ﻿using Minecraft.NET.Character;
-using Minecraft.NET.Core.Common;
 using Minecraft.NET.Core.Environment;
 
 namespace Minecraft.NET.Services.Physics;
 
 public class CreativePhysicsStrategy : IPhysicsStrategy
 {
-    public void Update(Player player, World world, double deltaTime)
+    public void Update(Player player, World world, float deltaTime)
     {
-        player.Velocity -= new Vector3d(0, Gravity * deltaTime, 0);
+        player.Velocity -= new Vector3<float>(0, Gravity * deltaTime, 0);
 
         var velocity = player.Velocity;
         (player.Position, player.IsOnGround) = MoveAndSlide(player, world, player.Position, ref velocity, (float)deltaTime);
@@ -18,17 +17,18 @@ public class CreativePhysicsStrategy : IPhysicsStrategy
             player.Velocity = player.Velocity with { Y = 0 };
     }
 
-    private static (Vector3d newPosition, bool onGround) MoveAndSlide(Player player, World world, Vector3d position, ref Vector3d velocity, float dt)
+    private static (Vector3<float> newPosition, bool onGround) MoveAndSlide(
+        Player player, World world, Vector3<float> position, ref Vector3<float> velocity, float dt)
     {
         var initialVelocity = velocity;
         var totalDisplacement = velocity * dt;
-        double distance = totalDisplacement.Length();
+        float distance = totalDisplacement.Length<float>();
         bool isOnGround = false;
 
         if (distance < 1e-8)
         {
             var tempPos = player.Position;
-            tempPos.Y -= 0.01;
+            tempPos.Y -= 0.01f;
             var playerBox = Player.GetBoundingBoxForPosition(tempPos);
             return (position, CheckCollision(world, playerBox));
         }
@@ -50,7 +50,7 @@ public class CreativePhysicsStrategy : IPhysicsStrategy
                 if (!collided) break;
 
                 position += mtv;
-                var normal = Vector3d.Normalize(mtv);
+                var normal = mtv.Normalize<float>();
 
                 if (normal.Y > 0.707 && initialVelocity.Y <= 0) isOnGround = true;
 
@@ -62,23 +62,23 @@ public class CreativePhysicsStrategy : IPhysicsStrategy
         return (position, isOnGround);
     }
 
-    private static (bool, Vector3d) FindCollisionMTV(World world, BoundingBox playerBox)
+    private static (bool, Vector3<float>) FindCollisionMTV(World world, BoundingBox<float> playerBox)
     {
-        Vector3d overallMtv = Vector3d.Zero;
+        Vector3<float> overallMtv = Vector3<float>.Zero;
 
-        var min = new Vector3d(Math.Floor(playerBox.Min.X - 1), Math.Floor(playerBox.Min.Y - 1), Math.Floor(playerBox.Min.Z - 1));
-        var max = new Vector3d(Math.Floor(playerBox.Max.X + 1), Math.Floor(playerBox.Max.Y + 1), Math.Floor(playerBox.Max.Z + 1));
+        var min = new Vector3<float>(MathF.Floor(playerBox.Min.X - 1), MathF.Floor(playerBox.Min.Y - 1), MathF.Floor(playerBox.Min.Z - 1));
+        var max = new Vector3<float>(MathF.Floor(playerBox.Max.X + 1), MathF.Floor(playerBox.Max.Y + 1), MathF.Floor(playerBox.Max.Z + 1));
 
         for (var x = min.X; x <= max.X; x++)
             for (var y = min.Y; y <= max.Y; y++)
                 for (var z = min.Z; z <= max.Z; z++)
                 {
-                    var blockPos = new Vector3d(x, y, z);
+                    var blockPos = new Vector3<float>(x, y, z);
                     if (world.GetBlock(blockPos) == BlockId.Air) continue;
 
-                    var blockBox = new BoundingBox(
-                        new Vector3((float)x, (float)y, (float)z),
-                        new Vector3((float)x + 1, (float)y + 1, (float)z + 1)
+                    var blockBox = new BoundingBox<float>(
+                        new Vector3<float>(x,     y,     z),
+                        new Vector3<float>(x + 1, y + 1, z + 1)
                     );
 
                     if (!Intersects(playerBox, blockBox)) continue;
@@ -92,7 +92,7 @@ public class CreativePhysicsStrategy : IPhysicsStrategy
         return (overallMtv.LengthSquared() > 0, overallMtv);
     }
 
-    private static Vector3d CalculateMTV(BoundingBox playerBox, BoundingBox blockBox)
+    private static Vector3<float> CalculateMTV(BoundingBox<float> playerBox, BoundingBox<float> blockBox)
     {
         var overlapX = (playerBox.Max.X - playerBox.Min.X) + (blockBox.Max.X - blockBox.Min.X) -
                        (Math.Max(playerBox.Max.X, blockBox.Max.X) - Math.Min(playerBox.Min.X, blockBox.Min.X));
@@ -104,35 +104,35 @@ public class CreativePhysicsStrategy : IPhysicsStrategy
         if (overlapX < overlapY && overlapX < overlapZ)
         {
             var direction = playerBox.Min.X + (playerBox.Max.X - playerBox.Min.X) / 2 < blockBox.Min.X + (blockBox.Max.X - blockBox.Min.X) / 2 ? -1 : 1;
-            return new Vector3d(overlapX * direction, 0, 0);
+            return new Vector3<float>(overlapX * direction, 0, 0);
         }
         if (overlapY < overlapZ)
         {
             var direction = playerBox.Min.Y + (playerBox.Max.Y - playerBox.Min.Y) / 2 < blockBox.Min.Y + (blockBox.Max.Y - blockBox.Min.Y) / 2 ? -1 : 1;
-            return new Vector3d(0, overlapY * direction, 0);
+            return new Vector3<float>(0, overlapY * direction, 0);
         }
         else
         {
             var direction = playerBox.Min.Z + (playerBox.Max.Z - playerBox.Min.Z) / 2 < blockBox.Min.Z + (blockBox.Max.Z - blockBox.Min.Z) / 2 ? -1 : 1;
-            return new Vector3d(0, 0, overlapZ * direction);
+            return new Vector3<float>(0, 0, overlapZ * direction);
         }
     }
 
-    private static bool CheckCollision(World world, BoundingBox box)
+    private static bool CheckCollision(World world, BoundingBox<float> box)
     {
-        var min = new Vector3d(Math.Floor(box.Min.X), Math.Floor(box.Min.Y), Math.Floor(box.Min.Z));
-        var max = new Vector3d(Math.Floor(box.Max.X), Math.Floor(box.Max.Y), Math.Floor(box.Max.Z));
+        var min = new Vector3<float>(MathF.Floor(box.Min.X), MathF.Floor(box.Min.Y), MathF.Floor(box.Min.Z));
+        var max = new Vector3<float>(MathF.Floor(box.Max.X), MathF.Floor(box.Max.Y), MathF.Floor(box.Max.Z));
 
         for (var x = min.X; x <= max.X; x++)
             for (var y = min.Y; y <= max.Y; y++)
                 for (var z = min.Z; z <= max.Z; z++)
                 {
-                    var blockPos = new Vector3d(x, y, z);
+                    var blockPos = new Vector3<float>(x, y, z);
                     if (world.GetBlock(blockPos) != BlockId.Air)
                     {
-                        var blockBox = new BoundingBox(
-                            new Vector3((float)x, (float)y, (float)z),
-                            new Vector3((float)x + 1, (float)y + 1, (float)z + 1)
+                        var blockBox = new BoundingBox<float>(
+                            new Vector3<float>((float)x, (float)y, (float)z),
+                            new Vector3<float>((float)x + 1, (float)y + 1, (float)z + 1)
                         );
                         if (Intersects(box, blockBox))
                             return true;
@@ -141,7 +141,7 @@ public class CreativePhysicsStrategy : IPhysicsStrategy
         return false;
     }
 
-    private static bool Intersects(BoundingBox a, BoundingBox b)
+    private static bool Intersects(BoundingBox<float> a, BoundingBox<float> b)
         => a.Min.X <= b.Max.X && a.Max.X >= b.Min.X &&
            a.Min.Y <= b.Max.Y && a.Max.Y >= b.Min.Y &&
            a.Min.Z <= b.Max.Z && a.Max.Z >= b.Min.Z;

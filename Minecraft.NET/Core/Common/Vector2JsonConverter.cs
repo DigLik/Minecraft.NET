@@ -5,14 +5,14 @@ using System.Text.Json.Serialization;
 
 namespace Minecraft.NET.Core.Common;
 
-public class Vector2DIntJsonConverter : JsonConverter<Dictionary<Vector2D<int>, Dictionary<int, BlockId>>>
+public class Vector2DIntJsonConverter : JsonConverter<Dictionary<Vector2<int>, Dictionary<int, BlockId>>>
 {
-    public override Dictionary<Vector2D<int>, Dictionary<int, BlockId>> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    public override Dictionary<Vector2<int>, Dictionary<int, BlockId>> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         if (reader.TokenType != JsonTokenType.StartObject)
             throw new JsonException();
 
-        var result = new Dictionary<Vector2D<int>, Dictionary<int, BlockId>>();
+        var result = new Dictionary<Vector2<int>, Dictionary<int, BlockId>>();
 
         while (reader.Read())
         {
@@ -53,13 +53,13 @@ public class Vector2DIntJsonConverter : JsonConverter<Dictionary<Vector2D<int>, 
                 chunkMods[blockIndex] = (BlockId)blockIdVal;
             }
 
-            result[new Vector2D<int>(x, y)] = chunkMods;
+            result[new Vector2<int>(x, y)] = chunkMods;
         }
 
         return result;
     }
 
-    public override void Write(Utf8JsonWriter writer, Dictionary<Vector2D<int>, Dictionary<int, BlockId>> value, JsonSerializerOptions options)
+    public override void Write(Utf8JsonWriter writer, Dictionary<Vector2<int>, Dictionary<int, BlockId>> value, JsonSerializerOptions options)
     {
         writer.WriteStartObject();
 
@@ -88,7 +88,7 @@ public class Vector2DIntJsonConverter : JsonConverter<Dictionary<Vector2D<int>, 
         writer.WriteEndObject();
     }
 
-    private static bool TryFormatChunkKey(Vector2D<int> pos, Span<char> destination, out int charsWritten)
+    private static bool TryFormatChunkKey(Vector2<int> pos, Span<char> destination, out int charsWritten)
     {
         charsWritten = 0;
         if (!pos.X.TryFormat(destination, out int xLen)) return false;

@@ -5,7 +5,7 @@ namespace Minecraft.NET.Core.Environment;
 public class WorldStorage(string worldName) : IDisposable
 {
     private readonly string _savePath = Path.Combine(AppContext.BaseDirectory, "saves", worldName, "chunks.bin");
-    private readonly Dictionary<Vector2D<int>, Dictionary<int, BlockId>> _modifications = [];
+    private readonly Dictionary<Vector2<int>, Dictionary<int, BlockId>> _modifications = [];
     private readonly Lock _lock = new();
 
     private static int GetIndex(int x, int y, int z) => x + z * ChunkSize + y * ChunkSize * ChunkSize;
@@ -26,7 +26,7 @@ public class WorldStorage(string worldName) : IDisposable
                 {
                     int cx = reader.ReadInt32();
                     int cy = reader.ReadInt32();
-                    var chunkPos = new Vector2D<int>(cx, cy);
+                    var chunkPos = new Vector2<int>(cx, cy);
 
                     int modCount = reader.ReadInt32();
                     var mods = new Dictionary<int, BlockId>(modCount);
@@ -80,38 +80,12 @@ public class WorldStorage(string worldName) : IDisposable
         }
     }
 
-    public void ApplyModificationsToChunk(ChunkColumn column)
+    public void ApplyModificationsToChunk(ChunkSection column)
     {
-        Dictionary<int, BlockId>? mods;
-        lock (_lock)
-        {
-            _modifications.TryGetValue(column.Position, out mods);
-        }
-
-        if (mods != null)
-        {
-            foreach (var (index, blockId) in mods)
-            {
-                int y = index / (ChunkSize * ChunkSize);
-                int rem = index % (ChunkSize * ChunkSize);
-                int z = rem / ChunkSize;
-                int x = rem % ChunkSize;
-                column.SetBlock(x, y, z, blockId);
-            }
-        }
     }
 
-    public void RecordModification(Vector2D<int> chunkPos, int x, int y, int z, BlockId blockId)
+    public void RecordModification(Vector3<int> position, BlockId blockId)
     {
-        lock (_lock)
-        {
-            if (!_modifications.TryGetValue(chunkPos, out var chunkMods))
-            {
-                chunkMods = [];
-                _modifications[chunkPos] = chunkMods;
-            }
-            chunkMods[GetIndex(x, y, z)] = blockId;
-        }
     }
 
     public void OnClose() => Save();

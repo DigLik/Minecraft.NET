@@ -1,5 +1,4 @@
-﻿using Minecraft.NET.Core.Common;
-using Minecraft.NET.Core.Environment;
+﻿using Minecraft.NET.Core.Environment;
 using Minecraft.NET.Services.Physics;
 
 namespace Minecraft.NET.Character;
@@ -14,7 +13,8 @@ public class GameModeManager
     public IPhysicsStrategy CurrentPhysicsStrategy { get; private set; } = null!;
     public World World { get; }
 
-    public GameModeManager(Player player, World world, IReadOnlyDictionary<GameMode, IPhysicsStrategy> strategies)
+    public GameModeManager(Player player, World world,
+        IReadOnlyDictionary<GameMode, IPhysicsStrategy> strategies)
     {
         _player = player;
         World = world;
@@ -38,10 +38,7 @@ public class GameModeManager
         var newMode = _availableModes[_currentIndex];
         _player.CurrentGameMode = newMode;
         CurrentPhysicsStrategy = _strategies[newMode];
-
         if (_player.CurrentGameMode == GameMode.Spectator)
-        {
-            _player.Velocity = Vector3d.Zero;
-        }
+            _player.Velocity = default;
     }
 }

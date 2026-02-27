@@ -2,11 +2,9 @@
 
 using Minecraft.NET.Character;
 using Minecraft.NET.Character.Controllers;
-using Minecraft.NET.Core.Chunks;
 using Minecraft.NET.Core.Environment;
 using Minecraft.NET.Engine;
-using Minecraft.NET.Graphics;
-using Minecraft.NET.Graphics.Rendering;
+using Minecraft.NET.Engine.Abstractions;
 using Minecraft.NET.Services;
 using Minecraft.NET.Services.Physics;
 using Minecraft.NET.Windowing;
@@ -20,24 +18,17 @@ var window = new GlfwWindow(WindowOptions.Default with
 var services = new ServiceCollection();
 
 services.AddSingleton<IWindow>(window);
-services.AddSingleton<D3D12Context>();
 
 services.AddSingleton(new Player(new(16, 80, 16)));
 services.AddSingleton(_ => new WorldStorage("world"));
 services.AddSingleton<IWorldGenerator, TerrainWorldGenerator>();
-services.AddSingleton<FrameContext>();
-services.AddSingleton<RenderSettings>();
 services.AddSingleton<GameModeManager>();
 
 services.AddSingleton<PhysicsService>();
 services.AddSingleton<WorldInteractionService>();
-services.AddSingleton<ChunkManager>();
 services.AddSingleton<World>();
-services.AddSingleton<ChunkMesherService>();
 
 services.AddSingleton<IInputManager, InputManager>();
-services.AddSingleton<IChunkRenderer, ChunkRenderer>();
-services.AddSingleton<IRenderPipeline, RenderPipeline>();
 
 services.AddSingleton<CreativePlayerController>();
 services.AddSingleton<SpectatorPlayerController>();

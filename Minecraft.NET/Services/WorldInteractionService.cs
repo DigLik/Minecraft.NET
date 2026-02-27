@@ -4,50 +4,26 @@ using Minecraft.NET.Core.Environment;
 
 namespace Minecraft.NET.Services;
 
-public readonly record struct RaycastResult(Vector3d HitPosition, Vector3d PlacePosition);
+public readonly record struct RaycastResult(Vector3<float> HitPosition, Vector3<float> PlacePosition);
 
-public class WorldInteractionService(Player player, World world)
+public class WorldInteractionService()
 {
     public void BreakBlock()
     {
-        var result = Raycast(player.Position, player.Camera.Front, 6.0);
-        if (result.HasValue)
-            world.SetBlock(result.Value.HitPosition, BlockId.Air);
     }
 
     public void PlaceBlock()
     {
-        var result = Raycast(player.Position, player.Camera.Front, 6.0);
-        if (result.HasValue)
-        {
-            var placePosition = result.Value.PlacePosition;
-            var newBlockBox = new BoundingBox(
-                (Vector3)placePosition,
-                (Vector3)placePosition + Vector3.One
-            );
-
-            var playerBox = player.GetBoundingBox();
-
-            const float Epsilon = 0.0001f;
-            var collisionCheckBox = new BoundingBox(
-                newBlockBox.Min + new Vector3(Epsilon),
-                newBlockBox.Max - new Vector3(Epsilon)
-            );
-
-            if (Intersects(playerBox, collisionCheckBox)) return;
-
-            world.SetBlock(placePosition, BlockId.Stone);
-        }
     }
 
-    private static bool Intersects(BoundingBox a, BoundingBox b)
+    private static bool Intersects(BoundingBox<float> a, BoundingBox<float> b)
         => a.Min.X <= b.Max.X && a.Max.X >= b.Min.X &&
            a.Min.Y <= b.Max.Y && a.Max.Y >= b.Min.Y &&
            a.Min.Z <= b.Max.Z && a.Max.Z >= b.Min.Z;
 
-    private RaycastResult? Raycast(Vector3d origin, Vector3 direction, double maxDistance)
+    private RaycastResult? Raycast(Vector3<float> origin, Vector3<float> direction, float maxDistance)
     {
-        Vector3d dir = Vector3d.Normalize((Vector3d)direction);
+        Vector3<float> dir = direction.Normalize<float>();
 
         int x = (int)Math.Floor(origin.X);
         int y = (int)Math.Floor(origin.Y);
@@ -57,13 +33,13 @@ public class WorldInteractionService(Player player, World world)
         int stepY = Math.Sign(dir.Y);
         int stepZ = Math.Sign(dir.Z);
 
-        double tDeltaX = stepX != 0 ? Math.Abs(1.0 / dir.X) : double.MaxValue;
-        double tDeltaY = stepY != 0 ? Math.Abs(1.0 / dir.Y) : double.MaxValue;
-        double tDeltaZ = stepZ != 0 ? Math.Abs(1.0 / dir.Z) : double.MaxValue;
+        float tDeltaX = stepX != 0 ? MathF.Abs(1 / dir.X) : float.MaxValue;
+        float tDeltaY = stepY != 0 ? MathF.Abs(1 / dir.Y) : float.MaxValue;
+        float tDeltaZ = stepZ != 0 ? MathF.Abs(1 / dir.Z) : float.MaxValue;
 
-        double tMaxX = (stepX > 0) ? (Math.Floor(origin.X) + 1.0 - origin.X) * tDeltaX : (origin.X - Math.Floor(origin.X)) * tDeltaX;
-        double tMaxY = (stepY > 0) ? (Math.Floor(origin.Y) + 1.0 - origin.Y) * tDeltaY : (origin.Y - Math.Floor(origin.Y)) * tDeltaY;
-        double tMaxZ = (stepZ > 0) ? (Math.Floor(origin.Z) + 1.0 - origin.Z) * tDeltaZ : (origin.Z - Math.Floor(origin.Z)) * tDeltaZ;
+        float tMaxX = (stepX > 0) ? (MathF.Floor(origin.X) + 1 - origin.X) * tDeltaX : (origin.X - MathF.Floor(origin.X)) * tDeltaX;
+        float tMaxY = (stepY > 0) ? (MathF.Floor(origin.Y) + 1 - origin.Y) * tDeltaY : (origin.Y - MathF.Floor(origin.Y)) * tDeltaY;
+        float tMaxZ = (stepZ > 0) ? (MathF.Floor(origin.Z) + 1 - origin.Z) * tDeltaZ : (origin.Z - MathF.Floor(origin.Z)) * tDeltaZ;
 
         int lastX = x;
         int lastY = y;
@@ -73,13 +49,11 @@ public class WorldInteractionService(Player player, World world)
 
         for (int i = 0; i < maxSteps; i++)
         {
-            var currentBlockPos = new Vector3d(x, y, z);
+            var currentBlockPos = new Vector3<float>(x, y, z);
 
-            var blockId = world.GetBlock(currentBlockPos);
+            var blockId = BlockId.Air; // world.GetBlock(currentBlockPos);
             if (blockId != BlockId.Air)
-            {
-                return new RaycastResult(currentBlockPos, new Vector3d(lastX, lastY, lastZ));
-            }
+                return new RaycastResult(currentBlockPos, new Vector3<float>(lastX, lastY, lastZ));
 
             lastX = x;
             lastY = y;

@@ -5,15 +5,15 @@ namespace Minecraft.NET.Core.Chunks;
 
 public unsafe struct ChunkSection
 {
-    public const int SectionSize = ChunkSize * ChunkSize * ChunkSize;
-
     public BlockId* Blocks;
     public int NonAirBlockCount;
     public BlockId UniformId;
 
+    public Vector3<int> Position { get; set; }
+
     public readonly bool IsAllocated => Blocks != null;
     public readonly bool IsEmpty => (!IsAllocated && UniformId == BlockId.Air) || (IsAllocated && NonAirBlockCount == 0);
-    public readonly bool IsFull => (!IsAllocated && UniformId != BlockId.Air) || (IsAllocated && NonAirBlockCount == SectionSize);
+    public readonly bool IsFull => (!IsAllocated && UniformId != BlockId.Air) || (IsAllocated && NonAirBlockCount == BlocksInChunk);
 
     public void Reset()
     {
@@ -34,31 +34,31 @@ public unsafe struct ChunkSection
             Blocks = null;
         }
         UniformId = id;
-        NonAirBlockCount = (id == BlockId.Air) ? 0 : SectionSize;
+        NonAirBlockCount = (id == BlockId.Air) ? 0 : BlocksInChunk;
     }
 
     private void Allocate()
     {
         if (Blocks == null)
         {
-            Blocks = (BlockId*)NativeMemory.Alloc(SectionSize, sizeof(BlockId));
-            NativeMemory.Fill(Blocks, (nuint)SectionSize, (byte)UniformId);
+            Blocks = (BlockId*)NativeMemory.Alloc(BlocksInChunk, sizeof(BlockId));
+            NativeMemory.Fill(Blocks, (nuint)BlocksInChunk, (byte)UniformId);
         }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public readonly BlockId GetBlock(int x, int y, int z)
+    public readonly BlockId GetBlock(Vector3<int> position)
     {
         if (Blocks == null) return UniformId;
-        return Blocks[GetIndex(x, y, z)];
+        return Blocks[GetIndex(position)];
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void SetBlock(int x, int y, int z, BlockId id)
+    public void SetBlock(Vector3<int> position, BlockId id)
     {
         if (Blocks != null)
         {
-            int index = GetIndex(x, y, z);
+            int index = GetIndex(position);
             BlockId oldId = Blocks[index];
             if (oldId == id) return;
 
@@ -72,7 +72,7 @@ public unsafe struct ChunkSection
         if (UniformId == id) return;
 
         Allocate();
-        SetBlock(x, y, z, id);
+        SetBlock(position, id);
     }
 
     public void Optimize()
@@ -80,18 +80,18 @@ public unsafe struct ChunkSection
         if (Blocks == null) return;
 
         BlockId first = Blocks[0];
-        for (int i = 1; i < SectionSize; i++)
+        for (int i = 1; i < BlocksInChunk; i++)
             if (Blocks[i] != first) return;
 
         NativeMemory.Free(Blocks);
         Blocks = null;
         UniformId = first;
-        NonAirBlockCount = (first == BlockId.Air) ? 0 : SectionSize;
+        NonAirBlockCount = (first == BlockId.Air) ? 0 : BlocksInChunk;
     }
 
     public void Free() => Reset();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static int GetIndex(int x, int y, int z)
-        => x + (z << ChunkShift) + (y << (ChunkShift * 2));
+    public static int GetIndex(Vector3<int> position)
+        => position.GetHashCode();
 }
