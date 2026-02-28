@@ -32,7 +32,7 @@
 	<PublishTrimmed>true</PublishTrimmed>
 	<TrimMode>full</TrimMode>
 	<PublishReadyToRun>false</PublishReadyToRun>
-	<PublishAot>true</PublishAot>
+	<PublishAot>false</PublishAot>
 	<TieredPGO>true</TieredPGO>
   </PropertyGroup>
 	
@@ -45,18 +45,14 @@
   </ItemGroup>
 	
   <ItemGroup>
-    <ProjectReference Include="..\Minecraft.NET.Windowing\Minecraft.NET.Windowing.csproj" />
+    <ProjectReference Include="..\Minecraft.NET.Game\Minecraft.NET.Game.csproj" />
+    <ProjectReference Include="..\Minecraft.NET.Platform.Glfw\Minecraft.NET.Platform.Glfw.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <None Update="Assets\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Assets\Shaders\" />
-    <Folder Include="Graphics\" />
   </ItemGroup>
 
 </Project>

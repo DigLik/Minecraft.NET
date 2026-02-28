@@ -1,57 +1,46 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 
-using Minecraft.NET.Character;
-using Minecraft.NET.Character.Controllers;
-using Minecraft.NET.Core.Environment;
-using Minecraft.NET.Engine;
+using Minecraft.NET;
 using Minecraft.NET.Engine.Abstractions;
-using Minecraft.NET.Services;
-using Minecraft.NET.Services.Physics;
-using Minecraft.NET.Windowing;
-
-var window = new GlfwWindow(WindowOptions.Default with
-{
-    Title = "Minecraft.NET D3D12",
-    Size = new(1200, 800)
-});
+using Minecraft.NET.Engine.Core;
+using Minecraft.NET.Game.Entities;
+using Minecraft.NET.Game.Physics;
+using Minecraft.NET.Game.World.Environment;
+using Minecraft.NET.Platform.Glfw;
+using Minecraft.NET.Utils.Math;
 
 var services = new ServiceCollection();
 
-services.AddSingleton<IWindow>(window);
+services.AddSingleton<IWindow>(_ => new GlfwWindow("Minecraft.NET Engine", 1280, 720));
+services.AddSingleton<IInputManager, GlfwInputManager>();
 
-services.AddSingleton(new Player(new(16, 80, 16)));
-services.AddSingleton(_ => new WorldStorage("world"));
-services.AddSingleton<IWorldGenerator, TerrainWorldGenerator>();
-services.AddSingleton<GameModeManager>();
+services.AddSingleton<IRenderPipeline, DummyRenderPipeline>();
 
-services.AddSingleton<PhysicsService>();
-services.AddSingleton<WorldInteractionService>();
+services.AddSingleton<EngineApp>();
+
+services.AddSingleton(_ => new WorldStorage("World1"));
+services.AddSingleton<IWorldGenerator, FlatWorldGenerator>();
 services.AddSingleton<World>();
 
-services.AddSingleton<IInputManager, InputManager>();
+services.AddSingleton<PlayerInputSystem>();
+services.AddSingleton<PhysicsSystem>();
+services.AddSingleton<PlayerInteractionSystem>();
 
-services.AddSingleton<CreativePlayerController>();
-services.AddSingleton<SpectatorPlayerController>();
+var provider = services.BuildServiceProvider();
 
-services.AddSingleton<IReadOnlyDictionary<GameMode, IPhysicsStrategy>>(_ =>
-    new Dictionary<GameMode, IPhysicsStrategy>
-        {
-            { GameMode.Creative, new CreativePhysicsStrategy() },
-            { GameMode.Spectator, new SpectatorPhysicsStrategy() }
-        });
+var engine = provider.GetRequiredService<EngineApp>();
+var world = provider.GetRequiredService<World>();
 
-services.AddSingleton<IReadOnlyDictionary<GameMode, IPlayerController>>(provider =>
-    new Dictionary<GameMode, IPlayerController>
-        {
-            { GameMode.Creative, provider.GetRequiredService<CreativePlayerController>() },
-            { GameMode.Spectator, provider.GetRequiredService<SpectatorPlayerController>() }
-        });
+await world.InitializeAsync();
 
-services.AddSingleton<Game>();
+engine.AddSystem(provider.GetRequiredService<PlayerInputSystem>());
+engine.AddSystem(provider.GetRequiredService<PhysicsSystem>());
+engine.AddSystem(provider.GetRequiredService<PlayerInteractionSystem>());
 
-var serviceProvider = services.BuildServiceProvider();
+engine.Registry.Create()
+    .With(new TransformComponent { Position = new Vector3<float>(8, 100, 8) })
+    .With(new VelocityComponent { IsOnGround = false })
+    .With(new PlayerControlledComponent { IsCreativeMode = true });
 
-var game = serviceProvider.GetRequiredService<Game>();
-game.Run();
-
-serviceProvider.Dispose();
+engine.Run();
+await provider.DisposeAsync();
