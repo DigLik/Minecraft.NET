@@ -1,4 +1,5 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Numerics;
+using System.Runtime.InteropServices;
 
 using Minecraft.NET.Engine.Abstractions;
 using Minecraft.NET.Engine.ECS;
@@ -17,12 +18,14 @@ public sealed class EngineApp : IDisposable
     private bool _isDisposed;
 
     public Registry Registry { get; } = new();
+    public Matrix4x4 CameraMatrix { get; set; } = Matrix4x4.Identity;
 
     public EngineApp(IWindow window, IInputManager inputManager, IRenderPipeline renderPipeline)
     {
         _window = window;
         _inputManager = inputManager;
         _renderPipeline = renderPipeline;
+
         _window.Load += OnLoad;
         _window.Update += OnUpdate;
         _window.Render += OnRender;
@@ -41,7 +44,11 @@ public sealed class EngineApp : IDisposable
     {
         _totalTime += deltaTime;
         var time = new Time { DeltaTime = deltaTime, TotalTime = _totalTime };
+
         _inputManager.OnUpdate(deltaTime);
+
+        _renderPipeline.ClearDraws();
+
         foreach (var system in CollectionsMarshal.AsSpan(_systems))
             system.Update(Registry, in time);
     }
@@ -53,14 +60,15 @@ public sealed class EngineApp : IDisposable
     {
         _timeAccumulator += deltaTime;
         _frameCounter++;
+
         if (_timeAccumulator >= 1)
         {
-            Console.WriteLine(_frameCounter / _timeAccumulator);
+            Console.WriteLine($"FPS: {_frameCounter / _timeAccumulator}");
             _timeAccumulator -= 1;
             _frameCounter = 0;
         }
 
-        _renderPipeline.OnRender(deltaTime);
+        _renderPipeline.RenderFrame(CameraMatrix);
     }
 
     private void OnFramebufferResize(Vector2<int> newSize)

@@ -14,12 +14,8 @@ public struct VelocityComponent
     public bool IsOnGround;
 }
 
-public struct ColliderComponent
-{
-    public BoundingBox<float> BoundingBox;
-}
-
 public struct PlayerControlledComponent
 {
     public bool IsCreativeMode;
+    public bool IsSpectatorMode;
 }

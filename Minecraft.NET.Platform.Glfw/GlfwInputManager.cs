@@ -14,6 +14,15 @@ public unsafe class GlfwInputManager : IInputManager
     private readonly GlfwApi _glfw;
     private readonly WindowHandle* _windowHandle;
 
+    private readonly bool[] _currentKeys = new bool[256];
+    private readonly bool[] _previousKeys = new bool[256];
+
+    private readonly bool[] _currentButtons = new bool[8];
+    private readonly bool[] _previousButtons = new bool[8];
+
+    private static readonly EngineKey[] _allKeys = Enum.GetValues<EngineKey>();
+    private static readonly EngineMouseButton[] _allButtons = Enum.GetValues<EngineMouseButton>();
+
     public Vector2<float> MousePosition { get; private set; }
     public bool IsMouseCaptured { get; private set; }
 
@@ -30,22 +39,30 @@ public unsafe class GlfwInputManager : IInputManager
 
         _glfw.GetCursorPos(_windowHandle, out double mx, out double my);
         MousePosition = new Vector2<float>((float)mx, (float)my);
+
+        Array.Copy(_currentKeys, _previousKeys, _currentKeys.Length);
+        foreach (var key in _allKeys)
+        {
+            var glfwKey = MapKey(key);
+            if (glfwKey != Keys.Unknown)
+                _currentKeys[(int)key] = _glfw.GetKey(_windowHandle, glfwKey) == (int)InputAction.Press;
+        }
+
+        Array.Copy(_currentButtons, _previousButtons, _currentButtons.Length);
+        foreach (var button in _allButtons)
+        {
+            var glfwButton = MapMouseButton(button);
+            _currentButtons[(int)button] = _glfw.GetMouseButton(_windowHandle, (int)glfwButton) == (int)InputAction.Press;
+        }
     }
 
-    public bool IsKeyPressed(EngineKey key)
-    {
-        var glfwKey = MapKey(key);
-        if (glfwKey == Keys.Unknown) return false;
+    public bool IsKeyDown(EngineKey key) => _currentKeys[(int)key] && !_previousKeys[(int)key];
+    public bool IsKey(EngineKey key) => _currentKeys[(int)key];
+    public bool IsKeyUp(EngineKey key) => !_currentKeys[(int)key] && _previousKeys[(int)key];
 
-        var state = _glfw.GetKey(_windowHandle, glfwKey);
-        return state is ((int)InputAction.Press) or ((int)InputAction.Repeat);
-    }
-
-    public bool IsMouseButtonPressed(EngineMouseButton button)
-    {
-        var glfwButton = MapMouseButton(button);
-        return _glfw.GetMouseButton(_windowHandle, (int)glfwButton) == (int)InputAction.Press;
-    }
+    public bool IsMouseButtonDown(EngineMouseButton button) => _currentButtons[(int)button] && !_previousButtons[(int)button];
+    public bool IsMouseButton(EngineMouseButton button) => _currentButtons[(int)button];
+    public bool IsMouseButtonUp(EngineMouseButton button) => !_currentButtons[(int)button] && _previousButtons[(int)button];
 
     public void ToggleMouseCapture() => SetMouseCapture(!IsMouseCaptured);
 
@@ -69,6 +86,7 @@ public unsafe class GlfwInputManager : IInputManager
         EngineKey.S => Keys.S,
         EngineKey.D => Keys.D,
         EngineKey.F1 => Keys.F1,
+        EngineKey.ShiftLeft => Keys.ShiftLeft,
         _ => Keys.Unknown
     };
 

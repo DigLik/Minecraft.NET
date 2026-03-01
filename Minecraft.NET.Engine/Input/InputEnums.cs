@@ -1,12 +1,13 @@
 ﻿namespace Minecraft.NET.Engine.Input;
 
-public enum Key : byte
+public enum Key
 {
-    Unknown = 0,
-    Space, Escape, Enter, Tab, W, A, S, D, F1
+    Space, Escape, Enter, Tab,
+    W, A, S, D,
+    F1, ShiftLeft
 }
 
-public enum MouseButton : byte
+public enum MouseButton
 {
-    Left = 0, Right = 1, Middle = 2
+    Left, Right, Middle
 }

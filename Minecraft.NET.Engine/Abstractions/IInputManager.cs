@@ -1,5 +1,5 @@
-﻿using Minecraft.NET.Utils.Math;
-using Minecraft.NET.Engine.Input;
+﻿using Minecraft.NET.Engine.Input;
+using Minecraft.NET.Utils.Math;
 
 namespace Minecraft.NET.Engine.Abstractions;
 
@@ -10,8 +10,13 @@ public interface IInputManager
 
     void OnUpdate(double deltaTime);
 
-    bool IsKeyPressed(Key key);
-    bool IsMouseButtonPressed(MouseButton button);
+    bool IsKeyDown(Key key);
+    bool IsKey(Key key);
+    bool IsKeyUp(Key key);
+
+    bool IsMouseButtonDown(MouseButton button);
+    bool IsMouseButton(MouseButton button);
+    bool IsMouseButtonUp(MouseButton button);
 
     void ToggleMouseCapture();
     void CloseWindow();

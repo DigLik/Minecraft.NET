@@ -22,8 +22,8 @@ public sealed class World : IAsyncDisposable
 
         int renderDistance = 4;
         for (int x = -renderDistance; x <= renderDistance; x++)
-            for (int z = -renderDistance; z <= renderDistance; z++)
-                for (int y = 0; y < WorldHeightInChunks; y++)
+            for (int y = -renderDistance; y <= renderDistance; y++)
+                for (int z = 0; z < WorldHeightInChunks; z++)
                     Chunks.LoadChunk(new Vector3<int>(x, y, z));
 
         return Task.CompletedTask;

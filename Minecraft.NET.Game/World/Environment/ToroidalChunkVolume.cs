@@ -11,17 +11,18 @@ public sealed class ToroidalChunkVolume
     private readonly Vector3<int>[] _positions;
     private readonly Lock[] _locks;
 
-    private readonly int _width;
-    private readonly int _height;
-    private readonly int _depth;
+    private readonly int _sizeX;
+    private readonly int _sizeY;
+    private readonly int _sizeZ;
 
     public ToroidalChunkVolume(int renderDistance, int worldHeightChunks)
     {
-        _width = (renderDistance * 2) + 4;
-        _height = worldHeightChunks;
-        _depth = (renderDistance * 2) + 4;
+        _sizeX = (renderDistance * 2) + 4;
+        _sizeY = (renderDistance * 2) + 4;
+        _sizeZ = worldHeightChunks;
 
-        int volume = _width * _height * _depth;
+        int volume = _sizeX * _sizeY * _sizeZ;
+
         _chunks = new ChunkSection[volume];
         _positions = new Vector3<int>[volume];
         _locks = new Lock[volume];
@@ -36,10 +37,11 @@ public sealed class ToroidalChunkVolume
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private int GetIndex(Vector3<int> pos)
     {
-        int x = (pos.X % _width + _width) % _width;
-        int y = (pos.Y % _height + _height) % _height;
-        int z = (pos.Z % _depth + _depth) % _depth;
-        return x + _width * (y + _height * z);
+        int x = (pos.X % _sizeX + _sizeX) % _sizeX;
+        int y = (pos.Y % _sizeY + _sizeY) % _sizeY;
+        int z = (pos.Z % _sizeZ + _sizeZ) % _sizeZ;
+
+        return x + _sizeX * (y + _sizeY * z);
     }
 
     public bool TryGetChunk(Vector3<int> pos, out ChunkSection chunk)

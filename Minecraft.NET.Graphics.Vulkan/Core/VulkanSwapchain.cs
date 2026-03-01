@@ -18,15 +18,18 @@ public unsafe class VulkanSwapchain : IDisposable
     public ImageView[] ImageViews = [];
     public Framebuffer[] Framebuffers = [];
 
-    public Image DepthImage;
-    public DeviceMemory DepthImageMemory;
-    public ImageView DepthImageView;
+    public Image[] DepthImages = [];
+    public DeviceMemory[] DepthImageMemories = [];
+    public ImageView[] DepthImageViews = [];
 
     public RenderPass RenderPass;
+    public Format DepthFormat;
 
     public VulkanSwapchain(VulkanDevice device, Vector2<int> windowSize)
     {
         _device = device;
+        DepthFormat = FindDepthFormat();
+
         CreateSwapchain(windowSize);
         CreateImageViews();
         CreateRenderPass();
@@ -34,10 +37,21 @@ public unsafe class VulkanSwapchain : IDisposable
         CreateFramebuffers();
     }
 
+    private Format FindDepthFormat()
+    {
+        Format[] candidates = [Format.D32Sfloat, Format.D32SfloatS8Uint, Format.D24UnormS8Uint];
+        foreach (var format in candidates)
+        {
+            _device.Vk.GetPhysicalDeviceFormatProperties(_device.PhysicalDevice, format, out var props);
+            if ((props.OptimalTilingFeatures & FormatFeatureFlags.DepthStencilAttachmentBit) != 0)
+                return format;
+        }
+        return Format.D32Sfloat;
+    }
+
     private void CreateSwapchain(Vector2<int> windowSize)
     {
         _device.KhrSurface.GetPhysicalDeviceSurfaceCapabilities(_device.PhysicalDevice, _device.Surface, out var capabilities);
-
         Extent = new Extent2D((uint)Math.Max(1, windowSize.X), (uint)Math.Max(1, windowSize.Y));
         ImageFormat = Format.B8G8R8A8Unorm;
 
@@ -53,11 +67,13 @@ public unsafe class VulkanSwapchain : IDisposable
 
         PresentModeKHR presentMode = PresentModeKHR.ImmediateKhr;
         foreach (var mode in presentModes)
+        {
             if (mode == PresentModeKHR.MailboxKhr)
             {
                 presentMode = mode;
                 break;
             }
+        }
 
         uint[] queueFamilyIndices = [_device.GraphicsFamilyIndex, _device.PresentFamilyIndex];
         bool sameQueue = _device.GraphicsFamilyIndex == _device.PresentFamilyIndex;
@@ -109,44 +125,51 @@ public unsafe class VulkanSwapchain : IDisposable
 
     private void CreateDepthResources()
     {
-        Format depthFormat = Format.D32Sfloat;
+        DepthImages = new Image[Images.Length];
+        DepthImageMemories = new DeviceMemory[Images.Length];
+        DepthImageViews = new ImageView[Images.Length];
 
-        ImageCreateInfo imageInfo = new()
+        for (int i = 0; i < Images.Length; i++)
         {
-            SType = StructureType.ImageCreateInfo,
-            ImageType = ImageType.Type2D,
-            Extent = new Extent3D(Extent.Width, Extent.Height, 1),
-            MipLevels = 1, ArrayLayers = 1,
-            Format = depthFormat,
-            Tiling = ImageTiling.Optimal,
-            InitialLayout = ImageLayout.Undefined,
-            Usage = ImageUsageFlags.DepthStencilAttachmentBit,
-            SharingMode = SharingMode.Exclusive,
-            Samples = SampleCountFlags.Count1Bit
-        };
+            ImageCreateInfo imageInfo = new()
+            {
+                SType = StructureType.ImageCreateInfo,
+                ImageType = ImageType.Type2D,
+                Extent = new Extent3D(Extent.Width, Extent.Height, 1),
+                MipLevels = 1, ArrayLayers = 1,
+                Format = DepthFormat,
+                Tiling = ImageTiling.Optimal,
+                InitialLayout = ImageLayout.Undefined,
+                Usage = ImageUsageFlags.DepthStencilAttachmentBit,
+                SharingMode = SharingMode.Exclusive,
+                Samples = SampleCountFlags.Count1Bit
+            };
 
-        _device.Vk.CreateImage(_device.Device, in imageInfo, null, out DepthImage);
+            _device.Vk.CreateImage(_device.Device, in imageInfo, null, out DepthImages[i]);
 
-        _device.Vk.GetImageMemoryRequirements(_device.Device, DepthImage, out var memRequirements);
-        MemoryAllocateInfo allocInfo = new()
-        {
-            SType = StructureType.MemoryAllocateInfo,
-            AllocationSize = memRequirements.Size,
-            MemoryTypeIndex = _device.FindMemoryType(memRequirements.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit)
-        };
+            _device.Vk.GetImageMemoryRequirements(_device.Device, DepthImages[i], out var memRequirements);
 
-        _device.Vk.AllocateMemory(_device.Device, in allocInfo, null, out DepthImageMemory);
-        _device.Vk.BindImageMemory(_device.Device, DepthImage, DepthImageMemory, 0);
+            MemoryAllocateInfo allocInfo = new()
+            {
+                SType = StructureType.MemoryAllocateInfo,
+                AllocationSize = memRequirements.Size,
+                MemoryTypeIndex = _device.FindMemoryType(memRequirements.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit)
+            };
 
-        ImageViewCreateInfo viewInfo = new()
-        {
-            SType = StructureType.ImageViewCreateInfo,
-            Image = DepthImage,
-            ViewType = ImageViewType.Type2D,
-            Format = depthFormat,
-            SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.DepthBit, 0, 1, 0, 1)
-        };
-        _device.Vk.CreateImageView(_device.Device, in viewInfo, null, out DepthImageView);
+            _device.Vk.AllocateMemory(_device.Device, in allocInfo, null, out DepthImageMemories[i]);
+            _device.Vk.BindImageMemory(_device.Device, DepthImages[i], DepthImageMemories[i], 0);
+
+            ImageViewCreateInfo viewInfo = new()
+            {
+                SType = StructureType.ImageViewCreateInfo,
+                Image = DepthImages[i],
+                ViewType = ImageViewType.Type2D,
+                Format = DepthFormat,
+                SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.DepthBit, 0, 1, 0, 1)
+            };
+
+            _device.Vk.CreateImageView(_device.Device, in viewInfo, null, out DepthImageViews[i]);
+        }
     }
 
     private void CreateRenderPass()
@@ -165,7 +188,7 @@ public unsafe class VulkanSwapchain : IDisposable
 
         AttachmentDescription depthAttachment = new()
         {
-            Format = Format.D32Sfloat,
+            Format = DepthFormat,
             Samples = SampleCountFlags.Count1Bit,
             LoadOp = AttachmentLoadOp.Clear,
             StoreOp = AttachmentStoreOp.DontCare,
@@ -215,9 +238,10 @@ public unsafe class VulkanSwapchain : IDisposable
     private void CreateFramebuffers()
     {
         Framebuffers = new Framebuffer[ImageViews.Length];
+
         for (int i = 0; i < ImageViews.Length; i++)
         {
-            var attachments = stackalloc[] { ImageViews[i], DepthImageView };
+            var attachments = stackalloc[] { ImageViews[i], DepthImageViews[i] };
 
             FramebufferCreateInfo framebufferInfo = new()
             {
@@ -236,9 +260,12 @@ public unsafe class VulkanSwapchain : IDisposable
 
     public void Dispose()
     {
-        _device.Vk.DestroyImageView(_device.Device, DepthImageView, null);
-        _device.Vk.DestroyImage(_device.Device, DepthImage, null);
-        _device.Vk.FreeMemory(_device.Device, DepthImageMemory, null);
+        for (int i = 0; i < DepthImages.Length; i++)
+        {
+            _device.Vk.DestroyImageView(_device.Device, DepthImageViews[i], null);
+            _device.Vk.DestroyImage(_device.Device, DepthImages[i], null);
+            _device.Vk.FreeMemory(_device.Device, DepthImageMemories[i], null);
+        }
 
         foreach (var fb in Framebuffers) _device.Vk.DestroyFramebuffer(_device.Device, fb, null);
         foreach (var iv in ImageViews) _device.Vk.DestroyImageView(_device.Device, iv, null);

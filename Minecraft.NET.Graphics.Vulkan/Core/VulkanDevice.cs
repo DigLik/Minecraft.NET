@@ -22,11 +22,15 @@ public unsafe class VulkanDevice : IDisposable
     public Queue PresentQueue;
     public SurfaceKHR Surface;
 
+    public CommandPool TransferCommandPool;
+
     public uint GraphicsFamilyIndex;
     public uint PresentFamilyIndex;
 
     private readonly ExtDebugUtils? _debugUtils;
     private DebugUtilsMessengerEXT _debugMessenger;
+
+    public readonly Lock QueueLock = new();
 
     public VulkanDevice(void* windowHandle)
     {
@@ -59,13 +63,8 @@ public unsafe class VulkanDevice : IDisposable
         var extensions = new List<string>();
         for (int i = 0; i < glfwExtensionCount; i++)
             extensions.Add(Marshal.PtrToStringAnsi((IntPtr)glfwExtensions[i])!);
-#if DEBUG
-        extensions.Add(ExtDebugUtils.ExtensionName);
-#endif
 
         var pExtensions = SilkMarshal.StringArrayToPtr([.. extensions]);
-        var layers = new[] { "VK_LAYER_KHRONOS_validation" };
-        var pLayers = SilkMarshal.StringArrayToPtr(layers);
 
         InstanceCreateInfo createInfo = new()
         {
@@ -73,31 +72,12 @@ public unsafe class VulkanDevice : IDisposable
             PApplicationInfo = &appInfo,
             EnabledExtensionCount = (uint)extensions.Count,
             PpEnabledExtensionNames = (byte**)pExtensions,
-#if DEBUG
-            EnabledLayerCount = (uint)layers.Length,
-            PpEnabledLayerNames = (byte**)pLayers
-#endif
         };
 
         if (Vk.CreateInstance(in createInfo, null, out Instance) != Result.Success)
             throw new Exception("Failed to create Vulkan Instance!");
 
         SilkMarshal.Free((nint)pExtensions);
-        SilkMarshal.Free((nint)pLayers);
-
-#if DEBUG
-        if (Vk.TryGetInstanceExtension(Instance, out _debugUtils))
-        {
-            DebugUtilsMessengerCreateInfoEXT debugCreateInfo = new()
-            {
-                SType = StructureType.DebugUtilsMessengerCreateInfoExt,
-                MessageSeverity = DebugUtilsMessageSeverityFlagsEXT.ErrorBitExt | DebugUtilsMessageSeverityFlagsEXT.WarningBitExt,
-                MessageType = DebugUtilsMessageTypeFlagsEXT.GeneralBitExt | DebugUtilsMessageTypeFlagsEXT.ValidationBitExt | DebugUtilsMessageTypeFlagsEXT.PerformanceBitExt,
-                PfnUserCallback = (PfnDebugUtilsMessengerCallbackEXT)DebugCallback
-            };
-            _debugUtils.CreateDebugUtilsMessenger(Instance, debugCreateInfo, null, out _debugMessenger);
-        }
-#endif
 
         if (!Vk.TryGetInstanceExtension(Instance, out KhrSurface))
             throw new Exception("Vulkan KHR_surface extension not found.");
@@ -169,7 +149,6 @@ public unsafe class VulkanDevice : IDisposable
 
         var deviceExtensions = new[] { KhrSwapchain.ExtensionName };
         var pDeviceExtensions = SilkMarshal.StringArrayToPtr(deviceExtensions);
-
         PhysicalDeviceFeatures deviceFeatures = new() { SamplerAnisotropy = true };
 
         fixed (DeviceQueueCreateInfo* pQueueCreateInfos = queueCreateInfos)
@@ -183,7 +162,6 @@ public unsafe class VulkanDevice : IDisposable
                 EnabledExtensionCount = (uint)deviceExtensions.Length,
                 PpEnabledExtensionNames = (byte**)pDeviceExtensions
             };
-
             if (Vk.CreateDevice(PhysicalDevice, in createInfo, null, out Device) != Result.Success)
                 throw new Exception("Failed to create logical device!");
         }
@@ -192,6 +170,14 @@ public unsafe class VulkanDevice : IDisposable
 
         Vk.GetDeviceQueue(Device, GraphicsFamilyIndex, 0, out GraphicsQueue);
         Vk.GetDeviceQueue(Device, PresentFamilyIndex, 0, out PresentQueue);
+
+        CommandPoolCreateInfo poolInfo = new()
+        {
+            SType = StructureType.CommandPoolCreateInfo,
+            Flags = CommandPoolCreateFlags.TransientBit,
+            QueueFamilyIndex = GraphicsFamilyIndex
+        };
+        Vk.CreateCommandPool(Device, in poolInfo, null, out TransferCommandPool);
     }
 
     public uint FindMemoryType(uint typeFilter, MemoryPropertyFlags properties)
@@ -203,14 +189,50 @@ public unsafe class VulkanDevice : IDisposable
         throw new Exception("Failed to find suitable memory type!");
     }
 
-    private uint DebugCallback(DebugUtilsMessageSeverityFlagsEXT severity, DebugUtilsMessageTypeFlagsEXT types, DebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData)
+    public CommandBuffer BeginSingleTimeCommands()
     {
-        Console.WriteLine($"[Vulkan Debug] {Marshal.PtrToStringAnsi((IntPtr)pCallbackData->PMessage)}");
-        return Vk.False;
+        CommandBufferAllocateInfo allocInfo = new()
+        {
+            SType = StructureType.CommandBufferAllocateInfo,
+            Level = CommandBufferLevel.Primary,
+            CommandPool = TransferCommandPool,
+            CommandBufferCount = 1
+        };
+        Vk.AllocateCommandBuffers(Device, in allocInfo, out CommandBuffer commandBuffer);
+
+        CommandBufferBeginInfo beginInfo = new()
+        {
+            SType = StructureType.CommandBufferBeginInfo,
+            Flags = CommandBufferUsageFlags.OneTimeSubmitBit
+        };
+        Vk.BeginCommandBuffer(commandBuffer, in beginInfo);
+
+        return commandBuffer;
+    }
+
+    public void EndSingleTimeCommands(CommandBuffer commandBuffer)
+    {
+        Vk.EndCommandBuffer(commandBuffer);
+
+        SubmitInfo submitInfo = new()
+        {
+            SType = StructureType.SubmitInfo,
+            CommandBufferCount = 1,
+            PCommandBuffers = &commandBuffer
+        };
+
+        lock (QueueLock)
+        {
+            Vk.QueueSubmit(GraphicsQueue, 1, in submitInfo, default);
+            Vk.QueueWaitIdle(GraphicsQueue);
+        }
+
+        Vk.FreeCommandBuffers(Device, TransferCommandPool, 1, in commandBuffer);
     }
 
     public void Dispose()
     {
+        Vk.DestroyCommandPool(Device, TransferCommandPool, null);
         Vk.DestroyDevice(Device, null);
         _debugUtils?.DestroyDebugUtilsMessenger(Instance, _debugMessenger, null);
         KhrSurface.DestroySurface(Instance, Surface, null);

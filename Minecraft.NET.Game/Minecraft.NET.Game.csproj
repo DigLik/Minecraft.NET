@@ -8,6 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Minecraft.NET.Engine\Minecraft.NET.Engine.csproj" />
     <ProjectReference Include="..\Minecraft.NET.Utils\Minecraft.NET.Utils.csproj" />
   </ItemGroup>

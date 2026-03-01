@@ -11,14 +11,12 @@ namespace Minecraft.NET.Game.Physics;
 public class PhysicsSystem(GameWorld world) : ISystem
 {
     private const float Gravity = 28.0f;
-
-    private readonly Vector3<float> _playerHalfExtents = new(0.3f, 0.0f, 0.3f);
+    private readonly Vector3<float> _playerHalfExtents = new(0.3f, 0.3f, 0.0f);
     private readonly float _playerHeight = 1.8f;
 
     public void Update(Registry registry, in Time time)
     {
         float deltaTime = (float)time.DeltaTime;
-
         var playerCtrlPool = registry.GetPool<PlayerControlledComponent>();
 
         foreach (var item in registry.GetView<TransformComponent, VelocityComponent>())
@@ -27,35 +25,44 @@ public class PhysicsSystem(GameWorld world) : ISystem
             ref var transform = ref item.Comp1;
             ref var velocity = ref item.Comp2;
 
+            bool isSpectator = playerCtrlPool.Has(entity.Id) && playerCtrlPool.Get(entity.Id).IsSpectatorMode;
+
+            if (isSpectator)
+            {
+                transform.Position.X += velocity.Velocity.X * deltaTime;
+                transform.Position.Y += velocity.Velocity.Y * deltaTime;
+                transform.Position.Z += velocity.Velocity.Z * deltaTime;
+                continue;
+            }
+
             bool isCreative = playerCtrlPool.Has(entity.Id) && playerCtrlPool.Get(entity.Id).IsCreativeMode;
 
             if (!isCreative)
-                velocity.Velocity.Y -= Gravity * deltaTime;
+                velocity.Velocity.Z -= Gravity * deltaTime;
 
             var movement = velocity.Velocity * deltaTime;
 
             if (movement.LengthSquared() == 0) continue;
 
             var playerAABB = new BoundingBox<float>(
-                new Vector3<float>(transform.Position.X - _playerHalfExtents.X, transform.Position.Y, transform.Position.Z - _playerHalfExtents.Z),
-                new Vector3<float>(transform.Position.X + _playerHalfExtents.X, transform.Position.Y + _playerHeight, transform.Position.Z + _playerHalfExtents.Z)
+                new Vector3<float>(transform.Position.X - _playerHalfExtents.X, transform.Position.Y - _playerHalfExtents.Y, transform.Position.Z),
+                new Vector3<float>(transform.Position.X + _playerHalfExtents.X, transform.Position.Y + _playerHalfExtents.Y, transform.Position.Z + _playerHeight)
             );
 
             velocity.IsOnGround = false;
 
-            if (movement.Y != 0)
+            if (movement.Z != 0)
             {
-                playerAABB = playerAABB.Offset(new Vector3<float>(0, movement.Y, 0));
+                playerAABB = playerAABB.Offset(new Vector3<float>(0, 0, movement.Z));
                 if (CheckCollision(playerAABB))
                 {
-                    playerAABB = playerAABB.Offset(new Vector3<float>(0, -movement.Y, 0));
+                    playerAABB = playerAABB.Offset(new Vector3<float>(0, 0, -movement.Z));
+                    if (movement.Z < 0) velocity.IsOnGround = true;
 
-                    if (movement.Y < 0) velocity.IsOnGround = true;
-
-                    movement.Y = 0;
-                    velocity.Velocity.Y = 0;
+                    movement.Z = 0;
+                    velocity.Velocity.Z = 0;
                 }
-                transform.Position.Y += movement.Y;
+                transform.Position.Z += movement.Z;
             }
 
             if (movement.X != 0)
@@ -69,17 +76,19 @@ public class PhysicsSystem(GameWorld world) : ISystem
                 }
                 transform.Position.X += movement.X;
             }
-            if (movement.Z != 0)
+
+            if (movement.Y != 0)
             {
-                playerAABB = playerAABB.Offset(new Vector3<float>(0, 0, movement.Z));
+                playerAABB = playerAABB.Offset(new Vector3<float>(0, movement.Y, 0));
                 if (CheckCollision(playerAABB))
                 {
-                    movement.Z = 0;
-                    velocity.Velocity.Z = 0;
+                    movement.Y = 0;
+                    velocity.Velocity.Y = 0;
                 }
-                transform.Position.Z += movement.Z;
+                transform.Position.Y += movement.Y;
             }
-        };
+        }
+        ;
     }
 
     private bool CheckCollision(BoundingBox<float> box)
@@ -93,9 +102,7 @@ public class PhysicsSystem(GameWorld world) : ISystem
         int maxZ = (int)MathF.Floor(box.Max.Z);
 
         for (int x = minX; x <= maxX; x++)
-        {
             for (int y = minY; y <= maxY; y++)
-            {
                 for (int z = minZ; z <= maxZ; z++)
                 {
                     var blockPos = new Vector3<int>(x, y, z);
@@ -108,12 +115,9 @@ public class PhysicsSystem(GameWorld world) : ISystem
                             new Vector3<float>(x + 1.0f, y + 1.0f, z + 1.0f)
                         );
 
-                        if (box.Intersects(blockBox))
-                            return true;
+                        if (box.Intersects(blockBox)) return true;
                     }
                 }
-            }
-        }
         return false;
     }
 }

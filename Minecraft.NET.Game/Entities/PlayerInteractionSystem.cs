@@ -13,6 +13,7 @@ public class PlayerInteractionSystem(IInputManager inputManager, GameWorld world
 {
     private double _breakCooldown = 0;
     private double _placeCooldown = 0;
+
     private const double CooldownTime = 0.2;
     private const float InteractionDistance = 5.0f;
 
@@ -25,8 +26,8 @@ public class PlayerInteractionSystem(IInputManager inputManager, GameWorld world
 
         if (!inputManager.IsMouseCaptured) return;
 
-        bool tryBreak = inputManager.IsMouseButtonPressed(MouseButton.Left) && _breakCooldown <= 0;
-        bool tryPlace = inputManager.IsMouseButtonPressed(MouseButton.Right) && _placeCooldown <= 0;
+        bool tryBreak = inputManager.IsMouseButton(MouseButton.Left) && _breakCooldown <= 0;
+        bool tryPlace = inputManager.IsMouseButton(MouseButton.Right) && _placeCooldown <= 0;
 
         if (!tryBreak && !tryPlace) return;
 
@@ -37,14 +38,14 @@ public class PlayerInteractionSystem(IInputManager inputManager, GameWorld world
             float pitch = transform.Rotation.X;
             float yaw = transform.Rotation.Y;
 
-            float x = MathF.Cos(pitch) * MathF.Sin(yaw);
-            float y = -MathF.Sin(pitch);
-            float z = MathF.Cos(pitch) * MathF.Cos(yaw);
+            float x = MathF.Sin(yaw) * MathF.Cos(pitch);
+            float y = MathF.Cos(yaw) * MathF.Cos(pitch);
+            float z = MathF.Sin(pitch);
 
             var direction = new Vector3<float>(x, y, z).Normalize<float>();
 
             var origin = transform.Position;
-            origin.Y += PlayerEyeHeight;
+            origin.Z += PlayerEyeHeight;
 
             var hit = Raycast(origin, direction, InteractionDistance);
 
@@ -61,7 +62,8 @@ public class PlayerInteractionSystem(IInputManager inputManager, GameWorld world
                     _placeCooldown = CooldownTime;
                 }
             }
-        };
+        }
+        ;
     }
 
     private RaycastResult? Raycast(Vector3<float> origin, Vector3<float> direction, float maxDistance)
@@ -90,8 +92,7 @@ public class PlayerInteractionSystem(IInputManager inputManager, GameWorld world
         for (int i = 0; i < maxSteps; i++)
         {
             var currentBlockPos = new Vector3<int>(x, y, z);
-
-            if (y is < 0 or >= WorldHeightInBlocks) break;
+            if (z is < 0 or >= WorldHeightInBlocks) break;
 
             var blockId = world.GetBlock(currentBlockPos);
 
