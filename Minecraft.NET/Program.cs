@@ -1,11 +1,11 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 
-using Minecraft.NET;
 using Minecraft.NET.Engine.Abstractions;
 using Minecraft.NET.Engine.Core;
 using Minecraft.NET.Game.Entities;
 using Minecraft.NET.Game.Physics;
 using Minecraft.NET.Game.World.Environment;
+using Minecraft.NET.Graphics.D3D12;
 using Minecraft.NET.Platform.Glfw;
 using Minecraft.NET.Utils.Math;
 
@@ -14,7 +14,7 @@ var services = new ServiceCollection();
 services.AddSingleton<IWindow>(_ => new GlfwWindow("Minecraft.NET Engine", 1280, 720));
 services.AddSingleton<IInputManager, GlfwInputManager>();
 
-services.AddSingleton<IRenderPipeline, DummyRenderPipeline>();
+services.AddSingleton<IRenderPipeline, D3D12RenderPipeline>();
 
 services.AddSingleton<EngineApp>();
 

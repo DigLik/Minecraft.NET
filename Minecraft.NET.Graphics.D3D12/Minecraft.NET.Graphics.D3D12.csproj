@@ -4,12 +4,17 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
-    <Folder Include="Pipeline\" />
-    <Folder Include="Shaders\" />
-    <Folder Include="Meshing\" />
+    <PackageReference Include="Silk.NET.Direct3D.Compilers" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.Direct3D12" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.DXGI" Version="2.23.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Minecraft.NET.Engine\Minecraft.NET.Engine.csproj" />
   </ItemGroup>
 
 </Project>

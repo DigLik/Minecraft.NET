@@ -40,7 +40,7 @@ public unsafe struct ChunkSection
         NonAirBlockCount = (id == BlockId.Air) ? 0 : BlocksInChunk;
     }
 
-    private void Allocate()
+    public void Allocate()
     {
         if (Blocks == null)
         {

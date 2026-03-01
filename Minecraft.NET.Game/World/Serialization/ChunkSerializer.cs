@@ -26,17 +26,19 @@ public static unsafe class ChunkSerializer
         return new PooledChunkData(buffer, maxLen);
     }
 
-    public static void Deserialize(ReadOnlySpan<byte> span, ref ChunkSection chunk)
+    public static void Deserialize(ReadOnlySpan<byte> data, ref ChunkSection chunk)
     {
-        chunk.UniformId = (BlockId)span[0];
-        bool isAllocated = span[1] == 1;
+        using var ms = new MemoryStream(data.ToArray());
+        using var reader = new BinaryReader(ms);
+
+        chunk.UniformId = (BlockId)reader.ReadByte();
+        bool isAllocated = reader.ReadBoolean();
 
         if (isAllocated)
         {
-            chunk.Fill(chunk.UniformId);
-            var blocksSpan = span.Slice(2, BlocksInChunk);
-            blocksSpan.CopyTo(new Span<byte>(chunk.Blocks, BlocksInChunk));
-
+            chunk.Allocate();
+            var span = new Span<byte>(chunk.Blocks, BlocksInChunk);
+            reader.Read(span);
             int nonAir = 0;
             for (int i = 0; i < BlocksInChunk; i++)
                 if (chunk.Blocks[i] != BlockId.Air) nonAir++;

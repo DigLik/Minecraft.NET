@@ -1,7 +1,4 @@
 <Solution>
-  <Folder Name="/Solution Items/">
-    <File Path=".editorconfig" />
-  </Folder>
   <Project Path="Minecraft.NET.Engine/Minecraft.NET.Engine.csproj" Id="d22331ee-b2cd-4295-9083-c1936f5a4ac8" />
   <Project Path="Minecraft.NET.Game/Minecraft.NET.Game.csproj" Id="53c44f1c-3058-4dd7-a277-26a3328bed01" />
   <Project Path="Minecraft.NET.Graphics.D3D12/Minecraft.NET.Graphics.D3D12.csproj" Id="5202ba06-d75d-4745-b6f6-0f4ec35db5b2" />
