@@ -115,28 +115,28 @@ public unsafe partial class GlfwWindow : IWindow
 
             if (targetRenderTime == 0.0 || (currentTime - lastRenderTime) >= targetRenderTime)
             {
-                Render?.Invoke(currentTime - lastRenderTime);
-                lastRenderTime = sw.Elapsed.TotalSeconds;
+                double renderDelta = currentTime - lastRenderTime;
+                lastRenderTime = currentTime;
+                Render?.Invoke(renderDelta);
             }
 
             currentTime = sw.Elapsed.TotalSeconds;
-            
-            double timeToNextUpdate = targetUpdateTime - updateAccumulator;
-            
-            double timeToNextRender = targetRenderTime > 0.0 
-                ? lastRenderTime + targetRenderTime - currentTime 
-                : 0.0;
 
-            double waitTime = targetRenderTime > 0.0 
-                ? Math.Min(timeToNextUpdate, timeToNextRender) 
-                : timeToNextUpdate;
+            double timeToNextUpdate = targetUpdateTime - updateAccumulator;
+            double waitTime = 0.0;
+
+            if (targetRenderTime > 0.0)
+            {
+                double timeToNextRender = lastRenderTime + targetRenderTime - currentTime;
+                waitTime = Math.Min(timeToNextUpdate, timeToNextRender);
+            }
 
             if (waitTime > 0)
             {
-                if (waitTime > 0.0015) 
-                    Thread.Sleep(1); 
+                if (waitTime > 0.002)
+                    Thread.Sleep(1);
                 else
-                    Thread.SpinWait(10); 
+                    Thread.SpinWait(10);
             }
         }
         Closing?.Invoke();

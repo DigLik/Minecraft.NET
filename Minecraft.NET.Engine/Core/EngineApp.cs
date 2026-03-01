@@ -46,8 +46,22 @@ public sealed class EngineApp : IDisposable
             system.Update(Registry, in time);
     }
 
+    private double _timeAccumulator = 0;
+    private int _frameCounter = 0;
+
     private void OnRender(double deltaTime)
-        => _renderPipeline.OnRender(deltaTime);
+    {
+        _timeAccumulator += deltaTime;
+        _frameCounter++;
+        if (_timeAccumulator >= 1)
+        {
+            Console.WriteLine(_frameCounter / _timeAccumulator);
+            _timeAccumulator -= 1;
+            _frameCounter = 0;
+        }
+
+        _renderPipeline.OnRender(deltaTime);
+    }
 
     private void OnFramebufferResize(Vector2<int> newSize)
         => _renderPipeline.OnFramebufferResize(newSize);

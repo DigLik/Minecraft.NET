@@ -42,7 +42,7 @@
 	
   <ItemGroup>
     <ProjectReference Include="..\Minecraft.NET.Game\Minecraft.NET.Game.csproj" />
-    <ProjectReference Include="..\Minecraft.NET.Graphics.D3D12\Minecraft.NET.Graphics.D3D12.csproj" />
+    <ProjectReference Include="..\Minecraft.NET.Graphics.Vulkan\Minecraft.NET.Graphics.Vulkan.csproj" />
     <ProjectReference Include="..\Minecraft.NET.Platform.Glfw\Minecraft.NET.Platform.Glfw.csproj" />
   </ItemGroup>
 

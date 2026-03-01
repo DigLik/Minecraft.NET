@@ -3,34 +3,38 @@ struct VSInput
     float3 Position : POSITION;
     float2 UV : TEXCOORD0;
     int TextureIndex : TEXCOORD1;
-    float Shade : COLOR0;
+    float Shade : COLOR;
 };
 
-struct PSInput
+struct VSOutput
 {
-    float4 Position : SV_POSITION;
+    float4 Position : SV_Position;
     float2 UV : TEXCOORD0;
-    int TextureIndex : TEXCOORD1;
-    float Shade : COLOR0;
+    float Shade : COLOR;
 };
 
-cbuffer CameraBuffer : register(b0)
+cbuffer CameraData : register(b0)
 {
-    matrix ViewProjection;
+    float4x4 viewProj;
 };
 
-PSInput VSMain(VSInput input)
+[[vk::push_constant]]
+cbuffer PushData
 {
-    PSInput output;
-    output.Position = mul(float4(input.Position, 1.0f), ViewProjection);
+    float3 chunkOffset;
+};
+
+VSOutput VSMain(VSInput input)
+{
+    VSOutput output;
+    float3 worldPos = input.Position + chunkOffset;
+    output.Position = mul(viewProj, float4(worldPos, 1.0));
     output.UV = input.UV;
-    output.TextureIndex = input.TextureIndex;
     output.Shade = input.Shade;
     return output;
 }
 
-float4 PSMain(PSInput input) : SV_TARGET
+float4 PSMain(VSOutput input) : SV_Target
 {
-    float3 debugColor = float3(input.UV.x, input.UV.y, 0.8f) * input.Shade;
-    return float4(debugColor, 1.0f);
+    return float4(input.Shade * 0.5, input.Shade * 0.5, input.Shade * 0.5, 1.0);
 }
