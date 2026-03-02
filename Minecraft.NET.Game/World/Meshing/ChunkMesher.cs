@@ -89,7 +89,7 @@ public class ChunkMesher(ChunkManager chunkManager)
                             for (int v = 0; v < 4; v++)
                             {
                                 Vector3<float> pos = new Vector3<float>(x, y, z) + FaceVertices[faceIndex][v];
-                                vertices.Add(new ChunkVertex(pos, FaceUVs[v], textureId, color, overlayTexId, overlayColor));
+                                vertices.Add(new ChunkVertex(pos, textureId, FaceUVs[v], overlayTexId, color, overlayColor));
                             }
 
                             indices.Add(indexOffset + 0);
@@ -106,7 +106,7 @@ public class ChunkMesher(ChunkManager chunkManager)
 
         if (vertices.Count > 0)
         {
-            return new ChunkMesh { Vertices = vertices.ToArray(), Indices = indices.ToArray() };
+            return new ChunkMesh { Vertices = [.. vertices], Indices = [.. indices] };
         }
         else
         {

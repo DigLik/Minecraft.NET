@@ -1,5 +1,4 @@
 ﻿using System.Collections.Concurrent;
-using System.Numerics;
 using System.Runtime.InteropServices;
 
 using Minecraft.NET.Engine.Abstractions;
@@ -22,14 +21,11 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         public Vector3<float> Position;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct DrawIndexedIndirectCommand
+    public struct InstanceData
     {
-        public uint IndexCount;
-        public uint InstanceCount;
-        public uint FirstIndex;
-        public int VertexOffset;
-        public uint FirstInstance;
+        public uint VertexOffset;
+        public uint IndexOffset;
+        public uint Pad1, Pad2;
     }
 
     private const int MaxFramesInFlight = 2;
@@ -37,7 +33,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
 
     private readonly VulkanDevice _device;
     private VulkanSwapchain _swapchain;
-    private VulkanPipeline? _pipeline;
+    private VulkanRayTracingPipeline? _pipeline;
 
     private CommandPool _commandPool;
     private readonly CommandBuffer[] _commandBuffers = new CommandBuffer[MaxFramesInFlight];
@@ -50,23 +46,22 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     private DescriptorPool _descriptorPool;
     private readonly DescriptorSet[] _descriptorSets = new DescriptorSet[MaxFramesInFlight];
 
-    private readonly VulkanBuffer[] _indirectBuffers = new VulkanBuffer[MaxFramesInFlight];
-    private readonly VulkanBuffer[] _instanceBuffers = new VulkanBuffer[MaxFramesInFlight];
-    private int _maxDraws = 0;
-
     private Vector2<int> _framebufferSize;
     private bool _framebufferResized = false;
 
+    private Image _storageImage;
+    private DeviceMemory _storageImageMemory;
+    private ImageView _storageImageView;
+
     private readonly List<DrawCall> _drawCalls = [];
     private ITextureArray? _currentTextureArray;
-
-    private VertexElement[]? _currentLayout;
-    private uint _currentStride;
 
     private DynamicMeshPool _meshPool = null!;
 
     private readonly ConcurrentQueue<IMesh> _pendingMeshesToDispose = new();
     private readonly List<IMesh>[] _meshesToDispose = new List<IMesh>[MaxFramesInFlight];
+    private readonly List<IDisposable>[] _frameResources = new List<IDisposable>[MaxFramesInFlight];
+    private readonly List<AccelerationStructureKHR>[] _frameAS = new List<AccelerationStructureKHR>[MaxFramesInFlight];
 
     public VulkanRenderPipeline(IWindow window)
     {
@@ -74,7 +69,12 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         _device = new VulkanDevice(window.Handle);
         _swapchain = new VulkanSwapchain(_device, _framebufferSize);
 
-        for (int i = 0; i < MaxFramesInFlight; i++) _meshesToDispose[i] = [];
+        for (int i = 0; i < MaxFramesInFlight; i++)
+        {
+            _meshesToDispose[i] = [];
+            _frameResources[i] = [];
+            _frameAS[i] = [];
+        }
 
         CreateCommandPool();
         CreateCommandBuffers();
@@ -83,63 +83,64 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
 
     public void Initialize(VertexElement[] layout, uint stride)
     {
-        _currentLayout = layout;
-        _currentStride = stride;
-        _pipeline = new VulkanPipeline(_device, _swapchain, layout, stride);
+        _pipeline = new VulkanRayTracingPipeline(_device);
+        CreateStorageImage();
         CreateDescriptorPoolAndSets();
-
-        _meshPool = new DynamicMeshPool(_device, MaxFramesInFlight, 128 * 1024 * 1024, 32 * 1024 * 1024);
+        _meshPool = new DynamicMeshPool(_device, MaxFramesInFlight);
     }
 
-    public IMesh CreateMesh<T>(T[] vertices, uint[] indices) where T : unmanaged
-        => _meshPool.Allocate(vertices, indices);
+    private void CreateStorageImage()
+    {
+        ImageCreateInfo imageInfo = new()
+        {
+            SType = StructureType.ImageCreateInfo, ImageType = ImageType.Type2D, Format = Format.B8G8R8A8Unorm,
+            Extent = new Extent3D((uint)_framebufferSize.X, (uint)_framebufferSize.Y, 1),
+            MipLevels = 1, ArrayLayers = 1, Samples = SampleCountFlags.Count1Bit,
+            Tiling = ImageTiling.Optimal, Usage = ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit,
+            InitialLayout = ImageLayout.Undefined
+        };
+        _device.Vk.CreateImage(_device.Device, in imageInfo, null, out _storageImage);
 
-    public void DeleteMesh(IMesh mesh)
-        => _pendingMeshesToDispose.Enqueue(mesh);
+        _device.Vk.GetImageMemoryRequirements(_device.Device, _storageImage, out var memReqs);
+        MemoryAllocateInfo allocInfo = new()
+        {
+            SType = StructureType.MemoryAllocateInfo, AllocationSize = memReqs.Size,
+            MemoryTypeIndex = _device.FindMemoryType(memReqs.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit)
+        };
+        _device.Vk.AllocateMemory(_device.Device, in allocInfo, null, out _storageImageMemory);
+        _device.Vk.BindImageMemory(_device.Device, _storageImage, _storageImageMemory, 0);
 
-    public ITextureArray CreateTextureArray(int width, int height, byte[][] pixels)
-        => new VulkanTextureArray(_device, width, height, pixels);
+        ImageViewCreateInfo viewInfo = new()
+        {
+            SType = StructureType.ImageViewCreateInfo, Image = _storageImage, ViewType = ImageViewType.Type2D, Format = Format.B8G8R8A8Unorm,
+            SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1)
+        };
+        _device.Vk.CreateImageView(_device.Device, in viewInfo, null, out _storageImageView);
+    }
 
-    public void BindTextureArray(ITextureArray textureArray)
-        => _currentTextureArray = textureArray;
-
-    public void SubmitDraw(IMesh mesh, Vector3<float> position)
-        => _drawCalls.Add(new DrawCall { Mesh = mesh, Position = position });
-
-    public void ClearDraws()
-        => _drawCalls.Clear();
+    public IMesh CreateMesh<T>(T[] vertices, uint[] indices) where T : unmanaged => _meshPool.Allocate(vertices, indices);
+    public void DeleteMesh(IMesh mesh) => _pendingMeshesToDispose.Enqueue(mesh);
+    public ITextureArray CreateTextureArray(int width, int height, byte[][] pixels) => new VulkanTextureArray(_device, width, height, pixels);
+    public void BindTextureArray(ITextureArray textureArray) => _currentTextureArray = textureArray;
+    public void SubmitDraw(IMesh mesh, Vector3<float> position) => _drawCalls.Add(new DrawCall { Mesh = mesh, Position = position });
+    public void ClearDraws() => _drawCalls.Clear();
 
     private void CreateCommandPool()
     {
-        CommandPoolCreateInfo poolInfo = new()
-        {
-            SType = StructureType.CommandPoolCreateInfo,
-            Flags = CommandPoolCreateFlags.ResetCommandBufferBit,
-            QueueFamilyIndex = _device.GraphicsFamilyIndex
-        };
-
+        CommandPoolCreateInfo poolInfo = new() { SType = StructureType.CommandPoolCreateInfo, Flags = CommandPoolCreateFlags.ResetCommandBufferBit, QueueFamilyIndex = _device.GraphicsFamilyIndex };
         _device.Vk.CreateCommandPool(_device.Device, in poolInfo, null, out _commandPool);
     }
 
     private void CreateCommandBuffers()
     {
-        CommandBufferAllocateInfo allocInfo = new()
-        {
-            SType = StructureType.CommandBufferAllocateInfo,
-            CommandPool = _commandPool,
-            Level = CommandBufferLevel.Primary,
-            CommandBufferCount = MaxFramesInFlight
-        };
-
-        fixed (CommandBuffer* pCmds = _commandBuffers)
-            _device.Vk.AllocateCommandBuffers(_device.Device, in allocInfo, pCmds);
+        CommandBufferAllocateInfo allocInfo = new() { SType = StructureType.CommandBufferAllocateInfo, CommandPool = _commandPool, Level = CommandBufferLevel.Primary, CommandBufferCount = MaxFramesInFlight };
+        fixed (CommandBuffer* pCmds = _commandBuffers) _device.Vk.AllocateCommandBuffers(_device.Device, in allocInfo, pCmds);
     }
 
     private void CreateSyncObjects()
     {
         SemaphoreCreateInfo semaphoreInfo = new() { SType = StructureType.SemaphoreCreateInfo };
         FenceCreateInfo fenceInfo = new() { SType = StructureType.FenceCreateInfo, Flags = FenceCreateFlags.SignaledBit };
-
         for (int i = 0; i < MaxFramesInFlight; i++)
         {
             _device.Vk.CreateSemaphore(_device.Device, in semaphoreInfo, null, out _imageAvailableSemaphores[i]);
@@ -150,51 +151,31 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
 
     private void CreateDescriptorPoolAndSets()
     {
-        DescriptorPoolSize[] poolSizes =
-        [
-            new DescriptorPoolSize() { Type = DescriptorType.UniformBuffer, DescriptorCount = MaxFramesInFlight },
-            new DescriptorPoolSize() { Type = DescriptorType.CombinedImageSampler, DescriptorCount = MaxFramesInFlight }
+        DescriptorPoolSize[] poolSizes = [
+            new() { Type = DescriptorType.AccelerationStructureKhr, DescriptorCount = MaxFramesInFlight },
+            new() { Type = DescriptorType.StorageImage, DescriptorCount = MaxFramesInFlight },
+            new() { Type = DescriptorType.UniformBuffer, DescriptorCount = MaxFramesInFlight },
+            new() { Type = DescriptorType.CombinedImageSampler, DescriptorCount = MaxFramesInFlight },
+            new() { Type = DescriptorType.StorageBuffer, DescriptorCount = MaxFramesInFlight * 3 }
         ];
 
         fixed (DescriptorPoolSize* pPoolSizes = poolSizes)
         {
-            DescriptorPoolCreateInfo poolInfo = new()
-            {
-                SType = StructureType.DescriptorPoolCreateInfo,
-                PoolSizeCount = 2,
-                PPoolSizes = pPoolSizes,
-                MaxSets = MaxFramesInFlight
-            };
-
+            DescriptorPoolCreateInfo poolInfo = new() { SType = StructureType.DescriptorPoolCreateInfo, PoolSizeCount = 5, PPoolSizes = pPoolSizes, MaxSets = MaxFramesInFlight };
             _device.Vk.CreateDescriptorPool(_device.Device, in poolInfo, null, out _descriptorPool);
         }
 
         var layouts = stackalloc DescriptorSetLayout[MaxFramesInFlight];
         for (int i = 0; i < MaxFramesInFlight; i++) layouts[i] = _pipeline!.DescriptorSetLayout;
 
-        DescriptorSetAllocateInfo allocInfo = new()
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _descriptorPool, DescriptorSetCount = MaxFramesInFlight, PSetLayouts = layouts
-        };
-
-        fixed (DescriptorSet* pSets = _descriptorSets)
-            _device.Vk.AllocateDescriptorSets(_device.Device, in allocInfo, pSets);
+        DescriptorSetAllocateInfo allocInfo = new() { SType = StructureType.DescriptorSetAllocateInfo, DescriptorPool = _descriptorPool, DescriptorSetCount = MaxFramesInFlight, PSetLayouts = layouts };
+        fixed (DescriptorSet* pSets = _descriptorSets) _device.Vk.AllocateDescriptorSets(_device.Device, in allocInfo, pSets);
 
         for (int i = 0; i < MaxFramesInFlight; i++)
         {
-            _cameraBuffers[i] = new VulkanBuffer(
-                _device, (ulong)sizeof(Matrix4x4), BufferUsageFlags.UniformBufferBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
-
-            DescriptorBufferInfo bufferInfo = new() { Buffer = _cameraBuffers[i].Buffer, Offset = 0, Range = (ulong)sizeof(Matrix4x4) };
-
-            WriteDescriptorSet descriptorWrite = new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = _descriptorSets[i], DstBinding = 0, DstArrayElement = 0,
-                DescriptorType = DescriptorType.UniformBuffer, DescriptorCount = 1, PBufferInfo = &bufferInfo
-            };
-
+            _cameraBuffers[i] = new VulkanBuffer(_device, (ulong)sizeof(CameraData), BufferUsageFlags.UniformBufferBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+            DescriptorBufferInfo bufferInfo = new() { Buffer = _cameraBuffers[i].Buffer, Offset = 0, Range = (ulong)sizeof(CameraData) };
+            WriteDescriptorSet descriptorWrite = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[i], DstBinding = 2, DstArrayElement = 0, DescriptorType = DescriptorType.UniformBuffer, DescriptorCount = 1, PBufferInfo = &bufferInfo };
             _device.Vk.UpdateDescriptorSets(_device.Device, 1, &descriptorWrite, 0, null);
         }
     }
@@ -202,127 +183,49 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     private void RecreateSwapchain()
     {
         _device.Vk.DeviceWaitIdle(_device.Device);
-
+        _device.Vk.DestroyImageView(_device.Device, _storageImageView, null);
+        _device.Vk.DestroyImage(_device.Device, _storageImage, null);
+        _device.Vk.FreeMemory(_device.Device, _storageImageMemory, null);
         _swapchain.Dispose();
-        _pipeline?.Dispose();
-
-        if (_descriptorPool.Handle != 0)
-        {
-            _device.Vk.DestroyDescriptorPool(_device.Device, _descriptorPool, null);
-            _descriptorPool.Handle = 0;
-        }
-
-        foreach (var cb in _cameraBuffers) cb?.Dispose();
 
         _swapchain = new VulkanSwapchain(_device, _framebufferSize);
-        if (_currentLayout != null)
-        {
-            _pipeline = new VulkanPipeline(_device, _swapchain, _currentLayout, _currentStride);
-            CreateDescriptorPoolAndSets();
-        }
+        CreateStorageImage();
     }
 
-    public void RenderFrame(Matrix4x4 viewProjection)
+    public void RenderFrame(CameraData cameraData)
     {
         if (_pipeline == null) throw new Exception("Pipeline is not initialized.");
 
         _device.Vk.WaitForFences(_device.Device, 1, ref _inFlightFences[_currentFrame], Vk.True, ulong.MaxValue);
 
-        _meshPool.CleanupResources(_currentFrame);
+        foreach (var res in _frameResources[_currentFrame]) res.Dispose();
+        _frameResources[_currentFrame].Clear();
 
+        foreach (var asHandle in _frameAS[_currentFrame]) _device.KhrAccelerationStructure.DestroyAccelerationStructure(_device.Device, asHandle, null);
+        _frameAS[_currentFrame].Clear();
+
+        _meshPool.CleanupResources(_currentFrame);
         foreach (var mesh in _meshesToDispose[_currentFrame])
         {
-            _meshPool.Free((MeshAllocation)mesh);
+            var alloc = (MeshAllocation)mesh;
+            _device.KhrAccelerationStructure.DestroyAccelerationStructure(_device.Device, alloc.Blas, null);
+            alloc.BlasBuffer?.Dispose();
+            _meshPool.Free(alloc);
             mesh.Dispose();
         }
         _meshesToDispose[_currentFrame].Clear();
-
-        while (_pendingMeshesToDispose.TryDequeue(out var mesh))
-            _meshesToDispose[_currentFrame].Add(mesh);
+        while (_pendingMeshesToDispose.TryDequeue(out var mesh)) _meshesToDispose[_currentFrame].Add(mesh);
 
         if (_framebufferSize.X == 0 || _framebufferSize.Y == 0) return;
-
-        if (_framebufferResized)
-        {
-            _framebufferResized = false;
-            RecreateSwapchain();
-            return;
-        }
+        if (_framebufferResized) { _framebufferResized = false; RecreateSwapchain(); return; }
 
         uint imageIndex;
-        var result = _device.KhrSwapchain.AcquireNextImage(
-            _device.Device, _swapchain.Swapchain, ulong.MaxValue, _imageAvailableSemaphores[_currentFrame], default, &imageIndex);
+        var result = _device.KhrSwapchain.AcquireNextImage(_device.Device, _swapchain.Swapchain, ulong.MaxValue, _imageAvailableSemaphores[_currentFrame], default, &imageIndex);
+        if (result == Result.ErrorOutOfDateKhr) { RecreateSwapchain(); return; }
 
-        if (result == Result.ErrorOutOfDateKhr)
-        {
-            RecreateSwapchain();
-            return;
-        }
-
-        _cameraBuffers[_currentFrame].UpdateData([viewProjection]);
-
-        if (_currentTextureArray is VulkanTextureArray vkTexArray)
-        {
-            DescriptorImageInfo imageInfo = new()
-            {
-                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = vkTexArray.ImageView,
-                Sampler = vkTexArray.Sampler
-            };
-
-            WriteDescriptorSet descriptorWrite = new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = _descriptorSets[_currentFrame],
-                DstBinding = 1,
-                DstArrayElement = 0,
-                DescriptorType = DescriptorType.CombinedImageSampler,
-                DescriptorCount = 1,
-                PImageInfo = &imageInfo
-            };
-
-            _device.Vk.UpdateDescriptorSets(_device.Device, 1, &descriptorWrite, 0, null);
-        }
-
-        int drawCount = _drawCalls.Count;
-        if (drawCount > _maxDraws)
-        {
-            _device.Vk.DeviceWaitIdle(_device.Device);
-            _maxDraws = (int)(drawCount * 1.5f) + 100;
-
-            for (int i = 0; i < MaxFramesInFlight; i++)
-            {
-                _indirectBuffers[i]?.Dispose();
-                _instanceBuffers[i]?.Dispose();
-                _indirectBuffers[i] = new VulkanBuffer(_device, (ulong)(_maxDraws * sizeof(DrawIndexedIndirectCommand)), BufferUsageFlags.IndirectBufferBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
-                _instanceBuffers[i] = new VulkanBuffer(_device, (ulong)(_maxDraws * sizeof(Vector3<float>)), BufferUsageFlags.VertexBufferBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
-            }
-        }
-
-        if (drawCount > 0)
-        {
-            var indirectSpan = new Span<DrawIndexedIndirectCommand>(_indirectBuffers[_currentFrame].MappedMemory, drawCount);
-            var instanceSpan = new Span<Vector3<float>>(_instanceBuffers[_currentFrame].MappedMemory, drawCount);
-
-            for (int i = 0; i < drawCount; i++)
-            {
-                var draw = _drawCalls[i];
-                var alloc = (MeshAllocation)draw.Mesh;
-
-                indirectSpan[i] = new DrawIndexedIndirectCommand
-                {
-                    IndexCount = alloc.IndexCount,
-                    InstanceCount = 1,
-                    FirstIndex = alloc.FirstIndex,
-                    VertexOffset = alloc.VertexOffset,
-                    FirstInstance = (uint)i
-                };
-                instanceSpan[i] = draw.Position;
-            }
-        }
+        _cameraBuffers[_currentFrame].UpdateData([cameraData]);
 
         _device.Vk.ResetFences(_device.Device, 1, ref _inFlightFences[_currentFrame]);
-
         CommandBuffer cmd = _commandBuffers[_currentFrame];
         _device.Vk.ResetCommandBuffer(cmd, 0);
 
@@ -331,106 +234,189 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
 
         _meshPool.FlushUploads(cmd, _currentFrame);
 
-        var clearValues = stackalloc ClearValue[2];
-        clearValues[0].Color = new ClearColorValue(0.4f, 0.6f, 0.9f, 1.0f);
-        clearValues[1].DepthStencil = new ClearDepthStencilValue(1.0f, 0);
-
-        RenderPassBeginInfo renderPassInfo = new()
+        AccelerationStructureKHR tlasHandle = default;
+        if (_drawCalls.Count > 0)
         {
-            SType = StructureType.RenderPassBeginInfo,
-            RenderPass = _swapchain.RenderPass,
-            Framebuffer = _swapchain.Framebuffers[imageIndex],
-            RenderArea = new Rect2D(new Offset2D(0, 0), _swapchain.Extent),
-            ClearValueCount = 2,
-            PClearValues = clearValues
-        };
+            var instancesBuffer = new VulkanBuffer(_device, (ulong)(_drawCalls.Count * sizeof(AccelerationStructureInstanceKHR)), BufferUsageFlags.ShaderDeviceAddressBit | BufferUsageFlags.AccelerationStructureBuildInputReadOnlyBitKhr, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+            var instanceDataBuffer = new VulkanBuffer(_device, (ulong)(_drawCalls.Count * sizeof(InstanceData)), BufferUsageFlags.StorageBufferBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+            _frameResources[_currentFrame].Add(instancesBuffer);
+            _frameResources[_currentFrame].Add(instanceDataBuffer);
 
-        _device.Vk.CmdBeginRenderPass(cmd, in renderPassInfo, SubpassContents.Inline);
+            var instSpan = new Span<AccelerationStructureInstanceKHR>(instancesBuffer.MappedMemory, _drawCalls.Count);
+            var dataSpan = new Span<InstanceData>(instanceDataBuffer.MappedMemory, _drawCalls.Count);
 
-        if (drawCount > 0)
-        {
-            _device.Vk.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline.GraphicsPipeline);
+            for (int i = 0; i < _drawCalls.Count; i++)
+            {
+                var alloc = (MeshAllocation)_drawCalls[i].Mesh;
+                var pos = _drawCalls[i].Position;
+                var tf = new TransformMatrixKHR();
+                tf.Matrix[0] = 1; tf.Matrix[1] = 0; tf.Matrix[2] = 0; tf.Matrix[3] = pos.X;
+                tf.Matrix[4] = 0; tf.Matrix[5] = 1; tf.Matrix[6] = 0; tf.Matrix[7] = pos.Y;
+                tf.Matrix[8] = 0; tf.Matrix[9] = 0; tf.Matrix[10] = 1; tf.Matrix[11] = pos.Z;
 
-            var descriptorSet = _descriptorSets[_currentFrame];
-            _device.Vk.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _pipeline.PipelineLayout, 0, 1, &descriptorSet, 0, null);
+                instSpan[i] = new AccelerationStructureInstanceKHR
+                {
+                    Transform = tf, InstanceCustomIndex = (uint)i, Mask = 0xFF, InstanceShaderBindingTableRecordOffset = 0,
+                    Flags = GeometryInstanceFlagsKHR.ForceOpaqueBitKhr, AccelerationStructureReference = alloc.BlasDeviceAddress
+                };
+                dataSpan[i] = new InstanceData { VertexOffset = (uint)alloc.VertexOffset, IndexOffset = alloc.FirstIndex };
+            }
 
-            var vertexBuffers = stackalloc Buffer[2] { _meshPool.VertexBuffer.Buffer, _instanceBuffers[_currentFrame].Buffer };
-            var offsets = stackalloc ulong[2] { 0, 0 };
+            var instancesData = new AccelerationStructureGeometryInstancesDataKHR
+            {
+                SType = StructureType.AccelerationStructureGeometryInstancesDataKhr, ArrayOfPointers = Vk.False,
+                Data = new DeviceOrHostAddressConstKHR { DeviceAddress = instancesBuffer.DeviceAddress }
+            };
 
-            _device.Vk.CmdBindVertexBuffers(cmd, 0, 2, vertexBuffers, offsets);
-            _device.Vk.CmdBindIndexBuffer(cmd, _meshPool.IndexBuffer.Buffer, 0, IndexType.Uint32);
+            var geometry = new AccelerationStructureGeometryKHR
+            {
+                SType = StructureType.AccelerationStructureGeometryKhr, GeometryType = GeometryTypeKHR.InstancesKhr,
+                Geometry = new AccelerationStructureGeometryDataKHR { Instances = instancesData }
+            };
 
-            _device.Vk.CmdDrawIndexedIndirect(cmd, _indirectBuffers[_currentFrame].Buffer, 0, (uint)drawCount, (uint)sizeof(DrawIndexedIndirectCommand));
+            var buildInfo = new AccelerationStructureBuildGeometryInfoKHR
+            {
+                SType = StructureType.AccelerationStructureBuildGeometryInfoKhr, Type = AccelerationStructureTypeKHR.TopLevelKhr,
+                Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr, GeometryCount = 1, PGeometries = &geometry
+            };
+
+            uint instanceCount = (uint)_drawCalls.Count;
+            _device.KhrAccelerationStructure.GetAccelerationStructureBuildSizes(_device.Device, AccelerationStructureBuildTypeKHR.DeviceKhr, in buildInfo, &instanceCount, out var buildSizes);
+
+            var tlasBuffer = new VulkanBuffer(_device, buildSizes.AccelerationStructureSize, BufferUsageFlags.AccelerationStructureStorageBitKhr, MemoryPropertyFlags.DeviceLocalBit);
+            _frameResources[_currentFrame].Add(tlasBuffer);
+
+            var createInfo = new AccelerationStructureCreateInfoKHR
+            {
+                SType = StructureType.AccelerationStructureCreateInfoKhr, Buffer = tlasBuffer.Buffer, Size = buildSizes.AccelerationStructureSize, Type = AccelerationStructureTypeKHR.TopLevelKhr
+            };
+            _device.KhrAccelerationStructure.CreateAccelerationStructure(_device.Device, in createInfo, null, out tlasHandle);
+            _frameAS[_currentFrame].Add(tlasHandle);
+
+            var scratchBuffer = new VulkanBuffer(_device, buildSizes.BuildScratchSize, BufferUsageFlags.StorageBufferBit | BufferUsageFlags.ShaderDeviceAddressBit, MemoryPropertyFlags.DeviceLocalBit);
+            _frameResources[_currentFrame].Add(scratchBuffer);
+
+            buildInfo.Mode = BuildAccelerationStructureModeKHR.BuildKhr;
+            buildInfo.DstAccelerationStructure = tlasHandle;
+            buildInfo.ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = scratchBuffer.DeviceAddress };
+
+            var buildRange = new AccelerationStructureBuildRangeInfoKHR { PrimitiveCount = instanceCount, PrimitiveOffset = 0, FirstVertex = 0, TransformOffset = 0 };
+            var pBuildRange = &buildRange;
+            _device.KhrAccelerationStructure.CmdBuildAccelerationStructures(cmd, 1, in buildInfo, &pBuildRange);
+
+            var buildBarrier = new MemoryBarrier { SType = StructureType.MemoryBarrier, SrcAccessMask = AccessFlags.AccelerationStructureWriteBitKhr, DstAccessMask = AccessFlags.AccelerationStructureReadBitKhr };
+            _device.Vk.CmdPipelineBarrier(cmd, PipelineStageFlags.AccelerationStructureBuildBitKhr, PipelineStageFlags.RayTracingShaderBitKhr, 0, 1, in buildBarrier, 0, null, 0, null);
+
+            WriteDescriptorSetAccelerationStructureKHR descriptorAS = new() { SType = StructureType.WriteDescriptorSetAccelerationStructureKhr, AccelerationStructureCount = 1, PAccelerationStructures = &tlasHandle };
+            WriteDescriptorSet writeAS = new() { SType = StructureType.WriteDescriptorSet, PNext = &descriptorAS, DstSet = _descriptorSets[_currentFrame], DstBinding = 0, DescriptorCount = 1, DescriptorType = DescriptorType.AccelerationStructureKhr };
+
+            DescriptorImageInfo storageImageInfo = new() { ImageLayout = ImageLayout.General, ImageView = _storageImageView };
+            WriteDescriptorSet writeStorageImage = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 1, DescriptorCount = 1, DescriptorType = DescriptorType.StorageImage, PImageInfo = &storageImageInfo };
+
+            DescriptorBufferInfo vertexBufferInfo = new() { Buffer = _meshPool.VertexBuffer.Buffer, Offset = 0, Range = Vk.WholeSize };
+            WriteDescriptorSet writeVertices = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 4, DescriptorCount = 1, DescriptorType = DescriptorType.StorageBuffer, PBufferInfo = &vertexBufferInfo };
+
+            DescriptorBufferInfo indexBufferInfo = new() { Buffer = _meshPool.IndexBuffer.Buffer, Offset = 0, Range = Vk.WholeSize };
+            WriteDescriptorSet writeIndices = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 5, DescriptorCount = 1, DescriptorType = DescriptorType.StorageBuffer, PBufferInfo = &indexBufferInfo };
+
+            DescriptorBufferInfo instanceDataInfo = new() { Buffer = instanceDataBuffer.Buffer, Offset = 0, Range = Vk.WholeSize };
+            WriteDescriptorSet writeInstanceData = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 6, DescriptorCount = 1, DescriptorType = DescriptorType.StorageBuffer, PBufferInfo = &instanceDataInfo };
+
+            var writes = stackalloc WriteDescriptorSet[5] { writeAS, writeStorageImage, writeVertices, writeIndices, writeInstanceData };
+            _device.Vk.UpdateDescriptorSets(_device.Device, 5, writes, 0, null);
+
+            if (_currentTextureArray is VulkanTextureArray vkTexArray)
+            {
+                DescriptorImageInfo texArrayInfo = new() { ImageLayout = ImageLayout.ShaderReadOnlyOptimal, ImageView = vkTexArray.ImageView, Sampler = vkTexArray.Sampler };
+                WriteDescriptorSet writeTex = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 3, DescriptorCount = 1, DescriptorType = DescriptorType.CombinedImageSampler, PImageInfo = &texArrayInfo };
+                _device.Vk.UpdateDescriptorSets(_device.Device, 1, &writeTex, 0, null);
+            }
+
+            TransitionImageLayout(cmd, _storageImage, ImageLayout.Undefined, ImageLayout.General, 0, AccessFlags.ShaderWriteBit, PipelineStageFlags.TopOfPipeBit, PipelineStageFlags.RayTracingShaderBitKhr);
+
+            _device.Vk.CmdBindPipeline(cmd, PipelineBindPoint.RayTracingKhr, _pipeline.Pipeline);
+            var descSet = _descriptorSets[_currentFrame];
+            _device.Vk.CmdBindDescriptorSets(cmd, PipelineBindPoint.RayTracingKhr, _pipeline.PipelineLayout, 0, 1, &descSet, 0, null);
+
+            var sbtProps = _pipeline.SbtProps;
+            var raygenRegion = new StridedDeviceAddressRegionKHR { DeviceAddress = _pipeline.SbtBuffer.DeviceAddress, Stride = sbtProps.RegionAligned, Size = sbtProps.RegionAligned };
+            var missRegion = new StridedDeviceAddressRegionKHR { DeviceAddress = _pipeline.SbtBuffer.DeviceAddress + sbtProps.RegionAligned, Stride = sbtProps.RegionAligned, Size = sbtProps.RegionAligned };
+            var hitRegion = new StridedDeviceAddressRegionKHR { DeviceAddress = _pipeline.SbtBuffer.DeviceAddress + 2 * sbtProps.RegionAligned, Stride = sbtProps.RegionAligned, Size = sbtProps.RegionAligned };
+            var callRegion = new StridedDeviceAddressRegionKHR { };
+
+            _device.KhrRayTracingPipeline.CmdTraceRays(cmd, &raygenRegion, &missRegion, &hitRegion, &callRegion, (uint)_framebufferSize.X, (uint)_framebufferSize.Y, 1);
+
+            TransitionImageLayout(cmd, _storageImage, ImageLayout.General, ImageLayout.TransferSrcOptimal, AccessFlags.ShaderWriteBit, AccessFlags.TransferReadBit, PipelineStageFlags.RayTracingShaderBitKhr, PipelineStageFlags.TransferBit);
         }
 
-        _device.Vk.CmdEndRenderPass(cmd);
+        TransitionImageLayout(cmd, _swapchain.Images[imageIndex], ImageLayout.Undefined, ImageLayout.TransferDstOptimal, 0, AccessFlags.TransferWriteBit, PipelineStageFlags.TopOfPipeBit, PipelineStageFlags.TransferBit);
+
+        if (_drawCalls.Count > 0)
+        {
+            ImageCopy copy = new()
+            {
+                SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+                DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+                Extent = new Extent3D((uint)_framebufferSize.X, (uint)_framebufferSize.Y, 1)
+            };
+            _device.Vk.CmdCopyImage(cmd, _storageImage, ImageLayout.TransferSrcOptimal, _swapchain.Images[imageIndex], ImageLayout.TransferDstOptimal, 1, &copy);
+        }
+
+        TransitionImageLayout(cmd, _swapchain.Images[imageIndex], ImageLayout.TransferDstOptimal, ImageLayout.PresentSrcKhr, AccessFlags.TransferWriteBit, 0, PipelineStageFlags.TransferBit, PipelineStageFlags.BottomOfPipeBit);
+
         _device.Vk.EndCommandBuffer(cmd);
 
         var waitSemaphores = stackalloc[] { _imageAvailableSemaphores[_currentFrame] };
         var waitStages = stackalloc[] { PipelineStageFlags.ColorAttachmentOutputBit };
-
         var signalSemaphores = stackalloc[] { _renderFinishedSemaphores[_currentFrame] };
         var commandBuffers = stackalloc[] { cmd };
 
-        SubmitInfo submitInfo = new()
-        {
-            SType = StructureType.SubmitInfo,
-            WaitSemaphoreCount = 1, PWaitSemaphores = waitSemaphores, PWaitDstStageMask = waitStages,
-            CommandBufferCount = 1, PCommandBuffers = commandBuffers,
-            SignalSemaphoreCount = 1, PSignalSemaphores = signalSemaphores
-        };
-
-        lock (_device.QueueLock)
-            _device.Vk.QueueSubmit(_device.GraphicsQueue, 1, in submitInfo, _inFlightFences[_currentFrame]);
+        SubmitInfo submitInfo = new() { SType = StructureType.SubmitInfo, WaitSemaphoreCount = 1, PWaitSemaphores = waitSemaphores, PWaitDstStageMask = waitStages, CommandBufferCount = 1, PCommandBuffers = commandBuffers, SignalSemaphoreCount = 1, PSignalSemaphores = signalSemaphores };
+        lock (_device.QueueLock) _device.Vk.QueueSubmit(_device.GraphicsQueue, 1, in submitInfo, _inFlightFences[_currentFrame]);
 
         var swapchains = stackalloc[] { _swapchain.Swapchain };
-        PresentInfoKHR presentInfo = new()
-        {
-            SType = StructureType.PresentInfoKhr,
-            WaitSemaphoreCount = 1, PWaitSemaphores = signalSemaphores,
-            SwapchainCount = 1, PSwapchains = swapchains, PImageIndices = &imageIndex
-        };
+        PresentInfoKHR presentInfo = new() { SType = StructureType.PresentInfoKhr, WaitSemaphoreCount = 1, PWaitSemaphores = signalSemaphores, SwapchainCount = 1, PSwapchains = swapchains, PImageIndices = &imageIndex };
+        lock (_device.QueueLock) result = _device.KhrSwapchain.QueuePresent(_device.PresentQueue, in presentInfo);
 
-        lock (_device.QueueLock)
-            result = _device.KhrSwapchain.QueuePresent(_device.PresentQueue, in presentInfo);
-
-        if (result is Result.ErrorOutOfDateKhr or Result.SuboptimalKhr)
-            _framebufferResized = true;
-
+        if (result is Result.ErrorOutOfDateKhr or Result.SuboptimalKhr) _framebufferResized = true;
         _currentFrame = (_currentFrame + 1) % MaxFramesInFlight;
     }
 
-    public void OnFramebufferResize(Vector2<int> newSize)
+    private void TransitionImageLayout(CommandBuffer cmd, Image image, ImageLayout oldLayout, ImageLayout newLayout, AccessFlags srcAccess, AccessFlags dstAccess, PipelineStageFlags srcStage, PipelineStageFlags dstStage)
     {
-        _framebufferSize = newSize;
-        _framebufferResized = true;
+        var barrier = new ImageMemoryBarrier
+        {
+            SType = StructureType.ImageMemoryBarrier, OldLayout = oldLayout, NewLayout = newLayout, SrcQueueFamilyIndex = Vk.QueueFamilyIgnored, DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
+            Image = image, SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1), SrcAccessMask = srcAccess, DstAccessMask = dstAccess
+        };
+        _device.Vk.CmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, null, 0, null, 1, &barrier);
     }
+
+    public void OnFramebufferResize(Vector2<int> newSize) { _framebufferSize = newSize; _framebufferResized = true; }
 
     public void Dispose()
     {
         _device.Vk.DeviceWaitIdle(_device.Device);
 
-        foreach (var list in _meshesToDispose)
-            foreach (var mesh in list) mesh.Dispose();
+        foreach (var list in _meshesToDispose) foreach (var mesh in list) { var a = (MeshAllocation)mesh; _device.KhrAccelerationStructure.DestroyAccelerationStructure(_device.Device, a.Blas, null); a.BlasBuffer?.Dispose(); mesh.Dispose(); }
+        while (_pendingMeshesToDispose.TryDequeue(out var mesh)) { var a = (MeshAllocation)mesh; _device.KhrAccelerationStructure.DestroyAccelerationStructure(_device.Device, a.Blas, null); a.BlasBuffer?.Dispose(); mesh.Dispose(); }
+        foreach (var list in _frameResources) foreach (var res in list) res.Dispose();
+        foreach (var list in _frameAS) foreach (var handle in list) _device.KhrAccelerationStructure.DestroyAccelerationStructure(_device.Device, handle, null);
 
-        while (_pendingMeshesToDispose.TryDequeue(out var mesh)) mesh.Dispose();
-
-        if (_descriptorPool.Handle != 0)
-            _device.Vk.DestroyDescriptorPool(_device.Device, _descriptorPool, null);
-
+        if (_descriptorPool.Handle != 0) _device.Vk.DestroyDescriptorPool(_device.Device, _descriptorPool, null);
         foreach (var cb in _cameraBuffers) cb?.Dispose();
 
         for (int i = 0; i < MaxFramesInFlight; i++)
         {
-            _indirectBuffers[i]?.Dispose();
-            _instanceBuffers[i]?.Dispose();
-
             _device.Vk.DestroySemaphore(_device.Device, _imageAvailableSemaphores[i], null);
             _device.Vk.DestroySemaphore(_device.Device, _renderFinishedSemaphores[i], null);
             _device.Vk.DestroyFence(_device.Device, _inFlightFences[i], null);
         }
 
         _meshPool?.Dispose();
+        _device.Vk.DestroyImageView(_device.Device, _storageImageView, null);
+        _device.Vk.DestroyImage(_device.Device, _storageImage, null);
+        _device.Vk.FreeMemory(_device.Device, _storageImageMemory, null);
 
         _device.Vk.DestroyCommandPool(_device.Device, _commandPool, null);
         _pipeline?.Dispose();

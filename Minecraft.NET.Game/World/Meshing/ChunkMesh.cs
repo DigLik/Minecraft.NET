@@ -5,20 +5,20 @@ using Minecraft.NET.Utils.Math;
 
 namespace Minecraft.NET.Game.World.Meshing;
 
-[StructLayout(LayoutKind.Sequential)]
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
 public struct ChunkVertex(
     Vector3<float> position,
-    Vector2<float> uv,
     int textureIndex,
-    Vector4 color,
+    Vector2<float> uv,
     int overlayTextureIndex,
+    Vector4 color,
     Vector4 overlayColor)
 {
     public Vector3<float> Position = position;
-    public Vector2<float> UV = uv;
     public int TextureIndex = textureIndex;
-    public Vector4 Color = color;
+    public Vector2<float> UV = uv;
     public int OverlayTextureIndex = overlayTextureIndex;
+    public Vector4 Color = color;
     public Vector4 OverlayColor = overlayColor;
 }
 

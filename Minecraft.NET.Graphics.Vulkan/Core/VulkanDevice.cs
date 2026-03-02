@@ -4,7 +4,6 @@ using Silk.NET.Core;
 using Silk.NET.Core.Native;
 using Silk.NET.GLFW;
 using Silk.NET.Vulkan;
-using Silk.NET.Vulkan.Extensions.EXT;
 using Silk.NET.Vulkan.Extensions.KHR;
 
 namespace Minecraft.NET.Graphics.Vulkan.Core;
@@ -14,6 +13,10 @@ public unsafe class VulkanDevice : IDisposable
     public readonly Vk Vk;
     public KhrSurface KhrSurface = null!;
     public readonly KhrSwapchain KhrSwapchain;
+
+    public KhrAccelerationStructure KhrAccelerationStructure;
+    public KhrRayTracingPipeline KhrRayTracingPipeline;
+    public KhrDeferredHostOperations KhrDeferredHostOperations;
 
     public Instance Instance;
     public PhysicalDevice PhysicalDevice;
@@ -27,9 +30,6 @@ public unsafe class VulkanDevice : IDisposable
     public uint GraphicsFamilyIndex;
     public uint PresentFamilyIndex;
 
-    private readonly ExtDebugUtils? _debugUtils;
-    private DebugUtilsMessengerEXT _debugMessenger;
-
     public readonly Lock QueueLock = new();
 
     public VulkanDevice(void* windowHandle)
@@ -41,8 +41,10 @@ public unsafe class VulkanDevice : IDisposable
         PickPhysicalDevice();
         CreateLogicalDevice();
 
-        if (!Vk.TryGetDeviceExtension(Instance, Device, out KhrSwapchain))
-            throw new Exception("Vulkan KHR_swapchain extension not found.");
+        if (!Vk.TryGetDeviceExtension(Instance, Device, out KhrSwapchain)) throw new Exception("Vulkan KHR_swapchain extension not found.");
+        if (!Vk.TryGetDeviceExtension(Instance, Device, out KhrAccelerationStructure)) throw new Exception("VK_KHR_acceleration_structure not found.");
+        if (!Vk.TryGetDeviceExtension(Instance, Device, out KhrRayTracingPipeline)) throw new Exception("VK_KHR_ray_tracing_pipeline not found.");
+        if (!Vk.TryGetDeviceExtension(Instance, Device, out KhrDeferredHostOperations)) throw new Exception("VK_KHR_deferred_host_operations not found.");
     }
 
     private void CreateInstance()
@@ -54,7 +56,7 @@ public unsafe class VulkanDevice : IDisposable
             ApplicationVersion = new Version32(1, 0, 0),
             PEngineName = (byte*)SilkMarshal.StringToPtr("Minecraft.NET Engine"),
             EngineVersion = new Version32(1, 0, 0),
-            ApiVersion = Vk.Version12
+            ApiVersion = Vk.Version13
         };
 
         var glfw = Glfw.GetApi();
@@ -149,13 +151,47 @@ public unsafe class VulkanDevice : IDisposable
             };
         }
 
-        var deviceExtensions = new[] { KhrSwapchain.ExtensionName };
+        var deviceExtensions = new[] {
+            KhrSwapchain.ExtensionName,
+            KhrAccelerationStructure.ExtensionName,
+            KhrRayTracingPipeline.ExtensionName,
+            KhrDeferredHostOperations.ExtensionName,
+            "VK_KHR_ray_query"
+        };
         var pDeviceExtensions = SilkMarshal.StringArrayToPtr(deviceExtensions);
 
-        PhysicalDeviceFeatures deviceFeatures = new()
+        PhysicalDeviceBufferDeviceAddressFeatures bdaFeatures = new()
         {
-            SamplerAnisotropy = true,
-            MultiDrawIndirect = Vk.True
+            SType = StructureType.PhysicalDeviceBufferDeviceAddressFeatures,
+            BufferDeviceAddress = Vk.True
+        };
+
+        PhysicalDeviceAccelerationStructureFeaturesKHR asFeatures = new()
+        {
+            SType = StructureType.PhysicalDeviceAccelerationStructureFeaturesKhr,
+            AccelerationStructure = Vk.True,
+            PNext = &bdaFeatures
+        };
+
+        PhysicalDeviceRayTracingPipelineFeaturesKHR rtFeatures = new()
+        {
+            SType = StructureType.PhysicalDeviceRayTracingPipelineFeaturesKhr,
+            RayTracingPipeline = Vk.True,
+            PNext = &asFeatures
+        };
+
+        PhysicalDeviceRayQueryFeaturesKHR rqFeatures = new()
+        {
+            SType = StructureType.PhysicalDeviceRayQueryFeaturesKhr,
+            RayQuery = Vk.True,
+            PNext = &rtFeatures
+        };
+
+        PhysicalDeviceFeatures2 deviceFeatures = new()
+        {
+            SType = StructureType.PhysicalDeviceFeatures2,
+            Features = new PhysicalDeviceFeatures { SamplerAnisotropy = Vk.True },
+            PNext = &rqFeatures
         };
 
         fixed (DeviceQueueCreateInfo* pQueueCreateInfos = queueCreateInfos)
@@ -165,7 +201,7 @@ public unsafe class VulkanDevice : IDisposable
                 SType = StructureType.DeviceCreateInfo,
                 QueueCreateInfoCount = (uint)queueCreateInfos.Length,
                 PQueueCreateInfos = pQueueCreateInfos,
-                PEnabledFeatures = &deviceFeatures,
+                PNext = &deviceFeatures,
                 EnabledExtensionCount = (uint)deviceExtensions.Length,
                 PpEnabledExtensionNames = (byte**)pDeviceExtensions
             };
@@ -245,9 +281,12 @@ public unsafe class VulkanDevice : IDisposable
 
     public void Dispose()
     {
+        KhrDeferredHostOperations?.Dispose();
+        KhrRayTracingPipeline?.Dispose();
+        KhrAccelerationStructure?.Dispose();
+
         Vk.DestroyCommandPool(Device, TransferCommandPool, null);
         Vk.DestroyDevice(Device, null);
-        _debugUtils?.DestroyDebugUtilsMessenger(Instance, _debugMessenger, null);
         KhrSurface.DestroySurface(Instance, Surface, null);
         Vk.DestroyInstance(Instance, null);
         Vk.Dispose();

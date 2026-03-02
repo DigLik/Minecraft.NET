@@ -1,6 +1,4 @@
-﻿using System.Numerics;
-
-using Minecraft.NET.Engine.Abstractions.Graphics;
+﻿using Minecraft.NET.Engine.Abstractions.Graphics;
 using Minecraft.NET.Utils.Math;
 
 namespace Minecraft.NET.Engine.Abstractions;
@@ -14,6 +12,6 @@ public interface IRenderPipeline : IDisposable
     void BindTextureArray(ITextureArray textureArray);
     void SubmitDraw(IMesh mesh, Vector3<float> position);
     void ClearDraws();
-    void RenderFrame(Matrix4x4 viewProjection);
+    void RenderFrame(CameraData cameraData);
     void OnFramebufferResize(Vector2<int> newSize);
 }

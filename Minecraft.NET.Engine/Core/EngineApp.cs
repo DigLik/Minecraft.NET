@@ -2,6 +2,7 @@
 using System.Runtime.InteropServices;
 
 using Minecraft.NET.Engine.Abstractions;
+using Minecraft.NET.Engine.Abstractions.Graphics;
 using Minecraft.NET.Engine.ECS;
 using Minecraft.NET.Utils.Math;
 
@@ -18,7 +19,7 @@ public sealed class EngineApp : IDisposable
     private bool _isDisposed;
 
     public Registry Registry { get; } = new();
-    public Matrix4x4 CameraMatrix { get; set; } = Matrix4x4.Identity;
+    public CameraData Camera { get; set; } = new CameraData { ViewProjection = Matrix4x4.Identity, InverseViewProjection = Matrix4x4.Identity, Position = Vector4.Zero, SunDirection = new Vector4(0, 0, 1, 0) };
 
     public EngineApp(IWindow window, IInputManager inputManager, IRenderPipeline renderPipeline)
     {
@@ -68,7 +69,7 @@ public sealed class EngineApp : IDisposable
             _frameCounter = 0;
         }
 
-        _renderPipeline.RenderFrame(CameraMatrix);
+        _renderPipeline.RenderFrame(Camera);
     }
 
     private void OnFramebufferResize(Vector2<int> newSize)

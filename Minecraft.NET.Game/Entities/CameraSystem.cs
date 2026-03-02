@@ -1,6 +1,7 @@
 ﻿using System.Numerics;
 
 using Minecraft.NET.Engine.Abstractions;
+using Minecraft.NET.Engine.Abstractions.Graphics;
 using Minecraft.NET.Engine.Core;
 using Minecraft.NET.Engine.ECS;
 using Minecraft.NET.Utils.Math;
@@ -39,7 +40,7 @@ public class CameraSystem(EngineApp engine, IWindow window) : ISystem
 
             proj.M22 *= -1;
 
-            engine.CameraMatrix = new Matrix4x4(
+            var viewProj = new Matrix4x4(
                 view.M11, view.M12, view.M13, view.M14,
                 view.M21, view.M22, view.M23, view.M24,
                 view.M31, view.M32, view.M33, view.M34,
@@ -50,6 +51,18 @@ public class CameraSystem(EngineApp engine, IWindow window) : ISystem
                 proj.M31, proj.M32, proj.M33, proj.M34,
                 proj.M41, proj.M42, proj.M43, proj.M44
             );
+
+            Matrix4x4.Invert(viewProj, out var invViewProj);
+
+            var sunDir = Vector3.Normalize(new Vector3(0.5f, 0.8f, 1.0f));
+
+            engine.Camera = new CameraData
+            {
+                ViewProjection = viewProj,
+                InverseViewProjection = invViewProj,
+                Position = new Vector4(position.X, position.Y, position.Z, 1.0f),
+                SunDirection = new Vector4(sunDir.X, sunDir.Y, sunDir.Z, 0.0f)
+            };
 
             break;
         }

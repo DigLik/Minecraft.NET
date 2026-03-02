@@ -11,6 +11,7 @@ public unsafe class VulkanBuffer : IDisposable
     public DeviceMemory Memory;
 
     public void* MappedMemory { get; private set; }
+    public ulong DeviceAddress { get; private set; }
 
     public VulkanBuffer(VulkanDevice device, ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties)
     {
@@ -33,6 +34,13 @@ public unsafe class VulkanBuffer : IDisposable
             AllocationSize = memRequirements.Size,
             MemoryTypeIndex = _device.FindMemoryType(memRequirements.MemoryTypeBits, properties)
         };
+
+        if (usage.HasFlag(BufferUsageFlags.ShaderDeviceAddressBit))
+        {
+            var allocFlagsInfo = new MemoryAllocateFlagsInfo { SType = StructureType.MemoryAllocateFlagsInfo, Flags = MemoryAllocateFlags.DeviceAddressBit };
+            allocInfo.PNext = &allocFlagsInfo;
+        }
+
         _device.Vk.AllocateMemory(_device.Device, in allocInfo, null, out Memory);
         _device.Vk.BindBufferMemory(_device.Device, Buffer, Memory, 0);
 
@@ -41,6 +49,12 @@ public unsafe class VulkanBuffer : IDisposable
             void* mapped;
             _device.Vk.MapMemory(_device.Device, Memory, 0, size, 0, &mapped);
             MappedMemory = mapped;
+        }
+
+        if (usage.HasFlag(BufferUsageFlags.ShaderDeviceAddressBit))
+        {
+            BufferDeviceAddressInfo info = new() { SType = StructureType.BufferDeviceAddressInfo, Buffer = Buffer };
+            DeviceAddress = _device.Vk.GetBufferDeviceAddress(_device.Device, in info);
         }
     }
 

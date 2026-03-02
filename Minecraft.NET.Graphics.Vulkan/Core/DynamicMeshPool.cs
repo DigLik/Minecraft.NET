@@ -18,21 +18,12 @@ public unsafe class DynamicMeshPool : IDisposable
     {
         public Array Vertices = null!;
         public Array Indices = null!;
-        public ulong VertexDstOffset;
-        public ulong VertexSize;
-        public ulong IndexDstOffset;
-        public ulong IndexSize;
+        public MeshAllocation Allocation = null!;
     }
 
     private readonly VulkanDevice _device;
     public VulkanBuffer VertexBuffer { get; private set; }
     public VulkanBuffer IndexBuffer { get; private set; }
-
-    private ulong _logicalVertexCapacity;
-    private ulong _logicalIndexCapacity;
-
-    private ulong _physicalVertexCapacity;
-    private ulong _physicalIndexCapacity;
 
     private readonly Lock _allocLock = new();
 
@@ -40,26 +31,25 @@ public unsafe class DynamicMeshPool : IDisposable
     private readonly List<MeshFreeBlock> _freeIndexBlocks = [];
 
     private readonly ConcurrentQueue<PendingUpload> _pendingUploads = new();
-
     private readonly List<VulkanBuffer>[] _staleBuffers;
 
-    public DynamicMeshPool(VulkanDevice device, int maxFramesInFlight = 2, ulong initialVertexBytes = 128 * 1024 * 1024, ulong initialIndexBytes = 32 * 1024 * 1024)
+    public DynamicMeshPool(VulkanDevice device, int maxFramesInFlight = 2)
     {
         _device = device;
-        _logicalVertexCapacity = initialVertexBytes;
-        _logicalIndexCapacity = initialIndexBytes;
-        _physicalVertexCapacity = initialVertexBytes;
-        _physicalIndexCapacity = initialIndexBytes;
-
         _staleBuffers = new List<VulkanBuffer>[maxFramesInFlight];
         for (int i = 0; i < maxFramesInFlight; i++) _staleBuffers[i] = [];
 
-        var usage = BufferUsageFlags.VertexBufferBit | BufferUsageFlags.TransferDstBit | BufferUsageFlags.TransferSrcBit;
-        VertexBuffer = new VulkanBuffer(_device, _physicalVertexCapacity, usage, MemoryPropertyFlags.DeviceLocalBit);
-        IndexBuffer = new VulkanBuffer(_device, _physicalIndexCapacity, BufferUsageFlags.IndexBufferBit | BufferUsageFlags.TransferDstBit | BufferUsageFlags.TransferSrcBit, MemoryPropertyFlags.DeviceLocalBit);
+        ulong vCap = 3072UL * 1024 * 1024;
+        ulong iCap = 1024UL * 1024 * 1024;
 
-        _freeVertexBlocks.Add(new MeshFreeBlock { Offset = 0, Size = _logicalVertexCapacity });
-        _freeIndexBlocks.Add(new MeshFreeBlock { Offset = 0, Size = _logicalIndexCapacity });
+        var usage = BufferUsageFlags.VertexBufferBit | BufferUsageFlags.TransferDstBit | BufferUsageFlags.StorageBufferBit | BufferUsageFlags.ShaderDeviceAddressBit | BufferUsageFlags.AccelerationStructureBuildInputReadOnlyBitKhr;
+        var iUsage = BufferUsageFlags.IndexBufferBit | BufferUsageFlags.TransferDstBit | BufferUsageFlags.StorageBufferBit | BufferUsageFlags.ShaderDeviceAddressBit | BufferUsageFlags.AccelerationStructureBuildInputReadOnlyBitKhr;
+
+        VertexBuffer = new VulkanBuffer(_device, vCap, usage, MemoryPropertyFlags.DeviceLocalBit);
+        IndexBuffer = new VulkanBuffer(_device, iCap, iUsage, MemoryPropertyFlags.DeviceLocalBit);
+
+        _freeVertexBlocks.Add(new MeshFreeBlock { Offset = 0, Size = vCap });
+        _freeIndexBlocks.Add(new MeshFreeBlock { Offset = 0, Size = iCap });
     }
 
     public MeshAllocation Allocate<T>(T[] vertices, uint[] indices) where T : unmanaged
@@ -71,66 +61,19 @@ public unsafe class DynamicMeshPool : IDisposable
         lock (_allocLock)
         {
             vOffset = AllocateBlock(_freeVertexBlocks, vertexSize);
-            if (vOffset == ulong.MaxValue)
-            {
-                ulong newCapacity = Math.Max(_logicalVertexCapacity * 2, _logicalVertexCapacity + vertexSize);
-                AddAndMergeFreeBlock(_freeVertexBlocks, _logicalVertexCapacity, newCapacity - _logicalVertexCapacity);
-                _logicalVertexCapacity = newCapacity;
-                vOffset = AllocateBlock(_freeVertexBlocks, vertexSize);
-            }
-
             iOffset = AllocateBlock(_freeIndexBlocks, indexSize);
-            if (iOffset == ulong.MaxValue)
-            {
-                ulong newCapacity = Math.Max(_logicalIndexCapacity * 2, _logicalIndexCapacity + indexSize);
-                AddAndMergeFreeBlock(_freeIndexBlocks, _logicalIndexCapacity, newCapacity - _logicalIndexCapacity);
-                _logicalIndexCapacity = newCapacity;
-                iOffset = AllocateBlock(_freeIndexBlocks, indexSize);
-            }
+            if (vOffset == ulong.MaxValue || iOffset == ulong.MaxValue) throw new Exception("Mesh Pool Out of Memory");
         }
 
-        _pendingUploads.Enqueue(new PendingUpload
-        {
-            Vertices = vertices,
-            Indices = indices,
-            VertexDstOffset = vOffset,
-            VertexSize = vertexSize,
-            IndexDstOffset = iOffset,
-            IndexSize = indexSize
-        });
+        var alloc = new MeshAllocation((uint)indices.Length, (uint)(iOffset / sizeof(uint)), (int)(vOffset / (ulong)sizeof(T)), vOffset, vertexSize, iOffset, indexSize);
 
-        return new MeshAllocation((uint)indices.Length, (uint)(iOffset / sizeof(uint)), (int)(vOffset / (ulong)sizeof(T)), vOffset, vertexSize, iOffset, indexSize);
+        _pendingUploads.Enqueue(new PendingUpload { Vertices = vertices, Indices = indices, Allocation = alloc });
+
+        return alloc;
     }
 
     public void FlushUploads(CommandBuffer cmd, int currentFrame)
     {
-        ulong targetVCap, targetICap;
-        lock (_allocLock)
-        {
-            targetVCap = _logicalVertexCapacity;
-            targetICap = _logicalIndexCapacity;
-        }
-
-        if (_physicalVertexCapacity < targetVCap)
-        {
-            var newBuffer = new VulkanBuffer(_device, targetVCap, BufferUsageFlags.VertexBufferBit | BufferUsageFlags.TransferDstBit | BufferUsageFlags.TransferSrcBit, MemoryPropertyFlags.DeviceLocalBit);
-            BufferCopy copyRegion = new() { SrcOffset = 0, DstOffset = 0, Size = _physicalVertexCapacity };
-            _device.Vk.CmdCopyBuffer(cmd, VertexBuffer.Buffer, newBuffer.Buffer, 1, in copyRegion);
-            _staleBuffers[currentFrame].Add(VertexBuffer);
-            VertexBuffer = newBuffer;
-            _physicalVertexCapacity = targetVCap;
-        }
-
-        if (_physicalIndexCapacity < targetICap)
-        {
-            var newBuffer = new VulkanBuffer(_device, targetICap, BufferUsageFlags.IndexBufferBit | BufferUsageFlags.TransferDstBit | BufferUsageFlags.TransferSrcBit, MemoryPropertyFlags.DeviceLocalBit);
-            BufferCopy copyRegion = new() { SrcOffset = 0, DstOffset = 0, Size = _physicalIndexCapacity };
-            _device.Vk.CmdCopyBuffer(cmd, IndexBuffer.Buffer, newBuffer.Buffer, 1, in copyRegion);
-            _staleBuffers[currentFrame].Add(IndexBuffer);
-            IndexBuffer = newBuffer;
-            _physicalIndexCapacity = targetICap;
-        }
-
         if (_pendingUploads.IsEmpty) return;
 
         List<PendingUpload> uploads = [];
@@ -138,7 +81,7 @@ public unsafe class DynamicMeshPool : IDisposable
         while (_pendingUploads.TryDequeue(out var upload))
         {
             uploads.Add(upload);
-            totalSize += upload.VertexSize + upload.IndexSize;
+            totalSize += upload.Allocation.VertexByteSize + upload.Allocation.IndexByteSize;
         }
 
         if (totalSize == 0) return;
@@ -148,32 +91,132 @@ public unsafe class DynamicMeshPool : IDisposable
 
         foreach (var upload in uploads)
         {
+            var alloc = upload.Allocation;
             GCHandle vHandle = GCHandle.Alloc(upload.Vertices, GCHandleType.Pinned);
-            System.Buffer.MemoryCopy((void*)vHandle.AddrOfPinnedObject(), (byte*)stagingBuffer.MappedMemory + currentOffset, upload.VertexSize, upload.VertexSize);
+            System.Buffer.MemoryCopy((void*)vHandle.AddrOfPinnedObject(), (byte*)stagingBuffer.MappedMemory + currentOffset, alloc.VertexByteSize, alloc.VertexByteSize);
             vHandle.Free();
 
-            BufferCopy vCopy = new() { SrcOffset = currentOffset, DstOffset = upload.VertexDstOffset, Size = upload.VertexSize };
+            BufferCopy vCopy = new() { SrcOffset = currentOffset, DstOffset = alloc.VertexByteOffset, Size = alloc.VertexByteSize };
             _device.Vk.CmdCopyBuffer(cmd, stagingBuffer.Buffer, VertexBuffer.Buffer, 1, in vCopy);
-            currentOffset += upload.VertexSize;
+            currentOffset += alloc.VertexByteSize;
 
             GCHandle iHandle = GCHandle.Alloc(upload.Indices, GCHandleType.Pinned);
-            System.Buffer.MemoryCopy((void*)iHandle.AddrOfPinnedObject(), (byte*)stagingBuffer.MappedMemory + currentOffset, upload.IndexSize, upload.IndexSize);
+            System.Buffer.MemoryCopy((void*)iHandle.AddrOfPinnedObject(), (byte*)stagingBuffer.MappedMemory + currentOffset, alloc.IndexByteSize, alloc.IndexByteSize);
             iHandle.Free();
 
-            BufferCopy iCopy = new() { SrcOffset = currentOffset, DstOffset = upload.IndexDstOffset, Size = upload.IndexSize };
+            BufferCopy iCopy = new() { SrcOffset = currentOffset, DstOffset = alloc.IndexByteOffset, Size = alloc.IndexByteSize };
             _device.Vk.CmdCopyBuffer(cmd, stagingBuffer.Buffer, IndexBuffer.Buffer, 1, in iCopy);
-            currentOffset += upload.IndexSize;
+            currentOffset += alloc.IndexByteSize;
         }
 
         _staleBuffers[currentFrame].Add(stagingBuffer);
 
-        MemoryBarrier barrier = new()
+        MemoryBarrier transferBarrier = new()
         {
             SType = StructureType.MemoryBarrier,
             SrcAccessMask = AccessFlags.TransferWriteBit,
-            DstAccessMask = AccessFlags.VertexAttributeReadBit | AccessFlags.IndexReadBit
+            DstAccessMask = AccessFlags.AccelerationStructureReadBitKhr | AccessFlags.ShaderReadBit
         };
-        _device.Vk.CmdPipelineBarrier(cmd, PipelineStageFlags.TransferBit, PipelineStageFlags.VertexInputBit, 0, 1, in barrier, 0, null, 0, null);
+        _device.Vk.CmdPipelineBarrier(cmd, PipelineStageFlags.TransferBit, PipelineStageFlags.AccelerationStructureBuildBitKhr | PipelineStageFlags.RayTracingShaderBitKhr, 0, 1, in transferBarrier, 0, null, 0, null);
+
+        ulong maxScratchSize = 0;
+        foreach (var upload in uploads)
+        {
+            var alloc = upload.Allocation;
+            var triangles = new AccelerationStructureGeometryTrianglesDataKHR
+            {
+                SType = StructureType.AccelerationStructureGeometryTrianglesDataKhr,
+                VertexFormat = Format.R32G32B32Sfloat,
+                VertexData = new DeviceOrHostAddressConstKHR { DeviceAddress = VertexBuffer.DeviceAddress + alloc.VertexByteOffset },
+                VertexStride = 64,
+                MaxVertex = (uint)(alloc.VertexByteSize / 64) - 1,
+                IndexType = IndexType.Uint32,
+                IndexData = new DeviceOrHostAddressConstKHR { DeviceAddress = IndexBuffer.DeviceAddress + alloc.IndexByteOffset }
+            };
+
+            var geometry = new AccelerationStructureGeometryKHR
+            {
+                SType = StructureType.AccelerationStructureGeometryKhr,
+                GeometryType = GeometryTypeKHR.TrianglesKhr,
+                Geometry = new AccelerationStructureGeometryDataKHR { Triangles = triangles },
+                Flags = GeometryFlagsKHR.OpaqueBitKhr
+            };
+
+            var buildInfo = new AccelerationStructureBuildGeometryInfoKHR
+            {
+                SType = StructureType.AccelerationStructureBuildGeometryInfoKhr,
+                Type = AccelerationStructureTypeKHR.BottomLevelKhr,
+                Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr,
+                GeometryCount = 1,
+                PGeometries = &geometry
+            };
+
+            uint maxPrimitiveCount = alloc.IndexCount / 3;
+            _device.KhrAccelerationStructure.GetAccelerationStructureBuildSizes(_device.Device, AccelerationStructureBuildTypeKHR.DeviceKhr, in buildInfo, &maxPrimitiveCount, out var buildSizes);
+
+            maxScratchSize = Math.Max(maxScratchSize, buildSizes.BuildScratchSize);
+
+            alloc.BlasBuffer = new VulkanBuffer(_device, buildSizes.AccelerationStructureSize, BufferUsageFlags.AccelerationStructureStorageBitKhr | BufferUsageFlags.ShaderDeviceAddressBit, MemoryPropertyFlags.DeviceLocalBit);
+
+            var createInfo = new AccelerationStructureCreateInfoKHR
+            {
+                SType = StructureType.AccelerationStructureCreateInfoKhr,
+                Buffer = alloc.BlasBuffer.Buffer,
+                Size = buildSizes.AccelerationStructureSize,
+                Type = AccelerationStructureTypeKHR.BottomLevelKhr
+            };
+            _device.KhrAccelerationStructure.CreateAccelerationStructure(_device.Device, in createInfo, null, out alloc.Blas);
+
+            var addressInfo = new AccelerationStructureDeviceAddressInfoKHR { SType = StructureType.AccelerationStructureDeviceAddressInfoKhr, AccelerationStructure = alloc.Blas };
+            alloc.BlasDeviceAddress = _device.KhrAccelerationStructure.GetAccelerationStructureDeviceAddress(_device.Device, in addressInfo);
+        }
+
+        var scratchBuffer = new VulkanBuffer(_device, maxScratchSize, BufferUsageFlags.StorageBufferBit | BufferUsageFlags.ShaderDeviceAddressBit, MemoryPropertyFlags.DeviceLocalBit);
+
+        foreach (var upload in uploads)
+        {
+            var alloc = upload.Allocation;
+            var triangles = new AccelerationStructureGeometryTrianglesDataKHR
+            {
+                SType = StructureType.AccelerationStructureGeometryTrianglesDataKhr,
+                VertexFormat = Format.R32G32B32Sfloat,
+                VertexData = new DeviceOrHostAddressConstKHR { DeviceAddress = VertexBuffer.DeviceAddress + alloc.VertexByteOffset },
+                VertexStride = 64,
+                MaxVertex = (uint)(alloc.VertexByteSize / 64) - 1,
+                IndexType = IndexType.Uint32,
+                IndexData = new DeviceOrHostAddressConstKHR { DeviceAddress = IndexBuffer.DeviceAddress + alloc.IndexByteOffset }
+            };
+
+            var geometry = new AccelerationStructureGeometryKHR
+            {
+                SType = StructureType.AccelerationStructureGeometryKhr,
+                GeometryType = GeometryTypeKHR.TrianglesKhr,
+                Geometry = new AccelerationStructureGeometryDataKHR { Triangles = triangles },
+                Flags = GeometryFlagsKHR.OpaqueBitKhr
+            };
+
+            var buildInfo = new AccelerationStructureBuildGeometryInfoKHR
+            {
+                SType = StructureType.AccelerationStructureBuildGeometryInfoKhr,
+                Type = AccelerationStructureTypeKHR.BottomLevelKhr,
+                Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr,
+                Mode = BuildAccelerationStructureModeKHR.BuildKhr,
+                DstAccelerationStructure = alloc.Blas,
+                GeometryCount = 1,
+                PGeometries = &geometry,
+                ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = scratchBuffer.DeviceAddress }
+            };
+
+            var buildRange = new AccelerationStructureBuildRangeInfoKHR { PrimitiveCount = alloc.IndexCount / 3, PrimitiveOffset = 0, FirstVertex = 0, TransformOffset = 0 };
+            var pBuildRange = &buildRange;
+
+            _device.KhrAccelerationStructure.CmdBuildAccelerationStructures(cmd, 1, in buildInfo, &pBuildRange);
+
+            var buildBarrier = new MemoryBarrier { SType = StructureType.MemoryBarrier, SrcAccessMask = AccessFlags.AccelerationStructureWriteBitKhr, DstAccessMask = AccessFlags.AccelerationStructureReadBitKhr | AccessFlags.AccelerationStructureWriteBitKhr };
+            _device.Vk.CmdPipelineBarrier(cmd, PipelineStageFlags.AccelerationStructureBuildBitKhr, PipelineStageFlags.AccelerationStructureBuildBitKhr, 0, 1, in buildBarrier, 0, null, 0, null);
+        }
+
+        _staleBuffers[currentFrame].Add(scratchBuffer);
     }
 
     public void Free(MeshAllocation allocation)
@@ -222,8 +265,7 @@ public unsafe class DynamicMeshPool : IDisposable
 
     public void CleanupResources(int currentFrame)
     {
-        foreach (var buffer in _staleBuffers[currentFrame])
-            buffer.Dispose();
+        foreach (var buffer in _staleBuffers[currentFrame]) buffer.Dispose();
         _staleBuffers[currentFrame].Clear();
     }
 
@@ -231,7 +273,6 @@ public unsafe class DynamicMeshPool : IDisposable
     {
         VertexBuffer.Dispose();
         IndexBuffer.Dispose();
-        foreach (var list in _staleBuffers)
-            foreach (var buf in list) buf.Dispose();
+        foreach (var list in _staleBuffers) foreach (var buf in list) buf.Dispose();
     }
 }

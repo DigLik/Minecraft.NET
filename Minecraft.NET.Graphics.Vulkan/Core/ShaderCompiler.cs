@@ -15,7 +15,12 @@ public unsafe class ShaderCompiler : IDisposable
         _shaderc = Shaderc.GetApi();
         _compiler = _shaderc.CompilerInitialize();
         _options = _shaderc.CompileOptionsInitialize();
-        _shaderc.CompileOptionsSetSourceLanguage(_options, SourceLanguage.Hlsl);
+
+        _shaderc.CompileOptionsSetSourceLanguage(_options, SourceLanguage.Glsl);
+
+        uint vulkan12 = (1 << 22) | (2 << 12);
+        _shaderc.CompileOptionsSetTargetEnv(_options, TargetEnv.Vulkan, vulkan12);
+        _shaderc.CompileOptionsSetTargetSpirv(_options, (SpirvVersion)0x010500);
     }
 
     public byte[] Compile(string source, string fileName, ShaderKind kind, string entryPoint = "main")
