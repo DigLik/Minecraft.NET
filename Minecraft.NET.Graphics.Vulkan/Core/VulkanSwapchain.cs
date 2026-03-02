@@ -40,23 +40,28 @@ public unsafe class VulkanSwapchain : IDisposable
     private Format FindDepthFormat()
     {
         Format[] candidates = [Format.D32Sfloat, Format.D32SfloatS8Uint, Format.D24UnormS8Uint];
+
         foreach (var format in candidates)
         {
             _device.Vk.GetPhysicalDeviceFormatProperties(_device.PhysicalDevice, format, out var props);
+
             if ((props.OptimalTilingFeatures & FormatFeatureFlags.DepthStencilAttachmentBit) != 0)
                 return format;
         }
+
         return Format.D32Sfloat;
     }
 
     private void CreateSwapchain(Vector2<int> windowSize)
     {
         _device.KhrSurface.GetPhysicalDeviceSurfaceCapabilities(_device.PhysicalDevice, _device.Surface, out var capabilities);
+
         Extent = new Extent2D((uint)Math.Max(1, windowSize.X), (uint)Math.Max(1, windowSize.Y));
         ImageFormat = Format.B8G8R8A8Unorm;
 
-        uint imageCount = capabilities.MinImageCount + 1;
-        if (imageCount < 3) imageCount = 3;
+        uint imageCount = 3;
+        if (capabilities.MinImageCount > imageCount)
+            imageCount = capabilities.MinImageCount;
         if (capabilities.MaxImageCount > 0 && imageCount > capabilities.MaxImageCount)
             imageCount = capabilities.MaxImageCount;
 
@@ -65,7 +70,7 @@ public unsafe class VulkanSwapchain : IDisposable
         var presentModes = new PresentModeKHR[presentModeCount];
         _device.KhrSurface.GetPhysicalDeviceSurfacePresentModes(_device.PhysicalDevice, _device.Surface, ref presentModeCount, out presentModes[0]);
 
-        PresentModeKHR presentMode = PresentModeKHR.ImmediateKhr;
+        PresentModeKHR presentMode = PresentModeKHR.FifoKhr;
         foreach (var mode in presentModes)
         {
             if (mode == PresentModeKHR.MailboxKhr)
@@ -108,6 +113,7 @@ public unsafe class VulkanSwapchain : IDisposable
     private void CreateImageViews()
     {
         ImageViews = new ImageView[Images.Length];
+
         for (int i = 0; i < Images.Length; i++)
         {
             ImageViewCreateInfo createInfo = new()
@@ -119,6 +125,7 @@ public unsafe class VulkanSwapchain : IDisposable
                 Components = new ComponentMapping(ComponentSwizzle.Identity, ComponentSwizzle.Identity, ComponentSwizzle.Identity, ComponentSwizzle.Identity),
                 SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1)
             };
+
             _device.Vk.CreateImageView(_device.Device, in createInfo, null, out ImageViews[i]);
         }
     }

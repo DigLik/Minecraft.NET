@@ -29,9 +29,8 @@ public class ChunkMesher(ChunkManager chunkManager)
 
     public ChunkMesh GenerateMesh(Vector3<int> chunkPos)
     {
-        var vertices = new List<ChunkVertex>();
-        var indices = new List<uint>();
-        uint indexOffset = 0;
+        List<ChunkVertex> vertices = [];
+        List<uint> indices = [];
 
         Vector3<int> chunkGlobalOrigin = new(chunkPos.X * ChunkSize, chunkPos.Y * ChunkSize, chunkPos.Z * ChunkSize);
         int grassOverlayId = BlockRegistry.TextureFiles.FindIndex(f => f.Contains("grass_side_overlay"));
@@ -85,6 +84,8 @@ public class ChunkMesher(ChunkManager chunkManager)
                                 color.Z = (72.0f / 255.0f) * shade;
                             }
 
+                            uint indexOffset = (uint)vertices.Count;
+
                             for (int v = 0; v < 4; v++)
                             {
                                 Vector3<float> pos = new Vector3<float>(x, y, z) + FaceVertices[faceIndex][v];
@@ -97,15 +98,20 @@ public class ChunkMesher(ChunkManager chunkManager)
                             indices.Add(indexOffset + 2);
                             indices.Add(indexOffset + 3);
                             indices.Add(indexOffset + 0);
-
-                            indexOffset += 4;
                         }
                     }
                 }
             }
         }
 
-        return new ChunkMesh { Vertices = [.. vertices], Indices = [.. indices] };
+        if (vertices.Count > 0)
+        {
+            return new ChunkMesh { Vertices = vertices.ToArray(), Indices = indices.ToArray() };
+        }
+        else
+        {
+            return new ChunkMesh { Vertices = [], Indices = [] };
+        }
     }
 
     private static bool ShouldRenderFace(BlockDefinition current, BlockDefinition neighbor)

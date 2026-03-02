@@ -1,4 +1,5 @@
-﻿using System.Numerics;
+﻿using System.Collections.Concurrent;
+using System.Numerics;
 
 using Minecraft.NET.Engine.Abstractions;
 using Minecraft.NET.Engine.Abstractions.Graphics;
@@ -20,14 +21,9 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         public Vector3<float> Position;
     }
 
-    private struct DeferredMesh
-    {
-        public IMesh Mesh;
-        public int FramesLeft;
-    }
-
-    private const int MaxFramesInFlight = 3;
+    private const int MaxFramesInFlight = 2;
     private int _currentFrame = 0;
+
     private readonly int _numThreads;
 
     private readonly VulkanDevice _device;
@@ -52,10 +48,15 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     private bool _framebufferResized = false;
 
     private readonly List<DrawCall> _drawCalls = [];
-    private readonly List<DeferredMesh> _meshesToDispose = [];
     private ITextureArray? _currentTextureArray;
+
     private VertexElement[]? _currentLayout;
     private uint _currentStride;
+
+    private DynamicMeshPool _meshPool = null!;
+
+    private readonly ConcurrentQueue<IMesh> _pendingMeshesToDispose = new();
+    private readonly List<IMesh>[] _meshesToDispose = new List<IMesh>[MaxFramesInFlight];
 
     public VulkanRenderPipeline(IWindow window)
     {
@@ -63,6 +64,8 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         _device = new VulkanDevice(window.Handle);
         _swapchain = new VulkanSwapchain(_device, _framebufferSize);
         _numThreads = Math.Max(1, Environment.ProcessorCount);
+
+        for (int i = 0; i < MaxFramesInFlight; i++) _meshesToDispose[i] = [];
 
         CreateCommandPool();
         CreateSecondaryCommandPools();
@@ -76,41 +79,27 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         _currentStride = stride;
         _pipeline = new VulkanPipeline(_device, _swapchain, layout, stride);
         CreateDescriptorPoolAndSets();
+
+        _meshPool = new DynamicMeshPool(_device, MaxFramesInFlight, 128 * 1024 * 1024, 32 * 1024 * 1024);
     }
 
     public IMesh CreateMesh<T>(T[] vertices, uint[] indices) where T : unmanaged
-    {
-        fixed (T* vPtr = vertices)
-        fixed (uint* iPtr = indices)
-        {
-            return new VulkanMesh(_device, vPtr, (ulong)(vertices.Length * sizeof(T)), iPtr, (uint)indices.Length);
-        }
-    }
+        => _meshPool.Allocate(vertices, indices);
 
     public void DeleteMesh(IMesh mesh)
-    {
-        _meshesToDispose.Add(new DeferredMesh { Mesh = mesh, FramesLeft = MaxFramesInFlight + 1 });
-    }
+        => _pendingMeshesToDispose.Enqueue(mesh);
 
     public ITextureArray CreateTextureArray(int width, int height, byte[][] pixels)
-    {
-        return new VulkanTextureArray(_device, width, height, pixels);
-    }
+        => new VulkanTextureArray(_device, width, height, pixels);
 
     public void BindTextureArray(ITextureArray textureArray)
-    {
-        _currentTextureArray = textureArray;
-    }
+        => _currentTextureArray = textureArray;
 
     public void SubmitDraw(IMesh mesh, Vector3<float> position)
-    {
-        _drawCalls.Add(new DrawCall { Mesh = mesh, Position = position });
-    }
+        => _drawCalls.Add(new DrawCall { Mesh = mesh, Position = position });
 
     public void ClearDraws()
-    {
-        _drawCalls.Clear();
-    }
+        => _drawCalls.Clear();
 
     private void CreateCommandPool()
     {
@@ -120,6 +109,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
             Flags = CommandPoolCreateFlags.ResetCommandBufferBit,
             QueueFamilyIndex = _device.GraphicsFamilyIndex
         };
+
         _device.Vk.CreateCommandPool(_device.Device, in poolInfo, null, out _commandPool);
     }
 
@@ -138,6 +128,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
                     Flags = CommandPoolCreateFlags.TransientBit,
                     QueueFamilyIndex = _device.GraphicsFamilyIndex
                 };
+
                 _device.Vk.CreateCommandPool(_device.Device, in poolInfo, null, out _secondaryCommandPools[i][t]);
 
                 CommandBufferAllocateInfo allocInfo = new()
@@ -147,6 +138,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
                     Level = CommandBufferLevel.Secondary,
                     CommandBufferCount = 1
                 };
+
                 _device.Vk.AllocateCommandBuffers(_device.Device, in allocInfo, out _secondaryCommandBuffers[i][t]);
             }
         }
@@ -196,6 +188,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
                 PPoolSizes = pPoolSizes,
                 MaxSets = MaxFramesInFlight
             };
+
             _device.Vk.CreateDescriptorPool(_device.Device, in poolInfo, null, out _descriptorPool);
         }
 
@@ -213,15 +206,18 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
 
         for (int i = 0; i < MaxFramesInFlight; i++)
         {
-            _cameraBuffers[i] = new VulkanBuffer(_device, (ulong)sizeof(Matrix4x4), BufferUsageFlags.UniformBufferBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+            _cameraBuffers[i] = new VulkanBuffer(
+                _device, (ulong)sizeof(Matrix4x4), BufferUsageFlags.UniformBufferBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
 
             DescriptorBufferInfo bufferInfo = new() { Buffer = _cameraBuffers[i].Buffer, Offset = 0, Range = (ulong)sizeof(Matrix4x4) };
+
             WriteDescriptorSet descriptorWrite = new()
             {
                 SType = StructureType.WriteDescriptorSet,
                 DstSet = _descriptorSets[i], DstBinding = 0, DstArrayElement = 0,
                 DescriptorType = DescriptorType.UniformBuffer, DescriptorCount = 1, PBufferInfo = &bufferInfo
             };
+
             _device.Vk.UpdateDescriptorSets(_device.Device, 1, &descriptorWrite, 0, null);
         }
     }
@@ -229,6 +225,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     private void RecreateSwapchain()
     {
         _device.Vk.DeviceWaitIdle(_device.Device);
+
         _swapchain.Dispose();
         _pipeline?.Dispose();
 
@@ -254,6 +251,18 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
 
         _device.Vk.WaitForFences(_device.Device, 1, ref _inFlightFences[_currentFrame], Vk.True, ulong.MaxValue);
 
+        _meshPool.CleanupResources(_currentFrame);
+
+        foreach (var mesh in _meshesToDispose[_currentFrame])
+        {
+            _meshPool.Free((MeshAllocation)mesh);
+            mesh.Dispose();
+        }
+        _meshesToDispose[_currentFrame].Clear();
+
+        while (_pendingMeshesToDispose.TryDequeue(out var mesh))
+            _meshesToDispose[_currentFrame].Add(mesh);
+
         if (_framebufferSize.X == 0 || _framebufferSize.Y == 0) return;
 
         if (_framebufferResized)
@@ -264,7 +273,8 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         }
 
         uint imageIndex;
-        var result = _device.KhrSwapchain.AcquireNextImage(_device.Device, _swapchain.Swapchain, ulong.MaxValue, _imageAvailableSemaphores[_currentFrame], default, &imageIndex);
+        var result = _device.KhrSwapchain.AcquireNextImage(
+            _device.Device, _swapchain.Swapchain, ulong.MaxValue, _imageAvailableSemaphores[_currentFrame], default, &imageIndex);
 
         if (result == Result.ErrorOutOfDateKhr)
         {
@@ -293,6 +303,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
                 DescriptorCount = 1,
                 PImageInfo = &imageInfo
             };
+
             _device.Vk.UpdateDescriptorSets(_device.Device, 1, &descriptorWrite, 0, null);
         }
 
@@ -303,6 +314,8 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
 
         CommandBufferBeginInfo beginInfo = new() { SType = StructureType.CommandBufferBeginInfo };
         _device.Vk.BeginCommandBuffer(cmd, in beginInfo);
+
+        _meshPool.FlushUploads(cmd, _currentFrame);
 
         var clearValues = stackalloc ClearValue[2];
         clearValues[0].Color = new ClearColorValue(0.4f, 0.6f, 0.9f, 1.0f);
@@ -321,7 +334,6 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         _device.Vk.CmdBeginRenderPass(cmd, in renderPassInfo, SubpassContents.SecondaryCommandBuffers);
 
         uint framebufferIndex = imageIndex;
-
         int drawCount = _drawCalls.Count;
         int drawsPerThread = drawCount / _numThreads;
         int remainingDraws = drawCount % _numThreads;
@@ -360,24 +372,20 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
                 int start = t * drawsPerThread + Math.Min(t, remainingDraws);
                 int count = drawsPerThread + (t < remainingDraws ? 1 : 0);
 
-                var vertexBuffers = stackalloc Buffer[1];
-                var offsets = stackalloc ulong[1];
-                offsets[0] = 0;
+                var vertexBuffers = stackalloc Buffer[1] { _meshPool.VertexBuffer.Buffer };
+                var offsets = stackalloc ulong[1] { 0 };
+                _device.Vk.CmdBindVertexBuffers(scmd, 0, 1, vertexBuffers, offsets);
+                _device.Vk.CmdBindIndexBuffer(scmd, _meshPool.IndexBuffer.Buffer, 0, IndexType.Uint32);
 
                 for (int i = start; i < start + count; i++)
                 {
                     var draw = _drawCalls[i];
-                    var vkMesh = (VulkanMesh)draw.Mesh;
-
-                    vertexBuffers[0] = vkMesh.VertexBuffer.Buffer;
-
-                    _device.Vk.CmdBindVertexBuffers(scmd, 0, 1, vertexBuffers, offsets);
-                    _device.Vk.CmdBindIndexBuffer(scmd, vkMesh.IndexBuffer.Buffer, 0, IndexType.Uint32);
+                    var alloc = (MeshAllocation)draw.Mesh;
 
                     Vector3<float> position = draw.Position;
                     _device.Vk.CmdPushConstants(scmd, _pipeline.PipelineLayout, ShaderStageFlags.VertexBit, 0, (uint)sizeof(Vector3<float>), &position);
 
-                    _device.Vk.CmdDrawIndexed(scmd, vkMesh.IndexCount, 1, 0, 0, 0);
+                    _device.Vk.CmdDrawIndexed(scmd, alloc.IndexCount, 1, alloc.FirstIndex, alloc.VertexOffset, 0);
                 }
             }
 
@@ -425,21 +433,6 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
             _framebufferResized = true;
 
         _currentFrame = (_currentFrame + 1) % MaxFramesInFlight;
-
-        for (int i = _meshesToDispose.Count - 1; i >= 0; i--)
-        {
-            var item = _meshesToDispose[i];
-            item.FramesLeft--;
-            if (item.FramesLeft <= 0)
-            {
-                item.Mesh.Dispose();
-                _meshesToDispose.RemoveAt(i);
-            }
-            else
-            {
-                _meshesToDispose[i] = item;
-            }
-        }
     }
 
     public void OnFramebufferResize(Vector2<int> newSize)
@@ -452,8 +445,9 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     {
         _device.Vk.DeviceWaitIdle(_device.Device);
 
-        foreach (var item in _meshesToDispose) item.Mesh.Dispose();
-        _meshesToDispose.Clear();
+        foreach (var list in _meshesToDispose)
+            foreach (var mesh in list) mesh.Dispose();
+        while (_pendingMeshesToDispose.TryDequeue(out var mesh)) mesh.Dispose();
 
         if (_descriptorPool.Handle != 0)
             _device.Vk.DestroyDescriptorPool(_device.Device, _descriptorPool, null);
@@ -463,16 +457,15 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         for (int i = 0; i < MaxFramesInFlight; i++)
         {
             for (int t = 0; t < _numThreads; t++)
-            {
                 if (_secondaryCommandPools[i] != null && _secondaryCommandPools[i][t].Handle != 0)
                     _device.Vk.DestroyCommandPool(_device.Device, _secondaryCommandPools[i][t], null);
-            }
 
             _device.Vk.DestroySemaphore(_device.Device, _imageAvailableSemaphores[i], null);
             _device.Vk.DestroySemaphore(_device.Device, _renderFinishedSemaphores[i], null);
             _device.Vk.DestroyFence(_device.Device, _inFlightFences[i], null);
         }
 
+        _meshPool?.Dispose();
         _device.Vk.DestroyCommandPool(_device.Device, _commandPool, null);
         _pipeline?.Dispose();
         _swapchain.Dispose();

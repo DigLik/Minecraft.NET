@@ -10,7 +10,7 @@ public class PlayerInputSystem(IInputManager inputManager) : ISystem
 {
     private const float WalkSpeed = 15.0f;
     private const float SprintSpeed = 25.0f;
-    private const float SpectatorSpeed = 100.0f;
+    private const float SpectatorSpeed = 500.0f;
     private const float JumpForce = 9.0f;
     private const float MouseSensitivity = 0.002f;
 

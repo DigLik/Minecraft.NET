@@ -22,9 +22,10 @@ public struct ChunkVertex(
     public Vector4 OverlayColor = overlayColor;
 }
 
-public class ChunkMesh
+public struct ChunkMesh
 {
-    public ChunkVertex[] Vertices = [];
-    public uint[] Indices = [];
-    public bool IsEmpty => Vertices.Length == 0;
+    public ChunkVertex[] Vertices;
+    public uint[] Indices;
+
+    public readonly bool IsEmpty => Vertices == null || Indices == null || Vertices.Length == 0 || Indices.Length == 0;
 }

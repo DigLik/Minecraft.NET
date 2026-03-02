@@ -115,7 +115,6 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
             if (_loadQueue.TryDequeue(out var loadPos))
             {
                 if (!_activeChunks.ContainsKey(loadPos)) continue;
-
                 _world.Chunks.LoadChunk(loadPos);
                 _loadedChunks.TryAdd(loadPos, 0);
 
@@ -230,32 +229,25 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
     private void UpdateRenderDistance(Vector3<int> center)
     {
         for (int x = center.X - RenderDistance; x <= center.X + RenderDistance; x++)
-        {
             for (int y = center.Y - RenderDistance; y <= center.Y + RenderDistance; y++)
-            {
                 for (int z = 0; z < WorldHeightInChunks; z++)
                 {
                     var pos = new Vector3<int>(x, y, z);
                     if (_activeChunks.TryAdd(pos, 0))
-                    {
                         _loadQueue.Enqueue(pos);
-                    }
                 }
-            }
-        }
 
         var toRemove = new List<Vector3<int>>();
         foreach (var pos in _activeChunks.Keys)
-        {
             if (Math.Abs(pos.X - center.X) > RenderDistance || Math.Abs(pos.Y - center.Y) > RenderDistance)
                 toRemove.Add(pos);
-        }
 
         foreach (var pos in toRemove)
         {
             _activeChunks.TryRemove(pos, out _);
             _loadedChunks.TryRemove(pos, out _);
             _meshedChunks.TryRemove(pos, out _);
+
             if (_meshes.TryGetValue(pos, out var mesh))
             {
                 _pipeline.DeleteMesh(mesh);
@@ -268,7 +260,8 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
     {
         _isDisposed = true;
         EventBus.Unsubscribe(this);
-        foreach (var mesh in _meshes.Values) _pipeline.DeleteMesh(mesh);
+        foreach (var mesh in _meshes.Values)
+            _pipeline.DeleteMesh(mesh);
         _textureArray?.Dispose();
     }
 }

@@ -18,10 +18,10 @@ public unsafe class VulkanMesh : IMesh
         IndexCount = indexCount;
 
         VertexBuffer = new VulkanBuffer(_device, vertexSize, BufferUsageFlags.VertexBufferBit | BufferUsageFlags.TransferDstBit, MemoryPropertyFlags.DeviceLocalBit);
-        IndexBuffer = new VulkanBuffer(_device, (ulong)(indexCount * sizeof(uint)), BufferUsageFlags.IndexBufferBit | BufferUsageFlags.TransferDstBit, MemoryPropertyFlags.DeviceLocalBit);
+        IndexBuffer = new VulkanBuffer(_device, indexCount * sizeof(uint), BufferUsageFlags.IndexBufferBit | BufferUsageFlags.TransferDstBit, MemoryPropertyFlags.DeviceLocalBit);
 
         using VulkanBuffer stagingVertex = new(_device, vertexSize, BufferUsageFlags.TransferSrcBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
-        using VulkanBuffer stagingIndex = new(_device, (ulong)(indexCount * sizeof(uint)), BufferUsageFlags.TransferSrcBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+        using VulkanBuffer stagingIndex = new(_device, indexCount * sizeof(uint), BufferUsageFlags.TransferSrcBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
 
         void* vData;
         _device.Vk.MapMemory(_device.Device, stagingVertex.Memory, 0, vertexSize, 0, &vData);
@@ -29,7 +29,7 @@ public unsafe class VulkanMesh : IMesh
         _device.Vk.UnmapMemory(_device.Device, stagingVertex.Memory);
 
         void* iData;
-        ulong indexSize = (ulong)(indexCount * sizeof(uint));
+        ulong indexSize = indexCount * sizeof(uint);
         _device.Vk.MapMemory(_device.Device, stagingIndex.Memory, 0, indexSize, 0, &iData);
         System.Buffer.MemoryCopy(indices, iData, indexSize, indexSize);
         _device.Vk.UnmapMemory(_device.Device, stagingIndex.Memory);
