@@ -89,6 +89,7 @@ public unsafe class VulkanDevice : IDisposable
         VkNonDispatchableHandle surfaceHandle;
         if (glfw.CreateWindowSurface(new VkHandle(Instance.Handle), (WindowHandle*)windowHandle, null, &surfaceHandle) != (int)Result.Success)
             throw new Exception("Failed to create window surface!");
+
         Surface = new SurfaceKHR(surfaceHandle.Handle);
     }
 
@@ -112,6 +113,7 @@ public unsafe class VulkanDevice : IDisposable
             for (uint i = 0; i < queueFamilyCount; i++)
             {
                 if (queueFamilies[i].QueueFlags.HasFlag(QueueFlags.GraphicsBit)) graphicsFamily = i;
+
                 KhrSurface.GetPhysicalDeviceSurfaceSupport(device, i, Surface, out var presentSupport);
                 if (presentSupport) presentFamily = i;
 
@@ -149,7 +151,12 @@ public unsafe class VulkanDevice : IDisposable
 
         var deviceExtensions = new[] { KhrSwapchain.ExtensionName };
         var pDeviceExtensions = SilkMarshal.StringArrayToPtr(deviceExtensions);
-        PhysicalDeviceFeatures deviceFeatures = new() { SamplerAnisotropy = true };
+
+        PhysicalDeviceFeatures deviceFeatures = new()
+        {
+            SamplerAnisotropy = true,
+            MultiDrawIndirect = Vk.True
+        };
 
         fixed (DeviceQueueCreateInfo* pQueueCreateInfos = queueCreateInfos)
         {
@@ -162,6 +169,7 @@ public unsafe class VulkanDevice : IDisposable
                 EnabledExtensionCount = (uint)deviceExtensions.Length,
                 PpEnabledExtensionNames = (byte**)pDeviceExtensions
             };
+
             if (Vk.CreateDevice(PhysicalDevice, in createInfo, null, out Device) != Result.Success)
                 throw new Exception("Failed to create logical device!");
         }
@@ -177,15 +185,18 @@ public unsafe class VulkanDevice : IDisposable
             Flags = CommandPoolCreateFlags.TransientBit,
             QueueFamilyIndex = GraphicsFamilyIndex
         };
+
         Vk.CreateCommandPool(Device, in poolInfo, null, out TransferCommandPool);
     }
 
     public uint FindMemoryType(uint typeFilter, MemoryPropertyFlags properties)
     {
         Vk.GetPhysicalDeviceMemoryProperties(PhysicalDevice, out var memProperties);
+
         for (int i = 0; i < memProperties.MemoryTypeCount; i++)
             if ((typeFilter & (1 << i)) != 0 && (memProperties.MemoryTypes[i].PropertyFlags & properties) == properties)
                 return (uint)i;
+
         throw new Exception("Failed to find suitable memory type!");
     }
 
@@ -198,6 +209,7 @@ public unsafe class VulkanDevice : IDisposable
             CommandPool = TransferCommandPool,
             CommandBufferCount = 1
         };
+
         Vk.AllocateCommandBuffers(Device, in allocInfo, out CommandBuffer commandBuffer);
 
         CommandBufferBeginInfo beginInfo = new()
@@ -205,6 +217,7 @@ public unsafe class VulkanDevice : IDisposable
             SType = StructureType.CommandBufferBeginInfo,
             Flags = CommandBufferUsageFlags.OneTimeSubmitBit
         };
+
         Vk.BeginCommandBuffer(commandBuffer, in beginInfo);
 
         return commandBuffer;

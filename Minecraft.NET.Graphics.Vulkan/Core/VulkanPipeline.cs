@@ -8,6 +8,7 @@ namespace Minecraft.NET.Graphics.Vulkan.Core;
 public unsafe class VulkanPipeline : IDisposable
 {
     private readonly VulkanDevice _device;
+
     public PipelineLayout PipelineLayout;
     public DescriptorSetLayout DescriptorSetLayout;
     public Pipeline GraphicsPipeline;
@@ -40,6 +41,7 @@ public unsafe class VulkanPipeline : IDisposable
             SType = StructureType.DescriptorSetLayoutCreateInfo,
             BindingCount = 2, PBindings = bindings
         };
+
         _device.Vk.CreateDescriptorSetLayout(_device.Device, in layoutInfo, null, out DescriptorSetLayout);
     }
 
@@ -83,14 +85,21 @@ public unsafe class VulkanPipeline : IDisposable
 
         var shaderStages = stackalloc[] { vertStageInfo, fragStageInfo };
 
-        var bindingDescription = new VertexInputBindingDescription
+        var bindingDescriptions = stackalloc VertexInputBindingDescription[2];
+        bindingDescriptions[0] = new VertexInputBindingDescription
         {
             Binding = 0,
             Stride = vertexStride,
             InputRate = VertexInputRate.Vertex
         };
+        bindingDescriptions[1] = new VertexInputBindingDescription
+        {
+            Binding = 1,
+            Stride = (uint)sizeof(Utils.Math.Vector3<float>),
+            InputRate = VertexInputRate.Instance
+        };
 
-        var attributeDescriptions = new VertexInputAttributeDescription[vertexLayout.Length];
+        var attributeDescriptions = new VertexInputAttributeDescription[vertexLayout.Length + 1];
         for (int i = 0; i < vertexLayout.Length; i++)
         {
             attributeDescriptions[i] = new VertexInputAttributeDescription
@@ -101,14 +110,21 @@ public unsafe class VulkanPipeline : IDisposable
                 Offset = vertexLayout[i].Offset
             };
         }
+        attributeDescriptions[vertexLayout.Length] = new VertexInputAttributeDescription
+        {
+            Binding = 1,
+            Location = 6,
+            Format = Format.R32G32B32Sfloat,
+            Offset = 0
+        };
 
         fixed (VertexInputAttributeDescription* pAttributes = attributeDescriptions)
         {
             PipelineVertexInputStateCreateInfo vertexInputInfo = new()
             {
                 SType = StructureType.PipelineVertexInputStateCreateInfo,
-                VertexBindingDescriptionCount = 1, PVertexBindingDescriptions = &bindingDescription,
-                VertexAttributeDescriptionCount = (uint)vertexLayout.Length, PVertexAttributeDescriptions = pAttributes
+                VertexBindingDescriptionCount = 2, PVertexBindingDescriptions = bindingDescriptions,
+                VertexAttributeDescriptionCount = (uint)attributeDescriptions.Length, PVertexAttributeDescriptions = pAttributes
             };
 
             PipelineInputAssemblyStateCreateInfo inputAssembly = new()
@@ -168,21 +184,14 @@ public unsafe class VulkanPipeline : IDisposable
                 LogicOpEnable = Vk.False, AttachmentCount = 1, PAttachments = &colorBlendAttachment
             };
 
-            PushConstantRange pushConstantRange = new()
-            {
-                StageFlags = ShaderStageFlags.VertexBit,
-                Offset = 0,
-                Size = (uint)sizeof(Utils.Math.Vector3<float>)
-            };
-
             DescriptorSetLayout layout = DescriptorSetLayout;
             PipelineLayoutCreateInfo pipelineLayoutInfo = new()
             {
                 SType = StructureType.PipelineLayoutCreateInfo,
                 SetLayoutCount = 1,
                 PSetLayouts = &layout,
-                PushConstantRangeCount = 1,
-                PPushConstantRanges = &pushConstantRange
+                PushConstantRangeCount = 0,
+                PPushConstantRanges = null
             };
 
             _device.Vk.CreatePipelineLayout(_device.Device, in pipelineLayoutInfo, null, out PipelineLayout);

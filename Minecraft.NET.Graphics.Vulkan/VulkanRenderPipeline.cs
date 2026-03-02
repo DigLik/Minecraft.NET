@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 using Minecraft.NET.Engine.Abstractions;
 using Minecraft.NET.Engine.Abstractions.Graphics;
@@ -21,10 +22,18 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         public Vector3<float> Position;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DrawIndexedIndirectCommand
+    {
+        public uint IndexCount;
+        public uint InstanceCount;
+        public uint FirstIndex;
+        public int VertexOffset;
+        public uint FirstInstance;
+    }
+
     private const int MaxFramesInFlight = 2;
     private int _currentFrame = 0;
-
-    private readonly int _numThreads;
 
     private readonly VulkanDevice _device;
     private VulkanSwapchain _swapchain;
@@ -33,9 +42,6 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     private CommandPool _commandPool;
     private readonly CommandBuffer[] _commandBuffers = new CommandBuffer[MaxFramesInFlight];
 
-    private readonly CommandPool[][] _secondaryCommandPools = new CommandPool[MaxFramesInFlight][];
-    private readonly CommandBuffer[][] _secondaryCommandBuffers = new CommandBuffer[MaxFramesInFlight][];
-
     private readonly Semaphore[] _imageAvailableSemaphores = new Semaphore[MaxFramesInFlight];
     private readonly Semaphore[] _renderFinishedSemaphores = new Semaphore[MaxFramesInFlight];
     private readonly Fence[] _inFlightFences = new Fence[MaxFramesInFlight];
@@ -43,6 +49,10 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     private readonly VulkanBuffer[] _cameraBuffers = new VulkanBuffer[MaxFramesInFlight];
     private DescriptorPool _descriptorPool;
     private readonly DescriptorSet[] _descriptorSets = new DescriptorSet[MaxFramesInFlight];
+
+    private readonly VulkanBuffer[] _indirectBuffers = new VulkanBuffer[MaxFramesInFlight];
+    private readonly VulkanBuffer[] _instanceBuffers = new VulkanBuffer[MaxFramesInFlight];
+    private int _maxDraws = 0;
 
     private Vector2<int> _framebufferSize;
     private bool _framebufferResized = false;
@@ -63,12 +73,10 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         _framebufferSize = window.FramebufferSize;
         _device = new VulkanDevice(window.Handle);
         _swapchain = new VulkanSwapchain(_device, _framebufferSize);
-        _numThreads = Math.Max(1, Environment.ProcessorCount);
 
         for (int i = 0; i < MaxFramesInFlight; i++) _meshesToDispose[i] = [];
 
         CreateCommandPool();
-        CreateSecondaryCommandPools();
         CreateCommandBuffers();
         CreateSyncObjects();
     }
@@ -111,37 +119,6 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         };
 
         _device.Vk.CreateCommandPool(_device.Device, in poolInfo, null, out _commandPool);
-    }
-
-    private void CreateSecondaryCommandPools()
-    {
-        for (int i = 0; i < MaxFramesInFlight; i++)
-        {
-            _secondaryCommandPools[i] = new CommandPool[_numThreads];
-            _secondaryCommandBuffers[i] = new CommandBuffer[_numThreads];
-
-            for (int t = 0; t < _numThreads; t++)
-            {
-                CommandPoolCreateInfo poolInfo = new()
-                {
-                    SType = StructureType.CommandPoolCreateInfo,
-                    Flags = CommandPoolCreateFlags.TransientBit,
-                    QueueFamilyIndex = _device.GraphicsFamilyIndex
-                };
-
-                _device.Vk.CreateCommandPool(_device.Device, in poolInfo, null, out _secondaryCommandPools[i][t]);
-
-                CommandBufferAllocateInfo allocInfo = new()
-                {
-                    SType = StructureType.CommandBufferAllocateInfo,
-                    CommandPool = _secondaryCommandPools[i][t],
-                    Level = CommandBufferLevel.Secondary,
-                    CommandBufferCount = 1
-                };
-
-                _device.Vk.AllocateCommandBuffers(_device.Device, in allocInfo, out _secondaryCommandBuffers[i][t]);
-            }
-        }
     }
 
     private void CreateCommandBuffers()
@@ -307,6 +284,43 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
             _device.Vk.UpdateDescriptorSets(_device.Device, 1, &descriptorWrite, 0, null);
         }
 
+        int drawCount = _drawCalls.Count;
+        if (drawCount > _maxDraws)
+        {
+            _device.Vk.DeviceWaitIdle(_device.Device);
+            _maxDraws = (int)(drawCount * 1.5f) + 100;
+
+            for (int i = 0; i < MaxFramesInFlight; i++)
+            {
+                _indirectBuffers[i]?.Dispose();
+                _instanceBuffers[i]?.Dispose();
+                _indirectBuffers[i] = new VulkanBuffer(_device, (ulong)(_maxDraws * sizeof(DrawIndexedIndirectCommand)), BufferUsageFlags.IndirectBufferBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+                _instanceBuffers[i] = new VulkanBuffer(_device, (ulong)(_maxDraws * sizeof(Vector3<float>)), BufferUsageFlags.VertexBufferBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+            }
+        }
+
+        if (drawCount > 0)
+        {
+            var indirectSpan = new Span<DrawIndexedIndirectCommand>(_indirectBuffers[_currentFrame].MappedMemory, drawCount);
+            var instanceSpan = new Span<Vector3<float>>(_instanceBuffers[_currentFrame].MappedMemory, drawCount);
+
+            for (int i = 0; i < drawCount; i++)
+            {
+                var draw = _drawCalls[i];
+                var alloc = (MeshAllocation)draw.Mesh;
+
+                indirectSpan[i] = new DrawIndexedIndirectCommand
+                {
+                    IndexCount = alloc.IndexCount,
+                    InstanceCount = 1,
+                    FirstIndex = alloc.FirstIndex,
+                    VertexOffset = alloc.VertexOffset,
+                    FirstInstance = (uint)i
+                };
+                instanceSpan[i] = draw.Position;
+            }
+        }
+
         _device.Vk.ResetFences(_device.Device, 1, ref _inFlightFences[_currentFrame]);
 
         CommandBuffer cmd = _commandBuffers[_currentFrame];
@@ -331,79 +345,30 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
             PClearValues = clearValues
         };
 
-        _device.Vk.CmdBeginRenderPass(cmd, in renderPassInfo, SubpassContents.SecondaryCommandBuffers);
+        _device.Vk.CmdBeginRenderPass(cmd, in renderPassInfo, SubpassContents.Inline);
 
-        uint framebufferIndex = imageIndex;
-        int drawCount = _drawCalls.Count;
-        int drawsPerThread = drawCount / _numThreads;
-        int remainingDraws = drawCount % _numThreads;
-
-        Parallel.For(0, _numThreads, t =>
+        if (drawCount > 0)
         {
-            var pool = _secondaryCommandPools[_currentFrame][t];
-            var scmd = _secondaryCommandBuffers[_currentFrame][t];
+            _device.Vk.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline.GraphicsPipeline);
 
-            _device.Vk.ResetCommandPool(_device.Device, pool, 0);
+            var descriptorSet = _descriptorSets[_currentFrame];
+            _device.Vk.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _pipeline.PipelineLayout, 0, 1, &descriptorSet, 0, null);
 
-            CommandBufferInheritanceInfo inheritanceInfo = new()
-            {
-                SType = StructureType.CommandBufferInheritanceInfo,
-                RenderPass = _swapchain.RenderPass,
-                Subpass = 0,
-                Framebuffer = _swapchain.Framebuffers[framebufferIndex]
-            };
+            var vertexBuffers = stackalloc Buffer[2] { _meshPool.VertexBuffer.Buffer, _instanceBuffers[_currentFrame].Buffer };
+            var offsets = stackalloc ulong[2] { 0, 0 };
 
-            CommandBufferBeginInfo secBeginInfo = new()
-            {
-                SType = StructureType.CommandBufferBeginInfo,
-                Flags = CommandBufferUsageFlags.RenderPassContinueBit | CommandBufferUsageFlags.OneTimeSubmitBit,
-                PInheritanceInfo = &inheritanceInfo
-            };
+            _device.Vk.CmdBindVertexBuffers(cmd, 0, 2, vertexBuffers, offsets);
+            _device.Vk.CmdBindIndexBuffer(cmd, _meshPool.IndexBuffer.Buffer, 0, IndexType.Uint32);
 
-            _device.Vk.BeginCommandBuffer(scmd, in secBeginInfo);
-
-            if (drawCount > 0)
-            {
-                _device.Vk.CmdBindPipeline(scmd, PipelineBindPoint.Graphics, _pipeline.GraphicsPipeline);
-
-                var descriptorSet = _descriptorSets[_currentFrame];
-                _device.Vk.CmdBindDescriptorSets(scmd, PipelineBindPoint.Graphics, _pipeline.PipelineLayout, 0, 1, &descriptorSet, 0, null);
-
-                int start = t * drawsPerThread + Math.Min(t, remainingDraws);
-                int count = drawsPerThread + (t < remainingDraws ? 1 : 0);
-
-                var vertexBuffers = stackalloc Buffer[1] { _meshPool.VertexBuffer.Buffer };
-                var offsets = stackalloc ulong[1] { 0 };
-                _device.Vk.CmdBindVertexBuffers(scmd, 0, 1, vertexBuffers, offsets);
-                _device.Vk.CmdBindIndexBuffer(scmd, _meshPool.IndexBuffer.Buffer, 0, IndexType.Uint32);
-
-                for (int i = start; i < start + count; i++)
-                {
-                    var draw = _drawCalls[i];
-                    var alloc = (MeshAllocation)draw.Mesh;
-
-                    Vector3<float> position = draw.Position;
-                    _device.Vk.CmdPushConstants(scmd, _pipeline.PipelineLayout, ShaderStageFlags.VertexBit, 0, (uint)sizeof(Vector3<float>), &position);
-
-                    _device.Vk.CmdDrawIndexed(scmd, alloc.IndexCount, 1, alloc.FirstIndex, alloc.VertexOffset, 0);
-                }
-            }
-
-            _device.Vk.EndCommandBuffer(scmd);
-        });
-
-        var secondaryCmds = stackalloc CommandBuffer[_numThreads];
-        for (int t = 0; t < _numThreads; t++)
-            secondaryCmds[t] = _secondaryCommandBuffers[_currentFrame][t];
-
-        if (_numThreads > 0)
-            _device.Vk.CmdExecuteCommands(cmd, (uint)_numThreads, secondaryCmds);
+            _device.Vk.CmdDrawIndexedIndirect(cmd, _indirectBuffers[_currentFrame].Buffer, 0, (uint)drawCount, (uint)sizeof(DrawIndexedIndirectCommand));
+        }
 
         _device.Vk.CmdEndRenderPass(cmd);
         _device.Vk.EndCommandBuffer(cmd);
 
         var waitSemaphores = stackalloc[] { _imageAvailableSemaphores[_currentFrame] };
         var waitStages = stackalloc[] { PipelineStageFlags.ColorAttachmentOutputBit };
+
         var signalSemaphores = stackalloc[] { _renderFinishedSemaphores[_currentFrame] };
         var commandBuffers = stackalloc[] { cmd };
 
@@ -447,6 +412,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
 
         foreach (var list in _meshesToDispose)
             foreach (var mesh in list) mesh.Dispose();
+
         while (_pendingMeshesToDispose.TryDequeue(out var mesh)) mesh.Dispose();
 
         if (_descriptorPool.Handle != 0)
@@ -456,9 +422,8 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
 
         for (int i = 0; i < MaxFramesInFlight; i++)
         {
-            for (int t = 0; t < _numThreads; t++)
-                if (_secondaryCommandPools[i] != null && _secondaryCommandPools[i][t].Handle != 0)
-                    _device.Vk.DestroyCommandPool(_device.Device, _secondaryCommandPools[i][t], null);
+            _indirectBuffers[i]?.Dispose();
+            _instanceBuffers[i]?.Dispose();
 
             _device.Vk.DestroySemaphore(_device.Device, _imageAvailableSemaphores[i], null);
             _device.Vk.DestroySemaphore(_device.Device, _renderFinishedSemaphores[i], null);
@@ -466,6 +431,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         }
 
         _meshPool?.Dispose();
+
         _device.Vk.DestroyCommandPool(_device.Device, _commandPool, null);
         _pipeline?.Dispose();
         _swapchain.Dispose();

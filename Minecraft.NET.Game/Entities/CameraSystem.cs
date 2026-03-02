@@ -35,7 +35,7 @@ public class CameraSystem(EngineApp engine, IWindow window) : ISystem
             );
 
             float aspect = window.FramebufferSize.X / (float)Math.Max(1, window.FramebufferSize.Y);
-            var proj = Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 2.5f, aspect, 0.1f, 1000f);
+            var proj = Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 2.5f, aspect, 0.1f, 3000f);
 
             proj.M22 *= -1;
 
