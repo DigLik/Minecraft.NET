@@ -35,18 +35,12 @@ public unsafe class VulkanRayTracingPipeline : IDisposable
             new() { Binding = 1, DescriptorType = DescriptorType.StorageImage, DescriptorCount = 1, StageFlags = ShaderStageFlags.RaygenBitKhr },
             new() { Binding = 2, DescriptorType = DescriptorType.UniformBuffer, DescriptorCount = 1, StageFlags = ShaderStageFlags.RaygenBitKhr | ShaderStageFlags.ClosestHitBitKhr },
             new() { Binding = 3, DescriptorType = DescriptorType.CombinedImageSampler, DescriptorCount = 1, StageFlags = ShaderStageFlags.ClosestHitBitKhr },
-            new() { Binding = 4, DescriptorType = DescriptorType.StorageBuffer, DescriptorCount = 1, StageFlags = ShaderStageFlags.ClosestHitBitKhr },
-            new() { Binding = 5, DescriptorType = DescriptorType.StorageBuffer, DescriptorCount = 1, StageFlags = ShaderStageFlags.ClosestHitBitKhr },
-            new() { Binding = 6, DescriptorType = DescriptorType.StorageBuffer, DescriptorCount = 1, StageFlags = ShaderStageFlags.ClosestHitBitKhr }
+            new() { Binding = 4, DescriptorType = DescriptorType.StorageBuffer, DescriptorCount = 1, StageFlags = ShaderStageFlags.ClosestHitBitKhr } // Instance Data
         ];
 
         fixed (DescriptorSetLayoutBinding* pBindings = bindings)
         {
-            DescriptorSetLayoutCreateInfo layoutInfo = new()
-            {
-                SType = StructureType.DescriptorSetLayoutCreateInfo, BindingCount = 7, PBindings = pBindings
-            };
-
+            DescriptorSetLayoutCreateInfo layoutInfo = new() { SType = StructureType.DescriptorSetLayoutCreateInfo, BindingCount = 5, PBindings = pBindings };
             _device.Vk.CreateDescriptorSetLayout(_device.Device, in layoutInfo, null, out DescriptorSetLayout);
         }
     }
@@ -75,7 +69,6 @@ public unsafe class VulkanRayTracingPipeline : IDisposable
 
         DescriptorSetLayout layout = DescriptorSetLayout;
         PipelineLayoutCreateInfo pipelineLayoutInfo = new() { SType = StructureType.PipelineLayoutCreateInfo, SetLayoutCount = 1, PSetLayouts = &layout };
-
         _device.Vk.CreatePipelineLayout(_device.Device, in pipelineLayoutInfo, null, out PipelineLayout);
 
         RayTracingPipelineCreateInfoKHR pipelineInfo = new()
@@ -102,23 +95,15 @@ public unsafe class VulkanRayTracingPipeline : IDisposable
         var props2 = new PhysicalDeviceProperties2 { SType = StructureType.PhysicalDeviceProperties2, PNext = &props };
         _device.Vk.GetPhysicalDeviceProperties2(_device.PhysicalDevice, &props2);
 
-        SbtProps = new SbtProperties
-        {
-            HandleSize = props.ShaderGroupHandleSize,
-            RegionAligned = AlignUp(props.ShaderGroupHandleSize, props.ShaderGroupBaseAlignment)
-        };
-
+        SbtProps = new SbtProperties { HandleSize = props.ShaderGroupHandleSize, RegionAligned = AlignUp(props.ShaderGroupHandleSize, props.ShaderGroupBaseAlignment) };
         uint sbtSize = SbtProps.RegionAligned * 3;
         SbtBuffer = new VulkanBuffer(_device, sbtSize, BufferUsageFlags.ShaderBindingTableBitKhr | BufferUsageFlags.ShaderDeviceAddressBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
 
         byte[] handles = new byte[props.ShaderGroupHandleSize * 3];
         fixed (byte* pHandles = handles)
-        {
             _device.KhrRayTracingPipeline.GetRayTracingShaderGroupHandles(_device.Device, Pipeline, 0, 3, (nuint)handles.Length, pHandles);
-        }
 
         byte* mapped = (byte*)SbtBuffer.MappedMemory;
-
         for (int i = 0; i < 3; i++)
         {
             fixed (byte* ptr = &handles[i * props.ShaderGroupHandleSize])
@@ -129,7 +114,6 @@ public unsafe class VulkanRayTracingPipeline : IDisposable
     private ShaderModule CreateShaderModule(byte[] code)
     {
         ShaderModuleCreateInfo createInfo = new() { SType = StructureType.ShaderModuleCreateInfo, CodeSize = (nuint)code.Length };
-
         fixed (byte* pCode = code)
         {
             createInfo.PCode = (uint*)pCode;

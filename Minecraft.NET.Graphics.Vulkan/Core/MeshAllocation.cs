@@ -25,6 +25,13 @@ public class MeshAllocation(
     internal ulong BlasByteOffset { get; set; }
     internal ulong BlasByteSize { get; set; }
 
+    internal DynamicMeshPool.BufferChunk VertexChunk = null!;
+    internal DynamicMeshPool.BufferChunk IndexChunk = null!;
+    internal DynamicMeshPool.BufferChunk BlasChunk = null!;
+
+    public ulong VertexAddress => VertexChunk.Buffer.DeviceAddress;
+    public ulong IndexAddress => IndexChunk.Buffer.DeviceAddress;
+
     private volatile bool _isReady = false;
     public bool IsReady
     {
