@@ -3,4 +3,5 @@
 public interface IMesh : IDisposable
 {
     uint IndexCount { get; }
+    bool IsReady { get; }
 }

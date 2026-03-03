@@ -25,20 +25,21 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
     private readonly ChunkMesher _mesher;
 
     private readonly Dictionary<Vector3<int>, IMesh> _meshes = [];
+    private readonly Dictionary<Vector3<int>, IMesh> _pendingReadyMeshes = [];
 
     private readonly ConcurrentDictionary<Vector3<int>, byte> _activeChunks = new();
     private readonly ConcurrentDictionary<Vector3<int>, byte> _loadedChunks = new();
     private readonly ConcurrentDictionary<Vector3<int>, byte> _meshedChunks = new();
 
-    private readonly ConcurrentQueue<Vector3<int>> _loadQueue = new();
-    private readonly ConcurrentQueue<Vector3<int>> _meshQueue = new();
+    private readonly BlockingCollection<Vector3<int>> _loadQueue = new(new ConcurrentQueue<Vector3<int>>());
+    private readonly BlockingCollection<Vector3<int>> _meshQueue = new(new ConcurrentQueue<Vector3<int>>());
     private readonly ConcurrentQueue<(Vector3<int> Pos, IMesh? Mesh)> _builtMeshes = new();
 
     private Vector3<int> _lastPlayerChunk = new(int.MaxValue);
     private ITextureArray? _textureArray;
 
-    private bool _isDisposed;
-    private readonly Thread[] _workers;
+    private readonly Thread[] _genWorkers;
+    private readonly Thread[] _meshWorkers;
 
     public ChunkRenderSystem(IRenderPipeline pipeline, GameWorld world)
     {
@@ -49,11 +50,22 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
         EventBus.Subscribe(this);
         LoadTextures();
 
-        _workers = new Thread[Math.Max(1, System.Environment.ProcessorCount / 2)];
-        for (int i = 0; i < _workers.Length; i++)
+        int cores = System.Environment.ProcessorCount;
+        int genThreads = Math.Max(1, (int)(cores * 0.10f));
+        int meshThreads = Math.Max(1, (int)(cores * 0.25f));
+
+        _genWorkers = new Thread[genThreads];
+        for (int i = 0; i < genThreads; i++)
         {
-            _workers[i] = new Thread(WorkerLoop) { IsBackground = true };
-            _workers[i].Start();
+            _genWorkers[i] = new Thread(GenLoop) { IsBackground = true, Name = $"ChunkGen_{i}" };
+            _genWorkers[i].Start();
+        }
+
+        _meshWorkers = new Thread[meshThreads];
+        for (int i = 0; i < meshThreads; i++)
+        {
+            _meshWorkers[i] = new Thread(MeshLoop) { IsBackground = true, Name = $"ChunkMesh_{i}" };
+            _meshWorkers[i].Start();
         }
     }
 
@@ -92,7 +104,6 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
     private void MarkForRemesh(Vector3<int> pos)
     {
         if (!_activeChunks.ContainsKey(pos)) return;
-
         bool IsLoadedOrOOB(Vector3<int> p) => p.Z < 0 || p.Z >= WorldHeightInChunks || !_activeChunks.ContainsKey(p) || _loadedChunks.ContainsKey(p);
 
         if (IsLoadedOrOOB(pos + new Vector3<int>(1, 0, 0)) &&
@@ -103,18 +114,18 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
             IsLoadedOrOOB(pos + new Vector3<int>(0, 0, -1)))
         {
             _meshedChunks.TryRemove(pos, out _);
-            if (_meshedChunks.TryAdd(pos, 0))
-                _meshQueue.Enqueue(pos);
+            if (_meshedChunks.TryAdd(pos, 0)) _meshQueue.Add(pos);
         }
     }
 
-    private void WorkerLoop()
+    private void GenLoop()
     {
-        while (!_isDisposed)
+        try
         {
-            if (_loadQueue.TryDequeue(out var loadPos))
+            foreach (var loadPos in _loadQueue.GetConsumingEnumerable())
             {
                 if (!_activeChunks.ContainsKey(loadPos)) continue;
+
                 _world.Chunks.LoadChunk(loadPos);
                 _loadedChunks.TryAdd(loadPos, 0);
 
@@ -126,12 +137,19 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
                 MarkForRemesh(loadPos + new Vector3<int>(0, 0, 1));
                 MarkForRemesh(loadPos + new Vector3<int>(0, 0, -1));
             }
-            else if (_meshQueue.TryDequeue(out var meshPos))
+        }
+        catch (ObjectDisposedException) { }
+    }
+
+    private void MeshLoop()
+    {
+        try
+        {
+            foreach (var meshPos in _meshQueue.GetConsumingEnumerable())
             {
                 if (!_activeChunks.ContainsKey(meshPos)) continue;
 
                 var meshData = _mesher.GenerateMesh(meshPos);
-
                 if (!meshData.IsEmpty)
                 {
                     var gpuMesh = _pipeline.CreateMesh(meshData.Vertices, meshData.Indices);
@@ -142,11 +160,8 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
                     _builtMeshes.Enqueue((meshPos, null));
                 }
             }
-            else
-            {
-                Thread.Sleep(2);
-            }
         }
+        catch (ObjectDisposedException) { }
     }
 
     public void Handle(in BlockChangedEvent @event)
@@ -196,8 +211,7 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
             UpdateRenderDistance(playerChunkPos);
         }
 
-        int uploadedThisFrame = 0;
-        while (uploadedThisFrame < 64 && _builtMeshes.TryDequeue(out var result))
+        while (_builtMeshes.TryDequeue(out var result))
         {
             if (!_activeChunks.ContainsKey(result.Pos))
             {
@@ -205,19 +219,29 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
                 continue;
             }
 
-            if (_meshes.TryGetValue(result.Pos, out var oldMesh))
+            if (result.Mesh == null)
             {
-                _pipeline.DeleteMesh(oldMesh);
-                _meshes.Remove(result.Pos);
+                if (_meshes.Remove(result.Pos, out var oldMesh)) _pipeline.DeleteMesh(oldMesh);
+                if (_pendingReadyMeshes.Remove(result.Pos, out var pendingOld)) _pipeline.DeleteMesh(pendingOld);
             }
-
-            if (result.Mesh != null)
+            else
             {
-                _meshes[result.Pos] = result.Mesh;
+                if (_pendingReadyMeshes.Remove(result.Pos, out var oldPending)) _pipeline.DeleteMesh(oldPending);
+                _pendingReadyMeshes[result.Pos] = result.Mesh;
             }
-
-            uploadedThisFrame++;
         }
+
+        var readyList = new List<Vector3<int>>();
+        foreach (var kvp in _pendingReadyMeshes)
+        {
+            if (kvp.Value.IsReady)
+            {
+                if (_meshes.Remove(kvp.Key, out var oldMesh)) _pipeline.DeleteMesh(oldMesh);
+                _meshes[kvp.Key] = kvp.Value;
+                readyList.Add(kvp.Key);
+            }
+        }
+        foreach (var pos in readyList) _pendingReadyMeshes.Remove(pos);
 
         foreach (var kvp in _meshes)
         {
@@ -234,10 +258,11 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
                 {
                     var pos = new Vector3<int>(x, y, z);
                     if (_activeChunks.TryAdd(pos, 0))
-                        _loadQueue.Enqueue(pos);
+                        _loadQueue.Add(pos);
                 }
 
         var toRemove = new List<Vector3<int>>();
+
         foreach (var pos in _activeChunks.Keys)
             if (Math.Abs(pos.X - center.X) > RenderDistance || Math.Abs(pos.Y - center.Y) > RenderDistance)
                 toRemove.Add(pos);
@@ -248,20 +273,23 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
             _loadedChunks.TryRemove(pos, out _);
             _meshedChunks.TryRemove(pos, out _);
 
-            if (_meshes.TryGetValue(pos, out var mesh))
-            {
-                _pipeline.DeleteMesh(mesh);
-                _meshes.Remove(pos);
-            }
+            if (_meshes.Remove(pos, out var mesh)) _pipeline.DeleteMesh(mesh);
+            if (_pendingReadyMeshes.Remove(pos, out var pMesh)) _pipeline.DeleteMesh(pMesh);
         }
     }
 
     public void Dispose()
     {
-        _isDisposed = true;
         EventBus.Unsubscribe(this);
-        foreach (var mesh in _meshes.Values)
-            _pipeline.DeleteMesh(mesh);
+
+        _loadQueue.CompleteAdding();
+        _meshQueue.CompleteAdding();
+
+        foreach (var worker in _genWorkers) worker.Join();
+        foreach (var worker in _meshWorkers) worker.Join();
+
+        foreach (var mesh in _meshes.Values) _pipeline.DeleteMesh(mesh);
+        foreach (var mesh in _pendingReadyMeshes.Values) _pipeline.DeleteMesh(mesh);
         _textureArray?.Dispose();
     }
 }

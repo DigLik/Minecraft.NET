@@ -15,12 +15,22 @@ public class MeshAllocation(
 
     internal ulong VertexByteOffset { get; } = vertexByteOffset;
     internal ulong VertexByteSize { get; } = vertexByteSize;
+
     internal ulong IndexByteOffset { get; } = indexByteOffset;
     internal ulong IndexByteSize { get; } = indexByteSize;
 
     public AccelerationStructureKHR Blas;
-    public VulkanBuffer? BlasBuffer;
     public ulong BlasDeviceAddress;
+
+    internal ulong BlasByteOffset { get; set; }
+    internal ulong BlasByteSize { get; set; }
+
+    private volatile bool _isReady = false;
+    public bool IsReady
+    {
+        get => _isReady;
+        internal set => _isReady = value;
+    }
 
     public void Dispose()
     {

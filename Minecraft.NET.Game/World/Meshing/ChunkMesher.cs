@@ -1,6 +1,7 @@
 ﻿using System.Numerics;
 
 using Minecraft.NET.Game.World.Blocks;
+using Minecraft.NET.Game.World.Chunks;
 using Minecraft.NET.Game.World.Environment;
 using Minecraft.NET.Utils.Math;
 
@@ -29,10 +30,16 @@ public class ChunkMesher(ChunkManager chunkManager)
 
     public ChunkMesh GenerateMesh(Vector3<int> chunkPos)
     {
-        List<ChunkVertex> vertices = [];
-        List<uint> indices = [];
+        if (!chunkManager.TryGetChunk(chunkPos, out ChunkSection centerChunk) || centerChunk.IsEmpty)
+            return new ChunkMesh { Vertices = [], Indices = [] };
 
-        Vector3<int> chunkGlobalOrigin = new(chunkPos.X * ChunkSize, chunkPos.Y * ChunkSize, chunkPos.Z * ChunkSize);
+        ChunkSection[] neighbors = new ChunkSection[6];
+        for (int i = 0; i < 6; i++)
+            chunkManager.TryGetChunk(chunkPos + FaceOffsets[i], out neighbors[i]);
+
+        List<ChunkVertex> vertices = new(2048);
+        List<uint> indices = new(3072);
+
         int grassOverlayId = BlockRegistry.TextureFiles.FindIndex(f => f.Contains("grass_side_overlay"));
 
         for (int x = 0; x < ChunkSize; x++)
@@ -41,17 +48,40 @@ public class ChunkMesher(ChunkManager chunkManager)
             {
                 for (int z = 0; z < ChunkSize; z++)
                 {
-                    Vector3<int> globalPos = chunkGlobalOrigin + new Vector3<int>(x, y, z);
-                    BlockId currentId = chunkManager.GetBlock(globalPos);
-
+                    BlockId currentId = centerChunk.GetBlock(new Vector3<int>(x, y, z));
                     if (currentId == BlockId.Air) continue;
 
                     var currentDef = BlockRegistry.Definitions[(int)currentId];
 
                     for (int faceIndex = 0; faceIndex < 6; faceIndex++)
                     {
-                        Vector3<int> neighborPos = globalPos + FaceOffsets[faceIndex];
-                        BlockId neighborId = chunkManager.GetBlock(neighborPos);
+                        var offset = FaceOffsets[faceIndex];
+                        int nx = x + offset.X;
+                        int ny = y + offset.Y;
+                        int nz = z + offset.Z;
+
+                        BlockId neighborId;
+
+                        if (nx >= 0 && nx < ChunkSize && ny >= 0 && ny < ChunkSize && nz >= 0 && nz < ChunkSize)
+                        {
+                            neighborId = centerChunk.GetBlock(new Vector3<int>(nx, ny, nz));
+                        }
+                        else
+                        {
+                            ref ChunkSection neighborChunk = ref neighbors[faceIndex];
+                            if (neighborChunk.IsAllocated || neighborChunk.UniformId != BlockId.Air)
+                            {
+                                int wrapX = (nx + ChunkSize) % ChunkSize;
+                                int wrapY = (ny + ChunkSize) % ChunkSize;
+                                int wrapZ = (nz + ChunkSize) % ChunkSize;
+                                neighborId = neighborChunk.GetBlock(new Vector3<int>(wrapX, wrapY, wrapZ));
+                            }
+                            else
+                            {
+                                neighborId = BlockId.Air;
+                            }
+                        }
+
                         var neighborDef = BlockRegistry.Definitions[(int)neighborId];
 
                         if (ShouldRenderFace(currentDef, neighborDef))
@@ -74,14 +104,14 @@ public class ChunkMesher(ChunkManager chunkManager)
                                 else if (faceIndex >= 2 && grassOverlayId >= 0)
                                 {
                                     overlayTexId = grassOverlayId;
-                                    overlayColor = new Vector4((145.0f / 255.0f) * shade, (189.0f / 255.0f) * shade, (89.0f / 255.0f) * shade, 1.0f);
+                                    overlayColor = new Vector4(145.0f / 255.0f * shade, 189.0f / 255.0f * shade, 89.0f / 255.0f * shade, 1.0f);
                                 }
                             }
                             else if (currentId == BlockId.OakLeaves)
                             {
-                                color.X = (72.0f / 255.0f) * shade;
-                                color.Y = (181.0f / 255.0f) * shade;
-                                color.Z = (72.0f / 255.0f) * shade;
+                                color.X = 72.0f / 255.0f * shade;
+                                color.Y = 181.0f / 255.0f * shade;
+                                color.Z = 72.0f / 255.0f * shade;
                             }
 
                             uint indexOffset = (uint)vertices.Count;
@@ -105,13 +135,9 @@ public class ChunkMesher(ChunkManager chunkManager)
         }
 
         if (vertices.Count > 0)
-        {
             return new ChunkMesh { Vertices = [.. vertices], Indices = [.. indices] };
-        }
         else
-        {
             return new ChunkMesh { Vertices = [], Indices = [] };
-        }
     }
 
     private static bool ShouldRenderFace(BlockDefinition current, BlockDefinition neighbor)

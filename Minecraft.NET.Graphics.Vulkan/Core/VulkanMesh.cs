@@ -12,6 +12,8 @@ public unsafe class VulkanMesh : IMesh
 
     public uint IndexCount { get; private set; }
 
+    public bool IsReady => true;
+
     public VulkanMesh(VulkanDevice device, void* vertices, ulong vertexSize, void* indices, uint indexCount)
     {
         _device = device;
@@ -40,6 +42,7 @@ public unsafe class VulkanMesh : IMesh
             Flags = CommandPoolCreateFlags.TransientBit,
             QueueFamilyIndex = _device.GraphicsFamilyIndex
         };
+
         _device.Vk.CreateCommandPool(_device.Device, in poolInfo, null, out CommandPool cmdPool);
 
         CommandBufferAllocateInfo allocInfo = new()
@@ -49,6 +52,7 @@ public unsafe class VulkanMesh : IMesh
             CommandPool = cmdPool,
             CommandBufferCount = 1
         };
+
         _device.Vk.AllocateCommandBuffers(_device.Device, in allocInfo, out CommandBuffer cmd);
 
         CommandBufferBeginInfo beginInfo = new() { SType = StructureType.CommandBufferBeginInfo, Flags = CommandBufferUsageFlags.OneTimeSubmitBit };
