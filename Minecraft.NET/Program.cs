@@ -1,84 +1,65 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
-using Minecraft.NET.Character;
-using Minecraft.NET.Character.Controllers;
-using Minecraft.NET.Core.Chunks;
-using Minecraft.NET.Core.Environment;
-using Minecraft.NET.Engine;
-using Minecraft.NET.Graphics;
-using Minecraft.NET.Graphics.Rendering;
-using Minecraft.NET.Graphics.Rendering.Passes;
-using Minecraft.NET.Services;
-using Minecraft.NET.Services.Physics;
-using Minecraft.NET.UI;
-using Minecraft.NET.Windowing;
 
-var window = new GlfwWindow(WindowOptions.Default with
-{
-    Title = "Minecraft.NET",
-    Size = new(1200, 800)
-});
-
-var glfw = Glfw.GetApi();
-var gl = GL.GetApi(glfw.GetProcAddress);
+using Minecraft.NET.Engine.Abstractions;
+using Minecraft.NET.Engine.Abstractions.Graphics;
+using Minecraft.NET.Engine.Core;
+using Minecraft.NET.Game.Entities;
+using Minecraft.NET.Game.Physics;
+using Minecraft.NET.Game.World.Environment;
+using Minecraft.NET.Game.World.Meshing;
+using Minecraft.NET.Graphics.Vulkan;
+using Minecraft.NET.Platform.Glfw;
+using Minecraft.NET.Utils.Math;
 
 var services = new ServiceCollection();
 
-services.AddSingleton<IWindow>(window);
-services.AddSingleton<GL>(gl);
+services.AddSingleton<IWindow>(_ => new GlfwWindow("Minecraft.NET Engine", 1280, 720));
+services.AddSingleton<IInputManager, GlfwInputManager>();
+services.AddSingleton<IRenderPipeline, VulkanRenderPipeline>();
 
-services.AddSingleton(new Player(new(16, 80, 16)));
-services.AddSingleton(_ => new WorldStorage("world"));
+services.AddSingleton<EngineApp>();
+
+services.AddSingleton(_ => new WorldStorage("World1"));
 services.AddSingleton<IWorldGenerator, TerrainWorldGenerator>();
-services.AddSingleton<FrameContext>();
-services.AddSingleton<RenderSettings>();
-services.AddSingleton<GameModeManager>();
-services.AddSingleton<RenderResources>();
-
-services.AddSingleton<PhysicsService>();
-services.AddSingleton<WorldInteractionService>();
-services.AddSingleton<ChunkManager>();
 services.AddSingleton<World>();
-services.AddSingleton<ChunkMesherService>();
 
-services.AddSingleton<IInputManager, InputManager>();
-services.AddSingleton<IChunkRenderer, ChunkRenderer>();
-services.AddSingleton<IRenderPipeline, RenderPipeline>();
-services.AddSingleton<IPerformanceMonitor, PerformanceMonitor>();
-services.AddSingleton<IGameStatsService, GameStatsService>();
+services.AddSingleton<PlayerInputSystem>();
+services.AddSingleton<PhysicsSystem>();
+services.AddSingleton<PlayerInteractionSystem>();
+services.AddSingleton<CameraSystem>();
+services.AddSingleton<ChunkRenderSystem>();
 
-services.AddSingleton<CreativePlayerController>();
-services.AddSingleton<SpectatorPlayerController>();
+var provider = services.BuildServiceProvider();
 
-services.AddSingleton<IReadOnlyDictionary<GameMode, IPhysicsStrategy>>(_ =>
-    new Dictionary<GameMode, IPhysicsStrategy>
-        {
-            { GameMode.Creative, new CreativePhysicsStrategy() },
-            { GameMode.Spectator, new SpectatorPhysicsStrategy() }
-        });
+var engine = provider.GetRequiredService<EngineApp>();
+var world = provider.GetRequiredService<World>();
 
-services.AddSingleton<IReadOnlyDictionary<GameMode, IPlayerController>>(provider =>
-    new Dictionary<GameMode, IPlayerController>
-        {
-            { GameMode.Creative, provider.GetRequiredService<CreativePlayerController>() },
-            { GameMode.Spectator, provider.GetRequiredService<SpectatorPlayerController>() }
-        });
+await world.InitializeAsync();
 
-services.AddSingleton<FontService>();
-services.AddSingleton<UiContext>();
-services.AddSingleton<IRenderPipeline, RenderPipeline>();
+unsafe
+{
+    var renderPipeline = provider.GetRequiredService<IRenderPipeline>();
+    renderPipeline.Initialize(
+    [
+        new(0, VertexFormat.Float4, 0),
+        new(1, VertexFormat.Float2, 16),
+        new(2, VertexFormat.Int, 24),
+        new(3, VertexFormat.Float4, 28),
+        new(4, VertexFormat.Int, 44),
+        new(5, VertexFormat.Float4, 48)
+    ], (uint)sizeof(ChunkVertex));
+}
 
-services.AddSingleton<IRenderPass, GBufferPass>();
-services.AddSingleton<IRenderPass, LightingPass>();
-services.AddSingleton<IRenderPass, FogPass>();
-services.AddSingleton<IRenderPass, SmaaPass>();
-services.AddSingleton<IRenderPass, UiRenderPass>();
+engine.AddSystem(provider.GetRequiredService<PlayerInputSystem>());
+engine.AddSystem(provider.GetRequiredService<PhysicsSystem>());
+engine.AddSystem(provider.GetRequiredService<PlayerInteractionSystem>());
+engine.AddSystem(provider.GetRequiredService<CameraSystem>());
+engine.AddSystem(provider.GetRequiredService<ChunkRenderSystem>());
 
-services.AddSingleton<SceneCuller>();
-services.AddSingleton<Game>();
+engine.Registry.Create()
+    .With(new TransformComponent { Position = new Vector3<float>(8, 8, 200) })
+    .With(new VelocityComponent { IsOnGround = false })
+    .With(new PlayerControlledComponent { IsCreativeMode = false });
 
-var serviceProvider = services.BuildServiceProvider();
-var game = serviceProvider.GetRequiredService<Game>();
-game.Run();
-
-serviceProvider.Dispose();
-gl.Dispose();
+engine.Run();
+await provider.DisposeAsync();

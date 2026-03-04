@@ -1,0 +1,1 @@
+﻿global using static Minecraft.NET.Game.GameConstants;
