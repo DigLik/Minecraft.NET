@@ -1,6 +1,4 @@
-﻿using System.Numerics;
-
-using Minecraft.NET.Game.World.Blocks;
+﻿using Minecraft.NET.Game.World.Blocks;
 using Minecraft.NET.Game.World.Chunks;
 using Minecraft.NET.Game.World.Environment;
 using Minecraft.NET.Utils.Math;
@@ -89,9 +87,9 @@ public class ChunkMesher(ChunkManager chunkManager)
                             int textureId = GetTextureId(currentDef.Textures, faceIndex);
                             float shade = FaceShades[faceIndex];
 
-                            Vector4 color = new Vector4(shade, shade, shade, 1.0f);
+                            Vector4<float> color = new Vector4<float>(shade, shade, shade, 1.0f);
                             int overlayTexId = -1;
-                            Vector4 overlayColor = Vector4.Zero;
+                            Vector4<float> overlayColor = Vector4<float>.Zero;
 
                             if (currentId == BlockId.Grass)
                             {
@@ -104,7 +102,7 @@ public class ChunkMesher(ChunkManager chunkManager)
                                 else if (faceIndex >= 2 && grassOverlayId >= 0)
                                 {
                                     overlayTexId = grassOverlayId;
-                                    overlayColor = new Vector4(145.0f / 255.0f * shade, 189.0f / 255.0f * shade, 89.0f / 255.0f * shade, 1.0f);
+                                    overlayColor = new Vector4<float>(145.0f / 255.0f * shade, 189.0f / 255.0f * shade, 89.0f / 255.0f * shade, 1.0f);
                                 }
                             }
                             else if (currentId == BlockId.OakLeaves)

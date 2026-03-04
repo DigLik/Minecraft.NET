@@ -1,6 +1,4 @@
-﻿using System.Numerics;
-
-using Minecraft.NET.Engine.Abstractions;
+﻿using Minecraft.NET.Engine.Abstractions;
 using Minecraft.NET.Engine.Abstractions.Graphics;
 using Minecraft.NET.Engine.Core;
 using Minecraft.NET.Engine.ECS;
@@ -29,39 +27,27 @@ public class CameraSystem(EngineApp engine, IWindow window) : ISystem
             var position = transform.Position;
             position.Z += PlayerEyeHeight;
 
-            var view = Matrix4x4.CreateLookAt(
-                new Vector3(position.X, position.Y, position.Z),
-                new Vector3(position.X + forward.X, position.Y + forward.Y, position.Z + forward.Z),
-                new Vector3(up.X, up.Y, up.Z)
+            var view = Matrix4x4<float>.CreateLookAt<float>(
+                position, position + forward, up
             );
 
             float aspect = window.FramebufferSize.X / (float)Math.Max(1, window.FramebufferSize.Y);
-            var proj = Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 2.5f, aspect, 0.1f, 3000f);
+            var proj = Matrix4x4<float>.CreatePerspectiveFieldOfView<float>(float.Pi / 2.5f, aspect, 0.1f, 3000f);
 
             proj.M22 *= -1;
 
-            var viewProj = new Matrix4x4(
-                view.M11, view.M12, view.M13, view.M14,
-                view.M21, view.M22, view.M23, view.M24,
-                view.M31, view.M32, view.M33, view.M34,
-                view.M41, view.M42, view.M43, view.M44
-            ) * new Matrix4x4(
-                proj.M11, proj.M12, proj.M13, proj.M14,
-                proj.M21, proj.M22, proj.M23, proj.M24,
-                proj.M31, proj.M32, proj.M33, proj.M34,
-                proj.M41, proj.M42, proj.M43, proj.M44
-            );
+            var viewProj = view * proj;
 
-            Matrix4x4.Invert(viewProj, out var invViewProj);
+            Matrix4x4<float>.Invert(viewProj, out var invViewProj);
 
-            var sunDir = Vector3.Normalize(new Vector3(0.5f, 0.8f, 1.0f));
+            var sunDir = new Vector3<float>(0.5f, 0.8f, 1.0f).Normalize<float>();
 
             engine.Camera = new CameraData
             {
                 ViewProjection = viewProj,
                 InverseViewProjection = invViewProj,
-                Position = new Vector4(position.X, position.Y, position.Z, 1.0f),
-                SunDirection = new Vector4(sunDir.X, sunDir.Y, sunDir.Z, 0.0f)
+                Position = new Vector4<float>(position.X, position.Y, position.Z, 1.0f),
+                SunDirection = new Vector4<float>(sunDir.X, sunDir.Y, sunDir.Z, 0.0f)
             };
 
             break;

@@ -19,13 +19,6 @@ public sealed class World : IAsyncDisposable
     public Task InitializeAsync()
     {
         BlockRegistry.Initialize();
-
-        int renderDistance = 4;
-        for (int x = -renderDistance; x <= renderDistance; x++)
-            for (int y = -renderDistance; y <= renderDistance; y++)
-                for (int z = 0; z < WorldHeightInChunks; z++)
-                    Chunks.LoadChunk(new Vector3<int>(x, y, z));
-
         return Task.CompletedTask;
     }
 

@@ -142,7 +142,10 @@ public unsafe class DynamicMeshPool : IDisposable
             foreach (var firstUpload in _pendingUploads.GetConsumingEnumerable())
                 ProcessBatch(firstUpload, cmd, fence, ref stagingBuffer, ref stagingCapacity, ref scratchBuffer, ref scratchCapacity);
         }
-        catch (Exception) { }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Vulkan Fatal Error] UploadLoop crashed: {ex}");
+        }
         finally
         {
             stagingBuffer?.Dispose();
@@ -325,7 +328,7 @@ public unsafe class DynamicMeshPool : IDisposable
     public void Dispose()
     {
         _pendingUploads.CompleteAdding();
-        _uploadThread.Join();
+        _uploadThread.Join(TimeSpan.FromSeconds(1));
         foreach (var chunk in _vertexChunks) chunk.Dispose();
         foreach (var chunk in _indexChunks) chunk.Dispose();
         foreach (var chunk in _blasChunks) chunk.Dispose();

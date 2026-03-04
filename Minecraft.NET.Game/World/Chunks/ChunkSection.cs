@@ -11,6 +11,7 @@ public unsafe struct ChunkSection
     public BlockId* Blocks;
     public int NonAirBlockCount;
     public BlockId UniformId;
+    public bool IsModified;
 
     public Vector3<int> Position { get; set; }
 
@@ -27,6 +28,7 @@ public unsafe struct ChunkSection
         }
         NonAirBlockCount = 0;
         UniformId = BlockId.Air;
+        IsModified = false;
     }
 
     public void Fill(BlockId id)
@@ -38,6 +40,7 @@ public unsafe struct ChunkSection
         }
         UniformId = id;
         NonAirBlockCount = (id == BlockId.Air) ? 0 : BlocksInChunk;
+        IsModified = true;
     }
 
     public void Allocate()
@@ -69,6 +72,7 @@ public unsafe struct ChunkSection
             if (oldId == BlockId.Air && id != BlockId.Air) NonAirBlockCount++;
             else if (oldId != BlockId.Air && id == BlockId.Air) NonAirBlockCount--;
 
+            IsModified = true;
             return;
         }
 
@@ -80,6 +84,7 @@ public unsafe struct ChunkSection
     public void Optimize()
     {
         if (Blocks == null) return;
+
         BlockId first = Blocks[0];
         for (int i = 1; i < BlocksInChunk; i++)
             if (Blocks[i] != first) return;

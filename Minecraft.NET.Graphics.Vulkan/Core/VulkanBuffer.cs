@@ -1,5 +1,6 @@
 ﻿using System.Runtime.CompilerServices;
 
+using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
 
 namespace Minecraft.NET.Graphics.Vulkan.Core;
@@ -44,10 +45,18 @@ public unsafe class VulkanBuffer : IDisposable
         _device.Vk.AllocateMemory(_device.Device, in allocInfo, null, out Memory);
         _device.Vk.BindBufferMemory(_device.Device, Buffer, Memory, 0);
 
+        var result = _device.Vk.AllocateMemory(_device.Device, in allocInfo, null, out Memory);
+        if (result != Result.Success)
+            throw new Exception($"Failed to allocate VRAM ({size} bytes): {result}");
+
+        _device.Vk.BindBufferMemory(_device.Device, Buffer, Memory, 0);
+
         if ((properties & MemoryPropertyFlags.HostVisibleBit) != 0)
         {
             void* mapped;
-            _device.Vk.MapMemory(_device.Device, Memory, 0, size, 0, &mapped);
+            result = _device.Vk.MapMemory(_device.Device, Memory, 0, size, 0, &mapped);
+            if (result != Result.Success)
+                throw new Exception($"Failed to map VRAM: {result}");
             MappedMemory = mapped;
         }
 

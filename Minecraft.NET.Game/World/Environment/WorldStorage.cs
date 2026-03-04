@@ -35,6 +35,8 @@ public class WorldStorage : IAsyncDisposable
 
     public void SaveChunk(ref ChunkSection chunk)
     {
+        if (!chunk.IsModified) return;
+
         var bucketPos = GetBucketPosition(chunk.Position);
         var bucket = GetOrLoadBucket(bucketPos);
 
@@ -42,6 +44,8 @@ public class WorldStorage : IAsyncDisposable
         PooledChunkData data = ChunkSerializer.Serialize(ref chunk);
 
         bucket.SetChunkData(localChunkPos, data);
+
+        chunk.IsModified = false;
     }
 
     private Bucket GetOrLoadBucket(Vector3<int> bucketPos)

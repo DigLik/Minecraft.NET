@@ -87,6 +87,7 @@ public unsafe class GlfwInputManager : IInputManager
         EngineKey.D => Keys.D,
         EngineKey.F1 => Keys.F1,
         EngineKey.ShiftLeft => Keys.ShiftLeft,
+        EngineKey.ControlLeft => Keys.ControlLeft,
         _ => Keys.Unknown
     };
 

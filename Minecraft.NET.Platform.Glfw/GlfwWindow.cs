@@ -107,10 +107,12 @@ public unsafe partial class GlfwWindow : IWindow
             previousTime = currentTime;
             updateAccumulator += frameTime;
 
-            while (updateAccumulator >= targetUpdateTime)
+            int maxUpdates = 5;
+            while (updateAccumulator >= targetUpdateTime && maxUpdates > 0)
             {
                 Update?.Invoke(targetUpdateTime);
                 updateAccumulator -= targetUpdateTime;
+                maxUpdates--;
             }
 
             if (targetRenderTime == 0.0 || (currentTime - lastRenderTime) >= targetRenderTime)

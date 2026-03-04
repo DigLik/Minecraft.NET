@@ -1,5 +1,4 @@
-﻿using System.Numerics;
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 
 using Minecraft.NET.Engine.Abstractions;
 using Minecraft.NET.Engine.Abstractions.Graphics;
@@ -19,7 +18,13 @@ public sealed class EngineApp : IDisposable
     private bool _isDisposed;
 
     public Registry Registry { get; } = new();
-    public CameraData Camera { get; set; } = new CameraData { ViewProjection = Matrix4x4.Identity, InverseViewProjection = Matrix4x4.Identity, Position = Vector4.Zero, SunDirection = new Vector4(0, 0, 1, 0) };
+    public CameraData Camera { get; set; } = new CameraData
+    {
+        ViewProjection = Matrix4x4<float>.Identity,
+        InverseViewProjection = Matrix4x4<float>.Identity,
+        Position = Vector4<float>.Zero,
+        SunDirection = new Vector4<float>(0, 0, 1, 0)
+    };
 
     public EngineApp(IWindow window, IInputManager inputManager, IRenderPipeline renderPipeline)
     {

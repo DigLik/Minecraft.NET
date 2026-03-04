@@ -285,11 +285,12 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
         _loadQueue.CompleteAdding();
         _meshQueue.CompleteAdding();
 
-        foreach (var worker in _genWorkers) worker.Join();
-        foreach (var worker in _meshWorkers) worker.Join();
+        foreach (var worker in _genWorkers) worker.Join(TimeSpan.FromSeconds(1));
+        foreach (var worker in _meshWorkers) worker.Join(TimeSpan.FromSeconds(1));
 
         foreach (var mesh in _meshes.Values) _pipeline.DeleteMesh(mesh);
         foreach (var mesh in _pendingReadyMeshes.Values) _pipeline.DeleteMesh(mesh);
+
         _textureArray?.Dispose();
     }
 }

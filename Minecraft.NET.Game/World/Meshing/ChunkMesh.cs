@@ -1,5 +1,4 @@
-﻿using System.Numerics;
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 
 using Minecraft.NET.Utils.Math;
 
@@ -11,15 +10,15 @@ public struct ChunkVertex(
     int textureIndex,
     Vector2<float> uv,
     int overlayTextureIndex,
-    Vector4 color,
-    Vector4 overlayColor)
+    Vector4<float> color,
+    Vector4<float> overlayColor)
 {
     public Vector3<float> Position = position;
     public int TextureIndex = textureIndex;
     public Vector2<float> UV = uv;
     public int OverlayTextureIndex = overlayTextureIndex;
-    public Vector4 Color = color;
-    public Vector4 OverlayColor = overlayColor;
+    public Vector4<float> Color = color;
+    public Vector4<float> OverlayColor = overlayColor;
 }
 
 public struct ChunkMesh

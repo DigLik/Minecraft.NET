@@ -14,6 +14,7 @@ public class ChunkManager(WorldStorage storage, IWorldGenerator generator) : IDi
     public BlockId GetBlock(Vector3<int> globalPos)
     {
         var chunkPos = GetChunkPosition(globalPos);
+
         if (_volume.TryGetChunk(chunkPos, out var chunk))
         {
             var localPos = GetLocalPosition(globalPos);
@@ -26,6 +27,7 @@ public class ChunkManager(WorldStorage storage, IWorldGenerator generator) : IDi
     public void SetBlock(Vector3<int> globalPos, BlockId id)
     {
         var chunkPos = GetChunkPosition(globalPos);
+
         _volume.UpdateChunk(chunkPos, (ref chunk) =>
         {
             var localPos = GetLocalPosition(globalPos);
@@ -50,7 +52,10 @@ public class ChunkManager(WorldStorage storage, IWorldGenerator generator) : IDi
         var chunk = new ChunkSection { Position = chunkPos };
 
         if (!storage.TryLoadChunk(ref chunk))
+        {
             generator.Generate(ref chunk);
+            chunk.IsModified = false;
+        }
 
         var evictedChunk = _volume.SetChunk(chunkPos, chunk);
 
@@ -65,6 +70,7 @@ public class ChunkManager(WorldStorage storage, IWorldGenerator generator) : IDi
     public void UnloadChunk(Vector3<int> chunkPos)
     {
         _volume.RemoveChunk(chunkPos, out var chunk);
+
         if (chunk.IsAllocated || chunk.UniformId != BlockId.Air)
         {
             storage.SaveChunk(ref chunk);

@@ -39,9 +39,11 @@ public static unsafe class ChunkSerializer
             chunk.Allocate();
             var span = new Span<byte>(chunk.Blocks, BlocksInChunk);
             reader.Read(span);
+
             int nonAir = 0;
             for (int i = 0; i < BlocksInChunk; i++)
                 if (chunk.Blocks[i] != BlockId.Air) nonAir++;
+
             chunk.NonAirBlockCount = nonAir;
         }
         else
@@ -49,5 +51,7 @@ public static unsafe class ChunkSerializer
             chunk.Free();
             chunk.NonAirBlockCount = chunk.UniformId == BlockId.Air ? 0 : BlocksInChunk;
         }
+
+        chunk.IsModified = false;
     }
 }

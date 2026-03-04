@@ -9,7 +9,7 @@ namespace Minecraft.NET.Game.Entities;
 public class PlayerInputSystem(IInputManager inputManager) : ISystem
 {
     private const float WalkSpeed = 10.0f;
-    private const float SprintSpeed = 25.0f;
+    private const float SpeedMultiplier = 2.5f;
     private const float SpectatorSpeed = 150.0f;
     private const float JumpForce = 9.0f;
     private const float MouseSensitivity = 0.002f;
@@ -20,6 +20,9 @@ public class PlayerInputSystem(IInputManager inputManager) : ISystem
     {
         if (inputManager.IsKeyDown(Key.Tab))
             inputManager.ToggleMouseCapture();
+
+        if (inputManager.IsKeyDown(Key.Escape))
+            inputManager.CloseWindow();
 
         var playerCtrlPool = registry.GetPool<PlayerControlledComponent>();
 
@@ -44,6 +47,7 @@ public class PlayerInputSystem(IInputManager inputManager) : ISystem
 
                 transform.Rotation.Y += deltaX * MouseSensitivity;
                 transform.Rotation.X -= deltaY * MouseSensitivity;
+
                 transform.Rotation.X = Math.Clamp(transform.Rotation.X, -MathF.PI / 2.0f + 0.01f, MathF.PI / 2.0f - 0.01f);
 
                 _lastMousePos = mousePos;
@@ -80,8 +84,10 @@ public class PlayerInputSystem(IInputManager inputManager) : ISystem
             if (inputManager.IsKey(Key.D)) moveDir += right;
             if (inputManager.IsKey(Key.A)) moveDir -= right;
 
-            float currentSpeed = inputManager.IsKey(Key.ShiftLeft) ? SprintSpeed : WalkSpeed;
-            if (playerCtrl.IsSpectatorMode) currentSpeed = SpectatorSpeed;
+            float currentSpeed = playerCtrl.IsSpectatorMode ? SpectatorSpeed : WalkSpeed;
+
+            if (inputManager.IsKey(Key.ControlLeft))
+                currentSpeed *= SpeedMultiplier;
 
             if (moveDir.LengthSquared() > 0)
             {
@@ -115,6 +121,5 @@ public class PlayerInputSystem(IInputManager inputManager) : ISystem
                 }
             }
         }
-        ;
     }
 }
