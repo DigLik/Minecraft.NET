@@ -34,8 +34,8 @@ public unsafe class VulkanRayTracingPipeline : IDisposable
             new() { Binding = 0, DescriptorType = DescriptorType.AccelerationStructureKhr, DescriptorCount = 1, StageFlags = ShaderStageFlags.RaygenBitKhr | ShaderStageFlags.ClosestHitBitKhr },
             new() { Binding = 1, DescriptorType = DescriptorType.StorageImage, DescriptorCount = 1, StageFlags = ShaderStageFlags.RaygenBitKhr },
             new() { Binding = 2, DescriptorType = DescriptorType.UniformBuffer, DescriptorCount = 1, StageFlags = ShaderStageFlags.RaygenBitKhr | ShaderStageFlags.ClosestHitBitKhr },
-            new() { Binding = 3, DescriptorType = DescriptorType.CombinedImageSampler, DescriptorCount = 1, StageFlags = ShaderStageFlags.ClosestHitBitKhr },
-            new() { Binding = 4, DescriptorType = DescriptorType.StorageBuffer, DescriptorCount = 1, StageFlags = ShaderStageFlags.ClosestHitBitKhr } // Instance Data
+            new() { Binding = 3, DescriptorType = DescriptorType.CombinedImageSampler, DescriptorCount = 1, StageFlags = ShaderStageFlags.ClosestHitBitKhr | ShaderStageFlags.AnyHitBitKhr },
+            new() { Binding = 4, DescriptorType = DescriptorType.StorageBuffer, DescriptorCount = 1, StageFlags = ShaderStageFlags.ClosestHitBitKhr | ShaderStageFlags.AnyHitBitKhr }
         ];
 
         fixed (DescriptorSetLayoutBinding* pBindings = bindings)
@@ -52,20 +52,23 @@ public unsafe class VulkanRayTracingPipeline : IDisposable
         var rgenSpv = compiler.Compile(File.ReadAllText("Assets/Shaders/raygen.glsl"), "raygen.glsl", Silk.NET.Shaderc.ShaderKind.RaygenShader, "main");
         var rmissSpv = compiler.Compile(File.ReadAllText("Assets/Shaders/miss.glsl"), "miss.glsl", Silk.NET.Shaderc.ShaderKind.MissShader, "main");
         var rchitSpv = compiler.Compile(File.ReadAllText("Assets/Shaders/chit.glsl"), "chit.glsl", Silk.NET.Shaderc.ShaderKind.ClosesthitShader, "main");
+        var rahitSpv = compiler.Compile(File.ReadAllText("Assets/Shaders/ahit.glsl"), "ahit.glsl", Silk.NET.Shaderc.ShaderKind.AnyhitShader, "main");
 
         ShaderModule rgenModule = CreateShaderModule(rgenSpv);
         ShaderModule rmissModule = CreateShaderModule(rmissSpv);
         ShaderModule rchitModule = CreateShaderModule(rchitSpv);
+        ShaderModule rahitModule = CreateShaderModule(rahitSpv);
 
-        var stages = stackalloc PipelineShaderStageCreateInfo[3];
+        var stages = stackalloc PipelineShaderStageCreateInfo[4];
         stages[0] = new() { SType = StructureType.PipelineShaderStageCreateInfo, Stage = ShaderStageFlags.RaygenBitKhr, Module = rgenModule, PName = (byte*)SilkMarshal.StringToPtr("main") };
         stages[1] = new() { SType = StructureType.PipelineShaderStageCreateInfo, Stage = ShaderStageFlags.MissBitKhr, Module = rmissModule, PName = (byte*)SilkMarshal.StringToPtr("main") };
         stages[2] = new() { SType = StructureType.PipelineShaderStageCreateInfo, Stage = ShaderStageFlags.ClosestHitBitKhr, Module = rchitModule, PName = (byte*)SilkMarshal.StringToPtr("main") };
+        stages[3] = new() { SType = StructureType.PipelineShaderStageCreateInfo, Stage = ShaderStageFlags.AnyHitBitKhr, Module = rahitModule, PName = (byte*)SilkMarshal.StringToPtr("main") };
 
         var groups = stackalloc RayTracingShaderGroupCreateInfoKHR[3];
         groups[0] = new() { SType = StructureType.RayTracingShaderGroupCreateInfoKhr, Type = RayTracingShaderGroupTypeKHR.GeneralKhr, GeneralShader = 0, ClosestHitShader = Vk.ShaderUnusedKhr, AnyHitShader = Vk.ShaderUnusedKhr, IntersectionShader = Vk.ShaderUnusedKhr };
         groups[1] = new() { SType = StructureType.RayTracingShaderGroupCreateInfoKhr, Type = RayTracingShaderGroupTypeKHR.GeneralKhr, GeneralShader = 1, ClosestHitShader = Vk.ShaderUnusedKhr, AnyHitShader = Vk.ShaderUnusedKhr, IntersectionShader = Vk.ShaderUnusedKhr };
-        groups[2] = new() { SType = StructureType.RayTracingShaderGroupCreateInfoKhr, Type = RayTracingShaderGroupTypeKHR.TrianglesHitGroupKhr, GeneralShader = Vk.ShaderUnusedKhr, ClosestHitShader = 2, AnyHitShader = Vk.ShaderUnusedKhr, IntersectionShader = Vk.ShaderUnusedKhr };
+        groups[2] = new() { SType = StructureType.RayTracingShaderGroupCreateInfoKhr, Type = RayTracingShaderGroupTypeKHR.TrianglesHitGroupKhr, GeneralShader = Vk.ShaderUnusedKhr, ClosestHitShader = 2, AnyHitShader = 3, IntersectionShader = Vk.ShaderUnusedKhr };
 
         DescriptorSetLayout layout = DescriptorSetLayout;
         PipelineLayoutCreateInfo pipelineLayoutInfo = new() { SType = StructureType.PipelineLayoutCreateInfo, SetLayoutCount = 1, PSetLayouts = &layout };
@@ -73,7 +76,7 @@ public unsafe class VulkanRayTracingPipeline : IDisposable
 
         RayTracingPipelineCreateInfoKHR pipelineInfo = new()
         {
-            SType = StructureType.RayTracingPipelineCreateInfoKhr, StageCount = 3, PStages = stages,
+            SType = StructureType.RayTracingPipelineCreateInfoKhr, StageCount = 4, PStages = stages, // StageCount = 4
             GroupCount = 3, PGroups = groups, MaxPipelineRayRecursionDepth = 1, Layout = PipelineLayout
         };
 
@@ -82,9 +85,11 @@ public unsafe class VulkanRayTracingPipeline : IDisposable
         _device.Vk.DestroyShaderModule(_device.Device, rgenModule, null);
         _device.Vk.DestroyShaderModule(_device.Device, rmissModule, null);
         _device.Vk.DestroyShaderModule(_device.Device, rchitModule, null);
+        _device.Vk.DestroyShaderModule(_device.Device, rahitModule, null);
         SilkMarshal.Free((nint)stages[0].PName);
         SilkMarshal.Free((nint)stages[1].PName);
         SilkMarshal.Free((nint)stages[2].PName);
+        SilkMarshal.Free((nint)stages[3].PName);
     }
 
     private static uint AlignUp(uint size, uint alignment) => (size + alignment - 1) & ~(alignment - 1);

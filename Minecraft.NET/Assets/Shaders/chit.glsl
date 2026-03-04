@@ -91,8 +91,33 @@ void main() {
     vec3 shadowOrigin = worldPos + normal * 0.01;
 
     rayQueryEXT rq;
-    rayQueryInitializeEXT(rq, Scene, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, shadowOrigin, 0.001, cam.SunDirection.xyz, 1000.0);
-    rayQueryProceedEXT(rq);
+    rayQueryInitializeEXT(rq, Scene, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, shadowOrigin, 0.001, cam.SunDirection.xyz, 1000.0);
+    
+    while(rayQueryProceedEXT(rq)) {
+        if (rayQueryGetIntersectionTypeEXT(rq, false) == gl_RayQueryCandidateIntersectionTriangleEXT) {
+            uint sInstId = rayQueryGetIntersectionInstanceCustomIndexEXT(rq, false);
+            uint sPrimId = rayQueryGetIntersectionPrimitiveIndexEXT(rq, false);
+            vec2 sAttribs = rayQueryGetIntersectionBarycentricsEXT(rq, false);
+
+            InstanceData sInst = instances.d[sInstId];
+            
+            uint si0 = sInst.inds.i[sInst.IndexOffset + sPrimId * 3 + 0];
+            uint si1 = sInst.inds.i[sInst.IndexOffset + sPrimId * 3 + 1];
+            uint si2 = sInst.inds.i[sInst.IndexOffset + sPrimId * 3 + 2];
+
+            ChunkVertex sv0 = sInst.verts.v[sInst.VertexOffset + si0];
+            ChunkVertex sv1 = sInst.verts.v[sInst.VertexOffset + si1];
+            ChunkVertex sv2 = sInst.verts.v[sInst.VertexOffset + si2];
+
+            vec3 sBary = vec3(1.0 - sAttribs.x - sAttribs.y, sAttribs.x, sAttribs.y);
+            vec2 sUv = sv0.UV * sBary.x + sv1.UV * sBary.y + sv2.UV * sBary.z;
+            
+            vec4 sTexColor = texture(TexArray, vec3(sUv, float(sv0.TextureIndex)));
+            
+            if (sTexColor.a >= 0.5)
+                rayQueryConfirmIntersectionEXT(rq);
+        }
+    }
 
     if (rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionNoneEXT) texColor.rgb *= 0.4;
 

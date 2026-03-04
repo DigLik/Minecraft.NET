@@ -1,14 +1,14 @@
-﻿using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
+﻿using System.Buffers;
+using System.Runtime.CompilerServices;
 
 using Minecraft.NET.Game.World.Blocks;
 using Minecraft.NET.Utils.Math;
 
 namespace Minecraft.NET.Game.World.Chunks;
 
-public unsafe struct ChunkSection
+public struct ChunkSection
 {
-    public BlockId* Blocks;
+    public BlockId[]? Blocks;
     public int NonAirBlockCount;
     public BlockId UniformId;
     public bool IsModified;
@@ -23,7 +23,7 @@ public unsafe struct ChunkSection
     {
         if (Blocks != null)
         {
-            NativeMemory.Free(Blocks);
+            ArrayPool<BlockId>.Shared.Return(Blocks);
             Blocks = null;
         }
         NonAirBlockCount = 0;
@@ -35,7 +35,7 @@ public unsafe struct ChunkSection
     {
         if (Blocks != null)
         {
-            NativeMemory.Free(Blocks);
+            ArrayPool<BlockId>.Shared.Return(Blocks);
             Blocks = null;
         }
         UniformId = id;
@@ -47,8 +47,8 @@ public unsafe struct ChunkSection
     {
         if (Blocks == null)
         {
-            Blocks = (BlockId*)NativeMemory.Alloc(BlocksInChunk, sizeof(BlockId));
-            NativeMemory.Fill(Blocks, BlocksInChunk, (byte)UniformId);
+            Blocks = ArrayPool<BlockId>.Shared.Rent(BlocksInChunk);
+            Array.Fill(Blocks, UniformId, 0, BlocksInChunk);
         }
     }
 
@@ -89,7 +89,7 @@ public unsafe struct ChunkSection
         for (int i = 1; i < BlocksInChunk; i++)
             if (Blocks[i] != first) return;
 
-        NativeMemory.Free(Blocks);
+        ArrayPool<BlockId>.Shared.Return(Blocks);
         Blocks = null;
         UniformId = first;
         NonAirBlockCount = (first == BlockId.Air) ? 0 : BlocksInChunk;

@@ -9,7 +9,6 @@ public unsafe class VulkanMesh : IMesh
     private readonly VulkanDevice _device;
     public VulkanBuffer VertexBuffer;
     public VulkanBuffer IndexBuffer;
-
     public uint IndexCount { get; private set; }
 
     public bool IsReady => true;
@@ -25,16 +24,9 @@ public unsafe class VulkanMesh : IMesh
         using VulkanBuffer stagingVertex = new(_device, vertexSize, BufferUsageFlags.TransferSrcBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
         using VulkanBuffer stagingIndex = new(_device, indexCount * sizeof(uint), BufferUsageFlags.TransferSrcBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
 
-        void* vData;
-        _device.Vk.MapMemory(_device.Device, stagingVertex.Memory, 0, vertexSize, 0, &vData);
-        System.Buffer.MemoryCopy(vertices, vData, vertexSize, vertexSize);
-        _device.Vk.UnmapMemory(_device.Device, stagingVertex.Memory);
-
-        void* iData;
+        System.Buffer.MemoryCopy(vertices, stagingVertex.MappedMemory, vertexSize, vertexSize);
         ulong indexSize = indexCount * sizeof(uint);
-        _device.Vk.MapMemory(_device.Device, stagingIndex.Memory, 0, indexSize, 0, &iData);
-        System.Buffer.MemoryCopy(indices, iData, indexSize, indexSize);
-        _device.Vk.UnmapMemory(_device.Device, stagingIndex.Memory);
+        System.Buffer.MemoryCopy(indices, stagingIndex.MappedMemory, indexSize, indexSize);
 
         CommandPoolCreateInfo poolInfo = new()
         {

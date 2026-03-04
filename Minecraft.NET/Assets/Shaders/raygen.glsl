@@ -60,5 +60,5 @@ void main() {
         }
     }
 
-    imageStore(RenderTarget, launchIndex, finalColor);
+    imageStore(RenderTarget, launchIndex, finalColor.bgra);
 }

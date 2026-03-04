@@ -139,6 +139,10 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
             }
         }
         catch (ObjectDisposedException) { }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Fatal Error] Поток генерации упал: {ex.Message}");
+        }
     }
 
     private void MeshLoop()

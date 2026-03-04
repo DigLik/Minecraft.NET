@@ -7,6 +7,7 @@ namespace Minecraft.NET.Graphics.Vulkan.Core;
 public unsafe class VulkanTextureArray : ITextureArray
 {
     private readonly VulkanDevice _device;
+
     public Image Image;
     public DeviceMemory ImageMemory;
     public ImageView ImageView;
@@ -15,22 +16,20 @@ public unsafe class VulkanTextureArray : ITextureArray
     public VulkanTextureArray(VulkanDevice device, int width, int height, byte[][] pixels)
     {
         _device = device;
+
         uint layers = (uint)pixels.Length;
         ulong layerSize = (ulong)(width * height * 4);
         ulong imageSize = layerSize * layers;
 
         VulkanBuffer stagingBuffer = new(_device, imageSize, BufferUsageFlags.TransferSrcBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
 
-        void* data;
-        _device.Vk.MapMemory(_device.Device, stagingBuffer.Memory, 0, imageSize, 0, &data);
         for (int i = 0; i < layers; i++)
         {
             fixed (byte* pPixels = pixels[i])
             {
-                System.Buffer.MemoryCopy(pPixels, (byte*)data + (layerSize * (ulong)i), layerSize, layerSize);
+                System.Buffer.MemoryCopy(pPixels, (byte*)stagingBuffer.MappedMemory + (layerSize * (ulong)i), layerSize, layerSize);
             }
         }
-        _device.Vk.UnmapMemory(_device.Device, stagingBuffer.Memory);
 
         ImageCreateInfo imageInfo = new()
         {
@@ -50,12 +49,14 @@ public unsafe class VulkanTextureArray : ITextureArray
         _device.Vk.CreateImage(_device.Device, in imageInfo, null, out Image);
 
         _device.Vk.GetImageMemoryRequirements(_device.Device, Image, out var memRequirements);
+
         MemoryAllocateInfo allocInfo = new()
         {
             SType = StructureType.MemoryAllocateInfo,
             AllocationSize = memRequirements.Size,
             MemoryTypeIndex = _device.FindMemoryType(memRequirements.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit)
         };
+
         _device.Vk.AllocateMemory(_device.Device, in allocInfo, null, out ImageMemory);
         _device.Vk.BindImageMemory(_device.Device, Image, ImageMemory, 0);
 
@@ -73,6 +74,7 @@ public unsafe class VulkanTextureArray : ITextureArray
             Format = Format.R8G8B8A8Unorm,
             SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, layers)
         };
+
         _device.Vk.CreateImageView(_device.Device, in viewInfo, null, out ImageView);
 
         SamplerCreateInfo samplerInfo = new()
@@ -93,15 +95,17 @@ public unsafe class VulkanTextureArray : ITextureArray
             MinLod = 0.0f,
             MaxLod = 0.0f
         };
+
         _device.Vk.CreateSampler(_device.Device, in samplerInfo, null, out Sampler);
     }
 
     private void TransitionImageLayout(ImageLayout oldLayout, ImageLayout newLayout, uint layers)
     {
         CommandBuffer cmd = _device.BeginSingleTimeCommands();
-        ImageMemoryBarrier barrier = new()
+
+        ImageMemoryBarrier2 barrier = new()
         {
-            SType = StructureType.ImageMemoryBarrier,
+            SType = StructureType.ImageMemoryBarrier2,
             OldLayout = oldLayout,
             NewLayout = newLayout,
             SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
@@ -110,34 +114,35 @@ public unsafe class VulkanTextureArray : ITextureArray
             SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, layers)
         };
 
-        PipelineStageFlags sourceStage;
-        PipelineStageFlags destinationStage;
-
         if (oldLayout == ImageLayout.Undefined && newLayout == ImageLayout.TransferDstOptimal)
         {
-            barrier.SrcAccessMask = 0;
-            barrier.DstAccessMask = AccessFlags.TransferWriteBit;
-            sourceStage = PipelineStageFlags.TopOfPipeBit;
-            destinationStage = PipelineStageFlags.TransferBit;
+            barrier.SrcAccessMask = AccessFlags2.None;
+            barrier.DstAccessMask = AccessFlags2.TransferWriteBit;
+            barrier.SrcStageMask = PipelineStageFlags2.TopOfPipeBit;
+            barrier.DstStageMask = PipelineStageFlags2.TransferBit;
         }
         else if (oldLayout == ImageLayout.TransferDstOptimal && newLayout == ImageLayout.ShaderReadOnlyOptimal)
         {
-            barrier.SrcAccessMask = AccessFlags.TransferWriteBit;
-            barrier.DstAccessMask = AccessFlags.ShaderReadBit;
-            sourceStage = PipelineStageFlags.TransferBit;
-            destinationStage = PipelineStageFlags.FragmentShaderBit;
+            barrier.SrcAccessMask = AccessFlags2.TransferWriteBit;
+            barrier.DstAccessMask = AccessFlags2.ShaderReadBit;
+            barrier.SrcStageMask = PipelineStageFlags2.TransferBit;
+            barrier.DstStageMask = PipelineStageFlags2.FragmentShaderBit;
         }
         else throw new Exception("Unsupported layout transition!");
 
-        _device.Vk.CmdPipelineBarrier(cmd, sourceStage, destinationStage, 0, 0, null, 0, null, 1, in barrier);
+        DependencyInfo depInfo = new() { SType = StructureType.DependencyInfo, ImageMemoryBarrierCount = 1, PImageMemoryBarriers = &barrier };
+        _device.Vk.CmdPipelineBarrier2(cmd, in depInfo);
+
         _device.EndSingleTimeCommands(cmd);
     }
 
     private void CopyBufferToImage(Silk.NET.Vulkan.Buffer buffer, uint width, uint height, uint layers)
     {
         CommandBuffer cmd = _device.BeginSingleTimeCommands();
-        BufferImageCopy region = new()
+
+        BufferImageCopy2 region = new()
         {
+            SType = StructureType.BufferImageCopy2,
             BufferOffset = 0,
             BufferRowLength = 0,
             BufferImageHeight = 0,
@@ -145,12 +150,25 @@ public unsafe class VulkanTextureArray : ITextureArray
             ImageOffset = new Offset3D(0, 0, 0),
             ImageExtent = new Extent3D(width, height, 1)
         };
-        _device.Vk.CmdCopyBufferToImage(cmd, buffer, Image, ImageLayout.TransferDstOptimal, 1, in region);
+
+        CopyBufferToImageInfo2 copyInfo = new()
+        {
+            SType = StructureType.CopyBufferToImageInfo2,
+            SrcBuffer = buffer,
+            DstImage = Image,
+            DstImageLayout = ImageLayout.TransferDstOptimal,
+            RegionCount = 1,
+            PRegions = &region
+        };
+
+        _device.Vk.CmdCopyBufferToImage2(cmd, in copyInfo);
+
         _device.EndSingleTimeCommands(cmd);
     }
 
     public void Dispose()
     {
+        _device.Vk.DeviceWaitIdle(_device.Device);
         _device.Vk.DestroySampler(_device.Device, Sampler, null);
         _device.Vk.DestroyImageView(_device.Device, ImageView, null);
         _device.Vk.DestroyImage(_device.Device, Image, null);

@@ -5,6 +5,7 @@ using Minecraft.NET.Engine.Abstractions.Graphics;
 namespace Minecraft.NET.Graphics.Vulkan.Core;
 
 public class MeshAllocation(
+    DynamicMeshPool pool,
     uint indexCount, uint firstIndex, int vertexOffset,
     ulong vertexByteOffset, ulong vertexByteSize,
     ulong indexByteOffset, ulong indexByteSize) : IMesh
@@ -32,12 +33,8 @@ public class MeshAllocation(
     public ulong VertexAddress => VertexChunk.Buffer.DeviceAddress;
     public ulong IndexAddress => IndexChunk.Buffer.DeviceAddress;
 
-    private volatile bool _isReady = false;
-    public bool IsReady
-    {
-        get => _isReady;
-        internal set => _isReady = value;
-    }
+    public ulong ReadySyncValue { get; internal set; } = ulong.MaxValue;
+    public bool IsReady => pool.GetCompletedValue() >= ReadySyncValue;
 
     public void Dispose()
     {

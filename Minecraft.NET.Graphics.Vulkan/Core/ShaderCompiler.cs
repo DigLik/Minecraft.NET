@@ -18,16 +18,19 @@ public unsafe class ShaderCompiler : IDisposable
 
         _shaderc.CompileOptionsSetSourceLanguage(_options, SourceLanguage.Glsl);
 
-        uint vulkan12 = (1 << 22) | (2 << 12);
-        _shaderc.CompileOptionsSetTargetEnv(_options, TargetEnv.Vulkan, vulkan12);
-        _shaderc.CompileOptionsSetTargetSpirv(_options, (SpirvVersion)0x010500);
+        // Vulkan 1.4 target environment flags
+        uint vulkan14 = (1 << 22) | (4 << 12);
+        _shaderc.CompileOptionsSetTargetEnv(_options, TargetEnv.Vulkan, vulkan14);
+
+        // Target SPIR-V 1.6 for Vulkan 1.4
+        _shaderc.CompileOptionsSetTargetSpirv(_options, (SpirvVersion)0x010600);
     }
 
     public byte[] Compile(string source, string fileName, ShaderKind kind, string entryPoint = "main")
     {
         byte[] sourceBytes = Encoding.UTF8.GetBytes(source);
-
         CompilationResult* result;
+
         fixed (byte* pSource = sourceBytes)
         {
             result = _shaderc.CompileIntoSpv(

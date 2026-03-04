@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Runtime.InteropServices;
 
 using Minecraft.NET.Game.World.Blocks;
 using Minecraft.NET.Game.World.Chunks;
@@ -6,7 +7,7 @@ using Minecraft.NET.Game.World.Environment;
 
 namespace Minecraft.NET.Game.World.Serialization;
 
-public static unsafe class ChunkSerializer
+public static class ChunkSerializer
 {
     public static PooledChunkData Serialize(ref ChunkSection chunk)
     {
@@ -16,9 +17,9 @@ public static unsafe class ChunkSerializer
         buffer[0] = (byte)chunk.UniformId;
         buffer[1] = chunk.IsAllocated ? (byte)1 : (byte)0;
 
-        if (chunk.IsAllocated)
+        if (chunk.IsAllocated && chunk.Blocks != null)
         {
-            var sourceSpan = new ReadOnlySpan<byte>(chunk.Blocks, BlocksInChunk);
+            var sourceSpan = MemoryMarshal.AsBytes(chunk.Blocks.AsSpan(0, BlocksInChunk));
             var destSpan = new Span<byte>(buffer, 2, BlocksInChunk);
             sourceSpan.CopyTo(destSpan);
         }
@@ -28,17 +29,14 @@ public static unsafe class ChunkSerializer
 
     public static void Deserialize(ReadOnlySpan<byte> data, ref ChunkSection chunk)
     {
-        using var ms = new MemoryStream(data.ToArray());
-        using var reader = new BinaryReader(ms);
-
-        chunk.UniformId = (BlockId)reader.ReadByte();
-        bool isAllocated = reader.ReadBoolean();
+        chunk.UniformId = (BlockId)data[0];
+        bool isAllocated = data[1] == 1;
 
         if (isAllocated)
         {
             chunk.Allocate();
-            var span = new Span<byte>(chunk.Blocks, BlocksInChunk);
-            reader.Read(span);
+            var destSpan = MemoryMarshal.AsBytes(chunk.Blocks!.AsSpan(0, BlocksInChunk));
+            data.Slice(2, BlocksInChunk).CopyTo(destSpan);
 
             int nonAir = 0;
             for (int i = 0; i < BlocksInChunk; i++)
