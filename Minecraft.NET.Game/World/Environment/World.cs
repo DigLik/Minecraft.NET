@@ -16,7 +16,7 @@ public sealed class World : IAsyncDisposable
         Chunks = new ChunkManager(_storage, generator);
     }
 
-    public Task InitializeAsync()
+    public static Task InitializeAsync()
     {
         BlockRegistry.Initialize();
         return Task.CompletedTask;

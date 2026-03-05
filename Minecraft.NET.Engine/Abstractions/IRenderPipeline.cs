@@ -6,7 +6,7 @@ namespace Minecraft.NET.Engine.Abstractions;
 public interface IRenderPipeline : IDisposable
 {
     void Initialize(VertexElement[] layout, uint stride);
-    IMesh CreateMesh<T>(T[] vertices, uint[] indices) where T : unmanaged;
+    IMesh CreateMesh<T>(T[] vertices, int vertexCount, uint[] indices, int indexCount, Action<Array, Array>? onUploadComplete = null) where T : unmanaged;
     void DeleteMesh(IMesh mesh);
     ITextureArray CreateTextureArray(int width, int height, byte[][] pixels);
     void BindTextureArray(ITextureArray textureArray);

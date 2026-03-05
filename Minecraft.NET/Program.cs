@@ -34,7 +34,7 @@ var provider = services.BuildServiceProvider();
 var engine = provider.GetRequiredService<EngineApp>();
 var world = provider.GetRequiredService<World>();
 
-await world.InitializeAsync();
+await World.InitializeAsync();
 
 unsafe
 {

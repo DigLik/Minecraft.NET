@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+﻿using System.Buffers;
 
 using HighPerformanceBus;
 
@@ -24,22 +24,30 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
     private readonly GameWorld _world;
     private readonly ChunkMesher _mesher;
 
-    private readonly Dictionary<Vector3<int>, IMesh> _meshes = [];
-    private readonly Dictionary<Vector3<int>, IMesh> _pendingReadyMeshes = [];
+    private readonly Dictionary<Vector3<int>, IMesh> _meshes = new(32768);
+    private readonly Dictionary<Vector3<int>, IMesh> _pendingReadyMeshes = new(4096);
 
-    private readonly ConcurrentDictionary<Vector3<int>, byte> _activeChunks = new();
-    private readonly ConcurrentDictionary<Vector3<int>, byte> _loadedChunks = new();
-    private readonly ConcurrentDictionary<Vector3<int>, byte> _meshedChunks = new();
+    private readonly HashSet<Vector3<int>> _activeChunks = new(32768);
+    private readonly HashSet<Vector3<int>> _loadedChunks = new(32768);
+    private readonly HashSet<Vector3<int>> _meshedChunks = new(32768);
+    private readonly Lock _stateLock = new();
 
-    private readonly BlockingCollection<Vector3<int>> _loadQueue = new(new ConcurrentQueue<Vector3<int>>());
-    private readonly BlockingCollection<Vector3<int>> _meshQueue = new(new ConcurrentQueue<Vector3<int>>());
-    private readonly ConcurrentQueue<(Vector3<int> Pos, IMesh? Mesh)> _builtMeshes = new();
+    private readonly ZeroAllocQueue<Vector3<int>> _loadQueue = new(131072);
+    private readonly ZeroAllocQueue<Vector3<int>> _meshQueue = new(131072);
+    private readonly ZeroAllocQueue<(Vector3<int> Pos, IMesh? Mesh)> _builtMeshes = new(131072);
+
+    private readonly List<Vector3<int>> _chunksToRemove = new(1024);
+    private readonly List<Vector3<int>> _readyList = new(1024);
 
     private Vector3<int> _lastPlayerChunk = new(int.MaxValue);
     private ITextureArray? _textureArray;
-
     private readonly Thread[] _genWorkers;
     private readonly Thread[] _meshWorkers;
+
+    private static readonly Action<Array, Array> _returnArrays = (v, i) => {
+        ArrayPool<ChunkVertex>.Shared.Return((ChunkVertex[])v);
+        ArrayPool<uint>.Shared.Return((uint[])i);
+    };
 
     public ChunkRenderSystem(IRenderPipeline pipeline, GameWorld world)
     {
@@ -103,18 +111,22 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
 
     private void MarkForRemesh(Vector3<int> pos)
     {
-        if (!_activeChunks.ContainsKey(pos)) return;
-        bool IsLoadedOrOOB(Vector3<int> p) => p.Z < 0 || p.Z >= WorldHeightInChunks || !_activeChunks.ContainsKey(p) || _loadedChunks.ContainsKey(p);
-
-        if (IsLoadedOrOOB(pos + new Vector3<int>(1, 0, 0)) &&
-            IsLoadedOrOOB(pos + new Vector3<int>(-1, 0, 0)) &&
-            IsLoadedOrOOB(pos + new Vector3<int>(0, 1, 0)) &&
-            IsLoadedOrOOB(pos + new Vector3<int>(0, -1, 0)) &&
-            IsLoadedOrOOB(pos + new Vector3<int>(0, 0, 1)) &&
-            IsLoadedOrOOB(pos + new Vector3<int>(0, 0, -1)))
+        lock (_stateLock)
         {
-            _meshedChunks.TryRemove(pos, out _);
-            if (_meshedChunks.TryAdd(pos, 0)) _meshQueue.Add(pos);
+            if (!_activeChunks.Contains(pos)) return;
+
+            bool IsLoadedOrOOB(Vector3<int> p) => p.Z < 0 || p.Z >= WorldHeightInChunks || !_activeChunks.Contains(p) || _loadedChunks.Contains(p);
+
+            if (IsLoadedOrOOB(pos + new Vector3<int>(1, 0, 0)) &&
+                IsLoadedOrOOB(pos + new Vector3<int>(-1, 0, 0)) &&
+                IsLoadedOrOOB(pos + new Vector3<int>(0, 1, 0)) &&
+                IsLoadedOrOOB(pos + new Vector3<int>(0, -1, 0)) &&
+                IsLoadedOrOOB(pos + new Vector3<int>(0, 0, 1)) &&
+                IsLoadedOrOOB(pos + new Vector3<int>(0, 0, -1)))
+            {
+                _meshedChunks.Remove(pos);
+                if (_meshedChunks.Add(pos)) _meshQueue.Add(pos);
+            }
         }
     }
 
@@ -122,12 +134,19 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
     {
         try
         {
-            foreach (var loadPos in _loadQueue.GetConsumingEnumerable())
+            while (_loadQueue.TryTake(out var loadPos, block: true))
             {
-                if (!_activeChunks.ContainsKey(loadPos)) continue;
+                lock (_stateLock)
+                {
+                    if (!_activeChunks.Contains(loadPos)) continue;
+                }
 
                 _world.Chunks.LoadChunk(loadPos);
-                _loadedChunks.TryAdd(loadPos, 0);
+
+                lock (_stateLock)
+                {
+                    _loadedChunks.Add(loadPos);
+                }
 
                 MarkForRemesh(loadPos);
                 MarkForRemesh(loadPos + new Vector3<int>(1, 0, 0));
@@ -138,10 +157,9 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
                 MarkForRemesh(loadPos + new Vector3<int>(0, 0, -1));
             }
         }
-        catch (ObjectDisposedException) { }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Fatal Error] Поток генерации упал: {ex.Message}");
+            Console.WriteLine($"[GenLoop Exited] {ex.Message}");
         }
     }
 
@@ -149,23 +167,28 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
     {
         try
         {
-            foreach (var meshPos in _meshQueue.GetConsumingEnumerable())
+            while (_meshQueue.TryTake(out var meshPos, block: true))
             {
-                if (!_activeChunks.ContainsKey(meshPos)) continue;
+                bool isActive;
+                lock (_stateLock) isActive = _activeChunks.Contains(meshPos);
+                if (!isActive) continue;
 
                 var meshData = _mesher.GenerateMesh(meshPos);
                 if (!meshData.IsEmpty)
                 {
-                    var gpuMesh = _pipeline.CreateMesh(meshData.Vertices, meshData.Indices);
-                    _builtMeshes.Enqueue((meshPos, gpuMesh));
+                    var gpuMesh = _pipeline.CreateMesh(meshData.Vertices, meshData.VertexCount, meshData.Indices, meshData.IndexCount, _returnArrays);
+                    _builtMeshes.Add((meshPos, gpuMesh));
                 }
                 else
                 {
-                    _builtMeshes.Enqueue((meshPos, null));
+                    _builtMeshes.Add((meshPos, null));
                 }
             }
         }
-        catch (ObjectDisposedException) { }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[MeshLoop Exited] {ex.Message}");
+        }
     }
 
     public void Handle(in BlockChangedEvent @event)
@@ -184,8 +207,10 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
 
         if (lx == 0) MarkForRemesh(chunkPos + new Vector3<int>(-1, 0, 0));
         if (lx == 15) MarkForRemesh(chunkPos + new Vector3<int>(1, 0, 0));
+
         if (ly == 0) MarkForRemesh(chunkPos + new Vector3<int>(0, -1, 0));
         if (ly == 15) MarkForRemesh(chunkPos + new Vector3<int>(0, 1, 0));
+
         if (lz == 0) MarkForRemesh(chunkPos + new Vector3<int>(0, 0, -1));
         if (lz == 15) MarkForRemesh(chunkPos + new Vector3<int>(0, 0, 1));
     }
@@ -215,86 +240,162 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
             UpdateRenderDistance(playerChunkPos);
         }
 
-        while (_builtMeshes.TryDequeue(out var result))
+        while (_builtMeshes.TryTake(out var result, block: false))
         {
-            if (!_activeChunks.ContainsKey(result.Pos))
+            bool isActive;
+            lock (_stateLock) isActive = _activeChunks.Contains(result.Pos);
+
+            if (!isActive)
             {
                 if (result.Mesh != null) _pipeline.DeleteMesh(result.Mesh);
                 continue;
             }
 
-            if (result.Mesh == null)
+            lock (_stateLock)
             {
-                if (_meshes.Remove(result.Pos, out var oldMesh)) _pipeline.DeleteMesh(oldMesh);
-                if (_pendingReadyMeshes.Remove(result.Pos, out var pendingOld)) _pipeline.DeleteMesh(pendingOld);
-            }
-            else
-            {
-                if (_pendingReadyMeshes.Remove(result.Pos, out var oldPending)) _pipeline.DeleteMesh(oldPending);
-                _pendingReadyMeshes[result.Pos] = result.Mesh;
+                if (result.Mesh == null)
+                {
+                    if (_meshes.Remove(result.Pos, out var oldMesh)) _pipeline.DeleteMesh(oldMesh);
+                    if (_pendingReadyMeshes.Remove(result.Pos, out var pendingOld)) _pipeline.DeleteMesh(pendingOld);
+                }
+                else
+                {
+                    if (_pendingReadyMeshes.Remove(result.Pos, out var oldPending)) _pipeline.DeleteMesh(oldPending);
+                    _pendingReadyMeshes[result.Pos] = result.Mesh;
+                }
             }
         }
 
-        var readyList = new List<Vector3<int>>();
-        foreach (var kvp in _pendingReadyMeshes)
+        lock (_stateLock)
         {
-            if (kvp.Value.IsReady)
+            _readyList.Clear();
+            foreach (var kvp in _pendingReadyMeshes)
             {
-                if (_meshes.Remove(kvp.Key, out var oldMesh)) _pipeline.DeleteMesh(oldMesh);
-                _meshes[kvp.Key] = kvp.Value;
-                readyList.Add(kvp.Key);
+                if (kvp.Value.IsReady)
+                {
+                    if (_meshes.Remove(kvp.Key, out var oldMesh)) _pipeline.DeleteMesh(oldMesh);
+                    _meshes[kvp.Key] = kvp.Value;
+                    _readyList.Add(kvp.Key);
+                }
             }
-        }
-        foreach (var pos in readyList) _pendingReadyMeshes.Remove(pos);
+            foreach (var pos in _readyList) _pendingReadyMeshes.Remove(pos);
 
-        foreach (var kvp in _meshes)
-        {
-            Vector3<float> position = new(kvp.Key.X * ChunkSize, kvp.Key.Y * ChunkSize, kvp.Key.Z * ChunkSize);
-            _pipeline.SubmitDraw(kvp.Value, position);
+            foreach (var kvp in _meshes)
+            {
+                Vector3<float> position = new(kvp.Key.X * ChunkSize, kvp.Key.Y * ChunkSize, kvp.Key.Z * ChunkSize);
+                _pipeline.SubmitDraw(kvp.Value, position);
+            }
         }
     }
 
     private void UpdateRenderDistance(Vector3<int> center)
     {
-        for (int x = center.X - RenderDistance; x <= center.X + RenderDistance; x++)
-            for (int y = center.Y - RenderDistance; y <= center.Y + RenderDistance; y++)
-                for (int z = 0; z < WorldHeightInChunks; z++)
-                {
-                    var pos = new Vector3<int>(x, y, z);
-                    if (_activeChunks.TryAdd(pos, 0))
-                        _loadQueue.Add(pos);
-                }
-
-        var toRemove = new List<Vector3<int>>();
-
-        foreach (var pos in _activeChunks.Keys)
-            if (Math.Abs(pos.X - center.X) > RenderDistance || Math.Abs(pos.Y - center.Y) > RenderDistance)
-                toRemove.Add(pos);
-
-        foreach (var pos in toRemove)
+        lock (_stateLock)
         {
-            _activeChunks.TryRemove(pos, out _);
-            _loadedChunks.TryRemove(pos, out _);
-            _meshedChunks.TryRemove(pos, out _);
+            for (int x = center.X - RenderDistance; x <= center.X + RenderDistance; x++)
+            {
+                for (int y = center.Y - RenderDistance; y <= center.Y + RenderDistance; y++)
+                {
+                    for (int z = 0; z < WorldHeightInChunks; z++)
+                    {
+                        var pos = new Vector3<int>(x, y, z);
+                        if (_activeChunks.Add(pos))
+                            _loadQueue.Add(pos);
+                    }
+                }
+            }
 
-            if (_meshes.Remove(pos, out var mesh)) _pipeline.DeleteMesh(mesh);
-            if (_pendingReadyMeshes.Remove(pos, out var pMesh)) _pipeline.DeleteMesh(pMesh);
+            _chunksToRemove.Clear();
+            foreach (var pos in _activeChunks)
+            {
+                if (Math.Abs(pos.X - center.X) > RenderDistance || Math.Abs(pos.Y - center.Y) > RenderDistance)
+                    _chunksToRemove.Add(pos);
+            }
+
+            foreach (var pos in _chunksToRemove)
+            {
+                _activeChunks.Remove(pos);
+                _loadedChunks.Remove(pos);
+                _meshedChunks.Remove(pos);
+
+                if (_meshes.Remove(pos, out var mesh)) _pipeline.DeleteMesh(mesh);
+                if (_pendingReadyMeshes.Remove(pos, out var pMesh)) _pipeline.DeleteMesh(pMesh);
+            }
         }
     }
 
     public void Dispose()
     {
         EventBus.Unsubscribe(this);
-
         _loadQueue.CompleteAdding();
         _meshQueue.CompleteAdding();
 
         foreach (var worker in _genWorkers) worker.Join(TimeSpan.FromSeconds(1));
         foreach (var worker in _meshWorkers) worker.Join(TimeSpan.FromSeconds(1));
 
-        foreach (var mesh in _meshes.Values) _pipeline.DeleteMesh(mesh);
-        foreach (var mesh in _pendingReadyMeshes.Values) _pipeline.DeleteMesh(mesh);
+        lock (_stateLock)
+        {
+            foreach (var mesh in _meshes.Values) _pipeline.DeleteMesh(mesh);
+            foreach (var mesh in _pendingReadyMeshes.Values) _pipeline.DeleteMesh(mesh);
+        }
 
         _textureArray?.Dispose();
+    }
+
+    private class ZeroAllocQueue<T>(int capacity)
+    {
+        private readonly T[] _items = new T[capacity];
+        private int _head;
+        private int _tail;
+        private int _count;
+        private readonly object _sync = new();
+        private bool _completed;
+
+        public void Add(T item)
+        {
+            lock (_sync)
+            {
+                while (_count == _items.Length && !_completed)
+                {
+                    Monitor.Wait(_sync);
+                }
+                if (_completed) return;
+
+                _items[_tail] = item;
+                _tail = (_tail + 1) % _items.Length;
+                _count++;
+                Monitor.Pulse(_sync);
+            }
+        }
+
+        public bool TryTake(out T item, bool block)
+        {
+            lock (_sync)
+            {
+                while (_count == 0)
+                {
+                    if (_completed || !block)
+                    {
+                        item = default!;
+                        return false;
+                    }
+                    Monitor.Wait(_sync);
+                }
+                item = _items[_head];
+                _head = (_head + 1) % _items.Length;
+                _count--;
+                Monitor.Pulse(_sync);
+                return true;
+            }
+        }
+
+        public void CompleteAdding()
+        {
+            lock (_sync)
+            {
+                _completed = true;
+                Monitor.PulseAll(_sync);
+            }
+        }
     }
 }

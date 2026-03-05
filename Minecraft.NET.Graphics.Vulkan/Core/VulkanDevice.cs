@@ -179,7 +179,7 @@ public unsafe class VulkanDevice : IDisposable
         return Vk.False;
     }
 #else
-    private void SetupDebugMessenger() { }
+    private static void SetupDebugMessenger() { }
 #endif
 
     private void CreateSurface(void* windowHandle)

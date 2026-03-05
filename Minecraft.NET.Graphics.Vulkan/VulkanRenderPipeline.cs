@@ -128,7 +128,8 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         _device.Vk.CreateImageView(_device.Device, in viewInfo, null, out _storageImageView);
     }
 
-    public IMesh CreateMesh<T>(T[] vertices, uint[] indices) where T : unmanaged => _meshPool.Allocate(vertices, indices);
+    public IMesh CreateMesh<T>(T[] vertices, int vertexCount, uint[] indices, int indexCount, Action<Array, Array>? onUploadComplete = null) where T : unmanaged
+        => _meshPool.Allocate(vertices, vertexCount, indices, indexCount, onUploadComplete);
 
     public void DeleteMesh(IMesh mesh) => _pendingMeshesToDispose.Enqueue(mesh);
     public ITextureArray CreateTextureArray(int width, int height, byte[][] pixels) => new VulkanTextureArray(_device, width, height, pixels);

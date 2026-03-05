@@ -1,6 +1,4 @@
-﻿using System.Collections.Concurrent;
-
-using Minecraft.NET.Game.World.Chunks;
+﻿using Minecraft.NET.Game.World.Chunks;
 using Minecraft.NET.Game.World.Serialization;
 using Minecraft.NET.Utils.Math;
 
@@ -9,7 +7,8 @@ namespace Minecraft.NET.Game.World.Environment;
 public class WorldStorage : IAsyncDisposable
 {
     private readonly string _worldDirectory;
-    private readonly ConcurrentDictionary<Vector3<int>, Bucket> _buckets = new();
+    private readonly Dictionary<Vector3<int>, Bucket> _buckets = [];
+    private readonly Lock _bucketsLock = new();
 
     public WorldStorage(string worldName)
     {
@@ -24,7 +23,6 @@ public class WorldStorage : IAsyncDisposable
 
         var localChunkPos = GetLocalChunkPosition(chunk.Position);
         ReadOnlySpan<byte> data = bucket.GetChunkData(localChunkPos);
-
         if (data.Length != 0)
         {
             ChunkSerializer.Deserialize(data, ref chunk);
@@ -44,22 +42,37 @@ public class WorldStorage : IAsyncDisposable
         PooledChunkData data = ChunkSerializer.Serialize(ref chunk);
 
         bucket.SetChunkData(localChunkPos, data);
-
         chunk.IsModified = false;
     }
 
     private Bucket GetOrLoadBucket(Vector3<int> bucketPos)
-        => _buckets.GetOrAdd(bucketPos, static (pos, dir) => new Bucket(dir, pos), _worldDirectory);
+    {
+        lock (_bucketsLock)
+        {
+            if (!_buckets.TryGetValue(bucketPos, out var bucket))
+            {
+                bucket = new Bucket(_worldDirectory, bucketPos);
+                _buckets[bucketPos] = bucket;
+            }
+            return bucket;
+        }
+    }
 
     public async Task SaveAllAsync()
     {
+        List<Bucket> bucketsToSave;
+        lock (_bucketsLock)
+        {
+            bucketsToSave = [.. _buckets.Values];
+        }
+
         await Task.Factory.StartNew(static state =>
         {
-            var buckets = (ConcurrentDictionary<Vector3<int>, Bucket>)state!;
-            foreach (var kvp in buckets)
-                if (kvp.Value.IsDirty)
-                    kvp.Value.Save();
-        }, _buckets, CancellationToken.None, TaskCreationOptions.None, TaskScheduler.Default);
+            var buckets = (List<Bucket>)state!;
+            foreach (var bucket in buckets)
+                if (bucket.IsDirty)
+                    bucket.Save();
+        }, bucketsToSave, CancellationToken.None, TaskCreationOptions.None, TaskScheduler.Default);
     }
 
     private static Vector3<int> GetBucketPosition(Vector3<int> chunkPos) => new(

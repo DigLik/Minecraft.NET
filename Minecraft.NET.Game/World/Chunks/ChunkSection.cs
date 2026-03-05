@@ -1,14 +1,14 @@
-﻿using System.Buffers;
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 using Minecraft.NET.Game.World.Blocks;
 using Minecraft.NET.Utils.Math;
 
 namespace Minecraft.NET.Game.World.Chunks;
 
-public struct ChunkSection
+public unsafe struct ChunkSection
 {
-    public BlockId[]? Blocks;
+    public BlockId* Blocks;
     public int NonAirBlockCount;
     public BlockId UniformId;
     public bool IsModified;
@@ -23,7 +23,7 @@ public struct ChunkSection
     {
         if (Blocks != null)
         {
-            ArrayPool<BlockId>.Shared.Return(Blocks);
+            NativeMemory.Free(Blocks);
             Blocks = null;
         }
         NonAirBlockCount = 0;
@@ -35,7 +35,7 @@ public struct ChunkSection
     {
         if (Blocks != null)
         {
-            ArrayPool<BlockId>.Shared.Return(Blocks);
+            NativeMemory.Free(Blocks);
             Blocks = null;
         }
         UniformId = id;
@@ -47,9 +47,23 @@ public struct ChunkSection
     {
         if (Blocks == null)
         {
-            Blocks = ArrayPool<BlockId>.Shared.Rent(BlocksInChunk);
-            Array.Fill(Blocks, UniformId, 0, BlocksInChunk);
+            Blocks = (BlockId*)NativeMemory.Alloc((nuint)BlocksInChunk);
+            NativeMemory.Fill(Blocks, (nuint)BlocksInChunk, (byte)UniformId);
         }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public readonly BlockId GetBlock(int index)
+    {
+        if (Blocks == null) return UniformId;
+        return Blocks[index];
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public readonly BlockId GetBlock(int x, int y, int z)
+    {
+        if (Blocks == null) return UniformId;
+        return Blocks[GetIndex(x, y, z)];
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -69,6 +83,7 @@ public struct ChunkSection
             if (oldId == id) return;
 
             Blocks[index] = id;
+
             if (oldId == BlockId.Air && id != BlockId.Air) NonAirBlockCount++;
             else if (oldId != BlockId.Air && id == BlockId.Air) NonAirBlockCount--;
 
@@ -89,7 +104,7 @@ public struct ChunkSection
         for (int i = 1; i < BlocksInChunk; i++)
             if (Blocks[i] != first) return;
 
-        ArrayPool<BlockId>.Shared.Return(Blocks);
+        NativeMemory.Free(Blocks);
         Blocks = null;
         UniformId = first;
         NonAirBlockCount = (first == BlockId.Air) ? 0 : BlocksInChunk;
@@ -98,6 +113,10 @@ public struct ChunkSection
     public void Free() => Reset();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int GetIndex(int x, int y, int z)
+        => x | (z << 4) | (y << 8);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int GetIndex(Vector3<int> position)
-        => position.X + position.Z * ChunkSize + position.Y * ChunkSize * ChunkSize;
+        => position.X | (position.Z << 4) | (position.Y << 8);
 }

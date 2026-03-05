@@ -1,5 +1,6 @@
 ﻿using Minecraft.NET.Game.World.Blocks;
 using Minecraft.NET.Game.World.Chunks;
+using Minecraft.NET.Utils.Math;
 
 namespace Minecraft.NET.Game.World.Environment;
 
@@ -121,7 +122,7 @@ public class TerrainWorldGenerator : IWorldGenerator
                         if (lz >= sectionBaseZ && lz < sectionBaseZ + ChunkSize)
                         {
                             int localZ = lz - sectionBaseZ;
-                            if (section.GetBlock(new(lx, ly, localZ)) == BlockId.Air)
+                            if (section.GetBlock(lx, ly, localZ) == BlockId.Air)
                                 section.SetBlock(new(lx, ly, localZ), BlockId.OakLeaves);
                         }
                     }

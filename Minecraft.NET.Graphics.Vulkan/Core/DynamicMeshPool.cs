@@ -71,8 +71,11 @@ public unsafe class DynamicMeshPool : IDisposable
     private class PendingUpload
     {
         public Array Vertices = null!;
+        public int VertexCount;
         public Array Indices = null!;
+        public int IndexCount;
         public MeshAllocation Allocation = null!;
+        public Action<Array, Array>? ReleaseCallback;
     }
 
     private readonly VulkanDevice _device;
@@ -122,10 +125,10 @@ public unsafe class DynamicMeshPool : IDisposable
         _uploadThread.Start();
     }
 
-    public MeshAllocation Allocate<T>(T[] vertices, uint[] indices) where T : unmanaged
+    public MeshAllocation Allocate<T>(T[] vertices, int vertexCount, uint[] indices, int indexCount, Action<Array, Array>? releaseCallback) where T : unmanaged
     {
-        ulong vertexSize = (ulong)(vertices.Length * sizeof(T));
-        ulong indexSize = (ulong)(indices.Length * sizeof(uint));
+        ulong vertexSize = (ulong)(vertexCount * sizeof(T));
+        ulong indexSize = (ulong)(indexCount * sizeof(uint));
         ulong vOffset = ulong.MaxValue, iOffset = ulong.MaxValue;
         BufferChunk? vChunk = null, iChunk = null;
 
@@ -154,13 +157,22 @@ public unsafe class DynamicMeshPool : IDisposable
             }
         }
 
-        var alloc = new MeshAllocation(this, (uint)indices.Length, (uint)(iOffset / sizeof(uint)), (int)(vOffset / (ulong)sizeof(T)), vOffset, vertexSize, iOffset, indexSize)
+        var alloc = new MeshAllocation(this, (uint)indexCount, (uint)(iOffset / sizeof(uint)), (int)(vOffset / (ulong)sizeof(T)), vOffset, vertexSize, iOffset, indexSize)
         {
-            VertexChunk = vChunk,
-            IndexChunk = iChunk
+            VertexChunk = vChunk!,
+            IndexChunk = iChunk!
         };
 
-        _pendingUploads.Add(new PendingUpload { Vertices = vertices, Indices = indices, Allocation = alloc });
+        _pendingUploads.Add(new PendingUpload
+        {
+            Vertices = vertices,
+            VertexCount = vertexCount,
+            Indices = indices,
+            IndexCount = indexCount,
+            Allocation = alloc,
+            ReleaseCallback = releaseCallback
+        });
+
         return alloc;
     }
 
@@ -218,7 +230,6 @@ public unsafe class DynamicMeshPool : IDisposable
 
         ulong currentOffset = 0;
         _device.Vk.ResetCommandBuffer(cmd, 0);
-
         CommandBufferBeginInfo beginInfo = new() { SType = StructureType.CommandBufferBeginInfo, Flags = CommandBufferUsageFlags.OneTimeSubmitBit };
         _device.Vk.BeginCommandBuffer(cmd, in beginInfo);
 
@@ -243,6 +254,8 @@ public unsafe class DynamicMeshPool : IDisposable
             CopyBufferInfo2 iCopyInfo = new() { SType = StructureType.CopyBufferInfo2, SrcBuffer = stagingBuffer.Buffer, DstBuffer = alloc.IndexChunk.Buffer.Buffer, RegionCount = 1, PRegions = &iCopy };
             _device.Vk.CmdCopyBuffer2(cmd, in iCopyInfo);
             currentOffset += alloc.IndexByteSize;
+
+            upload.ReleaseCallback?.Invoke(upload.Vertices, upload.Indices);
         }
 
         var transferBarrier = new MemoryBarrier2

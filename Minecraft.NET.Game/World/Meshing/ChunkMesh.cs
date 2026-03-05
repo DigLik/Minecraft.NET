@@ -24,7 +24,9 @@ public struct ChunkVertex(
 public struct ChunkMesh
 {
     public ChunkVertex[] Vertices;
+    public int VertexCount;
     public uint[] Indices;
+    public int IndexCount;
 
-    public readonly bool IsEmpty => Vertices == null || Indices == null || Vertices.Length == 0 || Indices.Length == 0;
+    public readonly bool IsEmpty => Vertices == null || Indices == null || VertexCount == 0 || IndexCount == 0;
 }

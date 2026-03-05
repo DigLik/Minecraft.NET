@@ -1,5 +1,4 @@
 ﻿using System.Buffers;
-using System.Runtime.InteropServices;
 
 using Minecraft.NET.Game.World.Blocks;
 using Minecraft.NET.Game.World.Chunks;
@@ -7,7 +6,7 @@ using Minecraft.NET.Game.World.Environment;
 
 namespace Minecraft.NET.Game.World.Serialization;
 
-public static class ChunkSerializer
+public static unsafe class ChunkSerializer
 {
     public static PooledChunkData Serialize(ref ChunkSection chunk)
     {
@@ -19,7 +18,7 @@ public static class ChunkSerializer
 
         if (chunk.IsAllocated && chunk.Blocks != null)
         {
-            var sourceSpan = MemoryMarshal.AsBytes(chunk.Blocks.AsSpan(0, BlocksInChunk));
+            var sourceSpan = new ReadOnlySpan<byte>(chunk.Blocks, BlocksInChunk);
             var destSpan = new Span<byte>(buffer, 2, BlocksInChunk);
             sourceSpan.CopyTo(destSpan);
         }
@@ -35,7 +34,7 @@ public static class ChunkSerializer
         if (isAllocated)
         {
             chunk.Allocate();
-            var destSpan = MemoryMarshal.AsBytes(chunk.Blocks!.AsSpan(0, BlocksInChunk));
+            var destSpan = new Span<byte>(chunk.Blocks, BlocksInChunk);
             data.Slice(2, BlocksInChunk).CopyTo(destSpan);
 
             int nonAir = 0;
