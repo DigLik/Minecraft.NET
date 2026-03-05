@@ -5,32 +5,36 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-	<PlatformTarget>x64</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+	
+  <PropertyGroup>
 	<ServerGarbageCollection>true</ServerGarbageCollection>
 	<ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
 	<DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
-	<Invariantglobalization>true</Invariantglobalization>
+	<InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
-
+	
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
 	<Optimize>false</Optimize>
 	<DebugType>full</DebugType>
 	<DefineConstants>DEBUG;TRACE</DefineConstants>
-	<PublishReadyToRun>false</PublishReadyToRun>
-	<PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
 	<Optimize>true</Optimize>
 	<OptimizationPreference>Size</OptimizationPreference>
-	<DebugType>none</DebugType> <DebugSymbols>false</DebugSymbols>
-	<PublishSingleFile>true</PublishSingleFile>
+	<TieredPGO>true</TieredPGO>
+	  
+	<DebugType>none</DebugType>
+	<DebugSymbols>false</DebugSymbols>
+	<DebuggerSupport>false</DebuggerSupport>
+	<StripSymbols>true</StripSymbols>
+	<AllowedReferenceRelatedFileExtensions>none</AllowedReferenceRelatedFileExtensions>
+	  
+	<PublishAot>true</PublishAot>
 	<PublishTrimmed>true</PublishTrimmed>
 	<TrimMode>full</TrimMode>
-	<PublishReadyToRun>false</PublishReadyToRun>
-	<PublishAot>true</PublishAot>
-	<TieredPGO>true</TieredPGO>
   </PropertyGroup>
 
   <ItemGroup>
@@ -46,6 +50,11 @@
   <ItemGroup>
 	<VulkanShader Include="Assets\Shaders\*.rgen;Assets\Shaders\*.rmiss;Assets\Shaders\*.rchit;Assets\Shaders\*.rahit" />
   </ItemGroup>
+	
+  <ItemGroup>
+	<None Update="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+	<None Remove="Assets\Shaders\*.rgen;Assets\Shaders\*.rmiss;Assets\Shaders\*.rchit;Assets\Shaders\*.rahit" />
+  </ItemGroup>
 
   <Target Name="CompileVulkanShaders" BeforeTargets="AssignTargetPaths" Inputs="@(VulkanShader)" Outputs="@(VulkanShader->'%(RelativeDir)%(Filename).spv')">
 	<Message Text="[Vulkan] Компиляция шейдера: %(VulkanShader.Filename)%(VulkanShader.Extension)" Importance="high" />
@@ -58,15 +67,5 @@
 	  </None>
 	</ItemGroup>
   </Target>
-	
-  <ItemGroup>
-    <None Update="Assets\**">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-	<None Remove="Assets\Shaders\*.rgen" />
-	<None Remove="Assets\Shaders\*.rmiss" />
-	<None Remove="Assets\Shaders\*.rchit" />
-	<None Remove="Assets\Shaders\*.rahit" />
-  </ItemGroup>
 
 </Project>
