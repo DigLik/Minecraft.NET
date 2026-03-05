@@ -16,9 +16,9 @@ public static unsafe class ChunkSerializer
         buffer[0] = (byte)chunk.UniformId;
         buffer[1] = chunk.IsAllocated ? (byte)1 : (byte)0;
 
-        if (chunk.IsAllocated && chunk.Blocks != null)
+        if (chunk.IsAllocated && chunk.Blocks.IsCreated)
         {
-            var sourceSpan = new ReadOnlySpan<byte>(chunk.Blocks, BlocksInChunk);
+            var sourceSpan = new ReadOnlySpan<byte>(chunk.Blocks.Data, BlocksInChunk);
             var destSpan = new Span<byte>(buffer, 2, BlocksInChunk);
             sourceSpan.CopyTo(destSpan);
         }
@@ -34,7 +34,7 @@ public static unsafe class ChunkSerializer
         if (isAllocated)
         {
             chunk.Allocate();
-            var destSpan = new Span<byte>(chunk.Blocks, BlocksInChunk);
+            var destSpan = new Span<byte>(chunk.Blocks.Data, BlocksInChunk);
             data.Slice(2, BlocksInChunk).CopyTo(destSpan);
 
             int nonAir = 0;

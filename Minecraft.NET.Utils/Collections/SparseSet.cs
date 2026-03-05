@@ -2,15 +2,15 @@
 
 namespace Minecraft.NET.Utils.Collections;
 
-public class SparseSet<T>
+public class SparseSet<T> : IDisposable where T : unmanaged
 {
-    private readonly List<int> _dense = new(1024);
-    private readonly List<T> _elements = new(1024);
+    private NativeList<int> _dense = new(1024);
+    private NativeList<T> _elements = new(1024);
     private int[] _sparse = new int[1024];
 
     public int Count => _dense.Count;
 
-    public List<int> Entities => _dense;
+    public ReadOnlySpan<int> Entities => MemoryMarshal.CreateReadOnlySpan(ref _dense[0], _dense.Count);
 
     public void Add(int id, in T element)
     {
@@ -32,7 +32,7 @@ public class SparseSet<T>
     public ref T Get(int id)
     {
         int denseIndex = _sparse[id];
-        return ref CollectionsMarshal.AsSpan(_elements)[denseIndex];
+        return ref _elements[denseIndex];
     }
 
     public void Remove(int id)
@@ -47,7 +47,13 @@ public class SparseSet<T>
         _elements[denseIndex] = _elements[lastDenseIndex];
         _sparse[lastId] = denseIndex;
 
-        _dense.RemoveAt(lastDenseIndex);
-        _elements.RemoveAt(lastDenseIndex);
+        _dense.RemoveAtSwapBack(lastDenseIndex);
+        _elements.RemoveAtSwapBack(lastDenseIndex);
+    }
+
+    public void Dispose()
+    {
+        _dense.Dispose();
+        _elements.Dispose();
     }
 }

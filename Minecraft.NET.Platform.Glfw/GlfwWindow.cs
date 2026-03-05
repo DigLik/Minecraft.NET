@@ -102,8 +102,8 @@ public unsafe partial class GlfwWindow : IWindow
 
             double currentTime = sw.Elapsed.TotalSeconds;
             double frameTime = currentTime - previousTime;
-            if (frameTime > 0.25) frameTime = 0.25; 
-            
+            if (frameTime > 0.25) frameTime = 0.25;
+
             previousTime = currentTime;
             updateAccumulator += frameTime;
 

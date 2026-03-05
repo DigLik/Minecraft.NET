@@ -4,7 +4,6 @@ using Silk.NET.Core;
 using Silk.NET.Core.Native;
 using Silk.NET.GLFW;
 using Silk.NET.Vulkan;
-using Silk.NET.Vulkan.Extensions.EXT;
 using Silk.NET.Vulkan.Extensions.KHR;
 
 namespace Minecraft.NET.Graphics.Vulkan.Core;
@@ -108,7 +107,7 @@ public unsafe class VulkanDevice : IDisposable
         if (Vk.CreateInstance(in createInfo, null, out Instance) != Result.Success)
             throw new Exception("Failed to create Vulkan Instance!");
 
-        SilkMarshal.Free((nint)pExtensions);
+        SilkMarshal.Free(pExtensions);
 #if DEBUG
         SilkMarshal.Free((nint)pValidationLayers);
 #endif
@@ -315,7 +314,7 @@ public unsafe class VulkanDevice : IDisposable
                 throw new Exception("Failed to create logical device!");
         }
 
-        SilkMarshal.Free((nint)pDeviceExtensions);
+        SilkMarshal.Free(pDeviceExtensions);
 
         Vk.GetDeviceQueue(Device, GraphicsFamilyIndex, 0, out GraphicsQueue);
         Vk.GetDeviceQueue(Device, PresentFamilyIndex, 0, out PresentQueue);

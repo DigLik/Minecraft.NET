@@ -1,0 +1,106 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            exe_name: Minecraft.NET.exe
+            archive_name: Minecraft.NET-win-x64.7z
+          - os: ubuntu-latest
+            rid: linux-x64
+            exe_name: Minecraft.NET
+            archive_name: Minecraft.NET-linux-x64.7z
+          - os: macos-latest
+            rid: osx-x64
+            exe_name: Minecraft.NET
+            archive_name: Minecraft.NET-osx-x64.7z
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup .NET 10
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Install Dependencies (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        choco install vulkan-sdk upx -y
+        $vulkanPath = (Get-ChildItem "C:\VulkanSDK" -Directory | Select-Object -First 1).FullName + "\Bin"
+        echo "$vulkanPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+    - name: Install Dependencies (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang zlib1g-dev glslc upx-ucl p7zip-full
+
+    - name: Install Dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew install shaderc p7zip
+
+    - name: Publish .NET Project
+      run: dotnet publish Minecraft.NET/Minecraft.NET.csproj -c Release -r ${{ matrix.rid }} -o ./publish_output
+
+    - name: UPX Compress Binary
+      if: runner.os != 'macOS'
+      run: upx --best --lzma ./publish_output/${{ matrix.exe_name }}
+
+    - name: Compress to 7z (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        cd publish_output
+        7z a -t7z -mx=9 -mfb=273 -ms=on -m0=lzma2 ../${{ matrix.archive_name }} *
+
+    - name: Compress to 7z (Linux / macOS)
+      if: runner.os != 'Windows'
+      run: |
+        cd publish_output
+        7z a -t7z -mx=9 -mfb=273 -ms=on -m0=lzma2 ../${{ matrix.archive_name }} *
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.archive_name }}
+        path: ${{ matrix.archive_name }}
+        retention-days: 1 
+
+  create_release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: "Авто-сборка #${{ github.run_number }}"
+          body: |
+            Автоматическая сборка из ветки `master`.
+            Коммит: ${{ github.sha }}
+          files: artifacts/*.7z
+          prerelease: true

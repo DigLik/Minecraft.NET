@@ -28,6 +28,7 @@ public class Registry
     }
 
     public ComponentPool<T> GetPool<T>()
+        where T : unmanaged
     {
         int id = ComponentTypeId<T>.Id;
 
@@ -40,12 +41,25 @@ public class Registry
         return (ComponentPool<T>)pool;
     }
 
-    public View<T1> GetView<T1>() => new(this);
-    public View<T1, T2> GetView<T1, T2>() => new(this);
-    public View<T1, T2, T3> GetView<T1, T2, T3>() => new(this);
+    public View<T1> GetView<T1>()
+        where T1 : unmanaged
+        => new(this);
+    public View<T1, T2> GetView<T1, T2>()
+        where T1 : unmanaged
+        where T2 : unmanaged
+        => new(this);
+    public View<T1, T2, T3> GetView<T1, T2, T3>()
+        where T1 : unmanaged
+        where T2 : unmanaged
+        where T3 : unmanaged
+        => new(this);
 
-    public void AddComponent<T>(Entity entity, in T component) => GetPool<T>().Add(entity.Id, in component);
-    public ref T GetComponent<T>(Entity entity) => ref GetPool<T>().Get(entity.Id);
-    public bool HasComponent<T>(Entity entity) => GetPool<T>().Has(entity.Id);
-    public void RemoveComponent<T>(Entity entity) => GetPool<T>().Remove(entity.Id);
+    public void AddComponent<T>(Entity entity, in T component) where T : unmanaged
+        => GetPool<T>().Add(entity.Id, in component);
+    public ref T GetComponent<T>(Entity entity) where T : unmanaged
+        => ref GetPool<T>().Get(entity.Id);
+    public bool HasComponent<T>(Entity entity) where T : unmanaged
+        => GetPool<T>().Has(entity.Id);
+    public void RemoveComponent<T>(Entity entity) where T : unmanaged
+        => GetPool<T>().Remove(entity.Id);
 }

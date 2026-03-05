@@ -1,6 +1,6 @@
-﻿using Silk.NET.Vulkan;
+﻿using Minecraft.NET.Engine.Abstractions.Graphics;
 
-using Minecraft.NET.Engine.Abstractions.Graphics;
+using Silk.NET.Vulkan;
 
 namespace Minecraft.NET.Graphics.Vulkan.Core;
 

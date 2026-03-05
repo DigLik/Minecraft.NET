@@ -4,7 +4,7 @@ public readonly struct EntityBuilder(Registry registry, Entity entity)
 {
     public Entity Entity => entity;
 
-    public EntityBuilder With<T>(in T component)
+    public EntityBuilder With<T>(in T component) where T : unmanaged
     {
         registry.AddComponent(entity, in component);
         return this;

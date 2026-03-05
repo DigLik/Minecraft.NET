@@ -1,6 +1,4 @@
-﻿using System.Buffers;
-
-using HighPerformanceBus;
+﻿using HighPerformanceBus;
 
 using Minecraft.NET.Engine.Abstractions;
 using Minecraft.NET.Engine.Abstractions.Graphics;
@@ -9,6 +7,7 @@ using Minecraft.NET.Engine.ECS;
 using Minecraft.NET.Game.Entities;
 using Minecraft.NET.Game.Events;
 using Minecraft.NET.Game.World.Blocks;
+using Minecraft.NET.Utils.Collections;
 using Minecraft.NET.Utils.Math;
 
 using SixLabors.ImageSharp;
@@ -30,24 +29,20 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
     private readonly HashSet<Vector3<int>> _activeChunks = new(32768);
     private readonly HashSet<Vector3<int>> _loadedChunks = new(32768);
     private readonly HashSet<Vector3<int>> _meshedChunks = new(32768);
+
     private readonly Lock _stateLock = new();
 
     private readonly ZeroAllocQueue<Vector3<int>> _loadQueue = new(131072);
     private readonly ZeroAllocQueue<Vector3<int>> _meshQueue = new(131072);
     private readonly ZeroAllocQueue<(Vector3<int> Pos, IMesh? Mesh)> _builtMeshes = new(131072);
 
-    private readonly List<Vector3<int>> _chunksToRemove = new(1024);
-    private readonly List<Vector3<int>> _readyList = new(1024);
+    private NativeList<Vector3<int>> _chunksToRemove = new(1024);
+    private NativeList<Vector3<int>> _readyList = new(1024);
 
     private Vector3<int> _lastPlayerChunk = new(int.MaxValue);
     private ITextureArray? _textureArray;
     private readonly Thread[] _genWorkers;
     private readonly Thread[] _meshWorkers;
-
-    private static readonly Action<Array, Array> _returnArrays = (v, i) => {
-        ArrayPool<ChunkVertex>.Shared.Return((ChunkVertex[])v);
-        ArrayPool<uint>.Shared.Return((uint[])i);
-    };
 
     public ChunkRenderSystem(IRenderPipeline pipeline, GameWorld world)
     {
@@ -174,9 +169,10 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
                 if (!isActive) continue;
 
                 var meshData = _mesher.GenerateMesh(meshPos);
+
                 if (!meshData.IsEmpty)
                 {
-                    var gpuMesh = _pipeline.CreateMesh(meshData.Vertices, meshData.VertexCount, meshData.Indices, meshData.IndexCount, _returnArrays);
+                    var gpuMesh = _pipeline.CreateMesh(meshData.Vertices, meshData.Indices);
                     _builtMeshes.Add((meshPos, gpuMesh));
                 }
                 else
@@ -207,10 +203,8 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
 
         if (lx == 0) MarkForRemesh(chunkPos + new Vector3<int>(-1, 0, 0));
         if (lx == 15) MarkForRemesh(chunkPos + new Vector3<int>(1, 0, 0));
-
         if (ly == 0) MarkForRemesh(chunkPos + new Vector3<int>(0, -1, 0));
         if (ly == 15) MarkForRemesh(chunkPos + new Vector3<int>(0, 1, 0));
-
         if (lz == 0) MarkForRemesh(chunkPos + new Vector3<int>(0, 0, -1));
         if (lz == 15) MarkForRemesh(chunkPos + new Vector3<int>(0, 0, 1));
     }
@@ -278,7 +272,7 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
                     _readyList.Add(kvp.Key);
                 }
             }
-            foreach (var pos in _readyList) _pendingReadyMeshes.Remove(pos);
+            for (int i = 0; i < _readyList.Count; i++) _pendingReadyMeshes.Remove(_readyList[i]);
 
             foreach (var kvp in _meshes)
             {
@@ -306,14 +300,16 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
             }
 
             _chunksToRemove.Clear();
+
             foreach (var pos in _activeChunks)
             {
                 if (Math.Abs(pos.X - center.X) > RenderDistance || Math.Abs(pos.Y - center.Y) > RenderDistance)
                     _chunksToRemove.Add(pos);
             }
 
-            foreach (var pos in _chunksToRemove)
+            for (int i = 0; i < _chunksToRemove.Count; i++)
             {
+                var pos = _chunksToRemove[i];
                 _activeChunks.Remove(pos);
                 _loadedChunks.Remove(pos);
                 _meshedChunks.Remove(pos);
@@ -327,6 +323,7 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
     public void Dispose()
     {
         EventBus.Unsubscribe(this);
+
         _loadQueue.CompleteAdding();
         _meshQueue.CompleteAdding();
 
@@ -339,6 +336,8 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
             foreach (var mesh in _pendingReadyMeshes.Values) _pipeline.DeleteMesh(mesh);
         }
 
+        _chunksToRemove.Dispose();
+        _readyList.Dispose();
         _textureArray?.Dispose();
     }
 

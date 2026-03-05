@@ -7,10 +7,8 @@
     <Nullable>enable</Nullable>
 	<PlatformTarget>x64</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-
 	<ServerGarbageCollection>true</ServerGarbageCollection>
 	<ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
-
 	<DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
 	<Invariantglobalization>true</Invariantglobalization>
   </PropertyGroup>
@@ -19,16 +17,15 @@
 	<Optimize>false</Optimize>
 	<DebugType>full</DebugType>
 	<DefineConstants>DEBUG;TRACE</DefineConstants>
-
 	<PublishReadyToRun>false</PublishReadyToRun>
 	<PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
 	<Optimize>true</Optimize>
-	<DebugType>embedded</DebugType>
 	<OptimizationPreference>Size</OptimizationPreference>
-
+	<DebugType>none</DebugType> <DebugSymbols>false</DebugSymbols>
+	<PublishSingleFile>true</PublishSingleFile>
 	<PublishTrimmed>true</PublishTrimmed>
 	<TrimMode>full</TrimMode>
 	<PublishReadyToRun>false</PublishReadyToRun>
@@ -47,9 +44,29 @@
   </ItemGroup>
 
   <ItemGroup>
+	<VulkanShader Include="Assets\Shaders\*.rgen;Assets\Shaders\*.rmiss;Assets\Shaders\*.rchit;Assets\Shaders\*.rahit" />
+  </ItemGroup>
+
+  <Target Name="CompileVulkanShaders" BeforeTargets="AssignTargetPaths" Inputs="@(VulkanShader)" Outputs="@(VulkanShader->'%(RelativeDir)%(Filename).spv')">
+	<Message Text="[Vulkan] Компиляция шейдера: %(VulkanShader.Filename)%(VulkanShader.Extension)" Importance="high" />
+
+	<Exec Command="glslc &quot;%(VulkanShader.Identity)&quot; -O --target-env=vulkan1.4 -o &quot;%(VulkanShader.RelativeDir)%(VulkanShader.Filename).spv&quot;" />
+
+	<ItemGroup>
+	  <None Include="%(VulkanShader.RelativeDir)%(VulkanShader.Filename).spv">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+	</ItemGroup>
+  </Target>
+	
+  <ItemGroup>
     <None Update="Assets\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+	<None Remove="Assets\Shaders\*.rgen" />
+	<None Remove="Assets\Shaders\*.rmiss" />
+	<None Remove="Assets\Shaders\*.rchit" />
+	<None Remove="Assets\Shaders\*.rahit" />
   </ItemGroup>
 
 </Project>

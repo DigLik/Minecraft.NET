@@ -1,5 +1,6 @@
 ﻿using System.Runtime.InteropServices;
 
+using Minecraft.NET.Utils.Collections;
 using Minecraft.NET.Utils.Math;
 
 namespace Minecraft.NET.Game.World.Meshing;
@@ -23,10 +24,8 @@ public struct ChunkVertex(
 
 public struct ChunkMesh
 {
-    public ChunkVertex[] Vertices;
-    public int VertexCount;
-    public uint[] Indices;
-    public int IndexCount;
+    public NativeList<ChunkVertex> Vertices;
+    public NativeList<uint> Indices;
 
-    public readonly bool IsEmpty => Vertices == null || Indices == null || VertexCount == 0 || IndexCount == 0;
+    public readonly bool IsEmpty => !Vertices.IsCreated || !Indices.IsCreated || Vertices.Count == 0 || Indices.Count == 0;
 }

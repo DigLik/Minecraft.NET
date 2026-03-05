@@ -1,4 +1,5 @@
 ﻿using Minecraft.NET.Engine.Abstractions.Graphics;
+using Minecraft.NET.Utils.Collections;
 using Minecraft.NET.Utils.Math;
 
 namespace Minecraft.NET.Engine.Abstractions;
@@ -6,7 +7,7 @@ namespace Minecraft.NET.Engine.Abstractions;
 public interface IRenderPipeline : IDisposable
 {
     void Initialize(VertexElement[] layout, uint stride);
-    IMesh CreateMesh<T>(T[] vertices, int vertexCount, uint[] indices, int indexCount, Action<Array, Array>? onUploadComplete = null) where T : unmanaged;
+    IMesh CreateMesh<T>(NativeList<T> vertices, NativeList<uint> indices) where T : unmanaged;
     void DeleteMesh(IMesh mesh);
     ITextureArray CreateTextureArray(int width, int height, byte[][] pixels);
     void BindTextureArray(ITextureArray textureArray);

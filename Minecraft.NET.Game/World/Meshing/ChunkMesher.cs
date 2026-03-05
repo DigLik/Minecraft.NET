@@ -1,9 +1,9 @@
-﻿using System.Buffers;
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 
 using Minecraft.NET.Game.World.Blocks;
 using Minecraft.NET.Game.World.Chunks;
 using Minecraft.NET.Game.World.Environment;
+using Minecraft.NET.Utils.Collections;
 using Minecraft.NET.Utils.Math;
 
 namespace Minecraft.NET.Game.World.Meshing;
@@ -25,22 +25,10 @@ public unsafe class ChunkMesher(ChunkManager chunkManager)
         new(0, 0), new(0, 1), new(1, 1), new(1, 0)
     ];
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void EnsureCapacity<T>(ref T[] array, int count, int required)
-    {
-        if (count + required > array.Length)
-        {
-            var newArray = ArrayPool<T>.Shared.Rent(Math.Max(array.Length * 2, count + required));
-            Array.Copy(array, newArray, count);
-            ArrayPool<T>.Shared.Return(array);
-            array = newArray;
-        }
-    }
-
     public ChunkMesh GenerateMesh(Vector3<int> chunkPos)
     {
         if (!chunkManager.TryGetChunk(chunkPos, out ChunkSection centerChunk) || centerChunk.IsEmpty)
-            return new ChunkMesh { Vertices = null!, Indices = null! };
+            return new ChunkMesh { Vertices = default, Indices = default };
 
         chunkManager.TryGetChunk(chunkPos + new Vector3<int>(0, 0, 1), out ChunkSection nPosZ);
         chunkManager.TryGetChunk(chunkPos + new Vector3<int>(0, 0, -1), out ChunkSection nNegZ);
@@ -49,17 +37,15 @@ public unsafe class ChunkMesher(ChunkManager chunkManager)
         chunkManager.TryGetChunk(chunkPos + new Vector3<int>(0, 1, 0), out ChunkSection nPosY);
         chunkManager.TryGetChunk(chunkPos + new Vector3<int>(0, -1, 0), out ChunkSection nNegY);
 
-        ChunkVertex[] vertices = ArrayPool<ChunkVertex>.Shared.Rent(4096);
-        uint[] indices = ArrayPool<uint>.Shared.Rent(6144);
-        int vertexCount = 0;
-        int indexCount = 0;
+        NativeList<ChunkVertex> vertices = new(4096);
+        NativeList<uint> indices = new(6144);
 
         int grassOverlayId = BlockRegistry.TextureFiles.FindIndex(f => f.Contains("grass_side_overlay"));
         BlockDefinition[] defs = BlockRegistry.Definitions;
 
-        BlockId* blocks = centerChunk.Blocks;
+        ref NativeList<BlockId> blocks = ref centerChunk.Blocks;
         BlockId uniformId = centerChunk.UniformId;
-        bool isUniform = blocks == null;
+        bool isUniform = !blocks.IsCreated;
 
         int index = 0;
 
@@ -83,88 +69,88 @@ public unsafe class ChunkMesher(ChunkManager chunkManager)
                     if (zMax)
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)GetNeighborBlock(ref nPosZ, x | (y << 8))]))
-                            BuildFace(ref vertices, ref vertexCount, ref indices, ref indexCount, x, y, z, 0, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 0, currentId, ref currentDef, grassOverlayId);
                     }
                     else
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)(isUniform ? uniformId : blocks[index + 16])]))
-                            BuildFace(ref vertices, ref vertexCount, ref indices, ref indexCount, x, y, z, 0, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 0, currentId, ref currentDef, grassOverlayId);
                     }
 
                     if (zMin)
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)GetNeighborBlock(ref nNegZ, x | 240 | (y << 8))]))
-                            BuildFace(ref vertices, ref vertexCount, ref indices, ref indexCount, x, y, z, 1, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 1, currentId, ref currentDef, grassOverlayId);
                     }
                     else
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)(isUniform ? uniformId : blocks[index - 16])]))
-                            BuildFace(ref vertices, ref vertexCount, ref indices, ref indexCount, x, y, z, 1, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 1, currentId, ref currentDef, grassOverlayId);
                     }
 
                     if (xMin)
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)GetNeighborBlock(ref nNegX, 15 | (z << 4) | (y << 8))]))
-                            BuildFace(ref vertices, ref vertexCount, ref indices, ref indexCount, x, y, z, 2, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 2, currentId, ref currentDef, grassOverlayId);
                     }
                     else
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)(isUniform ? uniformId : blocks[index - 1])]))
-                            BuildFace(ref vertices, ref vertexCount, ref indices, ref indexCount, x, y, z, 2, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 2, currentId, ref currentDef, grassOverlayId);
                     }
 
                     if (xMax)
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)GetNeighborBlock(ref nPosX, (z << 4) | (y << 8))]))
-                            BuildFace(ref vertices, ref vertexCount, ref indices, ref indexCount, x, y, z, 3, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 3, currentId, ref currentDef, grassOverlayId);
                     }
                     else
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)(isUniform ? uniformId : blocks[index + 1])]))
-                            BuildFace(ref vertices, ref vertexCount, ref indices, ref indexCount, x, y, z, 3, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 3, currentId, ref currentDef, grassOverlayId);
                     }
 
                     if (yMax)
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)GetNeighborBlock(ref nPosY, x | (z << 4))]))
-                            BuildFace(ref vertices, ref vertexCount, ref indices, ref indexCount, x, y, z, 4, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 4, currentId, ref currentDef, grassOverlayId);
                     }
                     else
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)(isUniform ? uniformId : blocks[index + 256])]))
-                            BuildFace(ref vertices, ref vertexCount, ref indices, ref indexCount, x, y, z, 4, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 4, currentId, ref currentDef, grassOverlayId);
                     }
 
                     if (yMin)
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)GetNeighborBlock(ref nNegY, x | (z << 4) | 3840)]))
-                            BuildFace(ref vertices, ref vertexCount, ref indices, ref indexCount, x, y, z, 5, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 5, currentId, ref currentDef, grassOverlayId);
                     }
                     else
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)(isUniform ? uniformId : blocks[index - 256])]))
-                            BuildFace(ref vertices, ref vertexCount, ref indices, ref indexCount, x, y, z, 5, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 5, currentId, ref currentDef, grassOverlayId);
                     }
                 }
             }
         }
 
-        if (vertexCount > 0)
+        if (vertices.Count > 0)
         {
-            return new ChunkMesh { Vertices = vertices, VertexCount = vertexCount, Indices = indices, IndexCount = indexCount };
+            return new ChunkMesh { Vertices = vertices, Indices = indices };
         }
         else
         {
-            ArrayPool<ChunkVertex>.Shared.Return(vertices);
-            ArrayPool<uint>.Shared.Return(indices);
-            return new ChunkMesh { Vertices = null!, Indices = null! };
+            vertices.Dispose();
+            indices.Dispose();
+            return new ChunkMesh { Vertices = default, Indices = default };
         }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private BlockId GetNeighborBlock(ref ChunkSection chunk, int index)
+    private static BlockId GetNeighborBlock(ref ChunkSection chunk, int index)
     {
-        if (chunk.Blocks != null) return chunk.Blocks[index];
+        if (chunk.Blocks.IsCreated) return chunk.Blocks[index];
         return chunk.UniformId;
     }
 
@@ -177,13 +163,10 @@ public unsafe class ChunkMesher(ChunkManager chunkManager)
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void BuildFace(
-        ref ChunkVertex[] vertices, ref int vertexCount, ref uint[] indices, ref int indexCount,
+        ref NativeList<ChunkVertex> vertices, ref NativeList<uint> indices,
         int x, int y, int z, int faceIndex,
         BlockId currentId, ref BlockDefinition currentDef, int grassOverlayId)
     {
-        EnsureCapacity(ref vertices, vertexCount, 4);
-        EnsureCapacity(ref indices, indexCount, 6);
-
         int textureId = faceIndex switch
         {
             0 => currentDef.Textures.Top,
@@ -217,19 +200,19 @@ public unsafe class ChunkMesher(ChunkManager chunkManager)
             color.Z = 72.0f / 255.0f * shade;
         }
 
-        uint indexOffset = (uint)vertexCount;
+        uint indexOffset = (uint)vertices.Count;
         var fVerts = FaceVertices[faceIndex];
 
-        vertices[vertexCount++] = new ChunkVertex(new Vector3<float>(x + fVerts[0].X, y + fVerts[0].Y, z + fVerts[0].Z), textureId, FaceUVs[0], overlayTexId, color, overlayColor);
-        vertices[vertexCount++] = new ChunkVertex(new Vector3<float>(x + fVerts[1].X, y + fVerts[1].Y, z + fVerts[1].Z), textureId, FaceUVs[1], overlayTexId, color, overlayColor);
-        vertices[vertexCount++] = new ChunkVertex(new Vector3<float>(x + fVerts[2].X, y + fVerts[2].Y, z + fVerts[2].Z), textureId, FaceUVs[2], overlayTexId, color, overlayColor);
-        vertices[vertexCount++] = new ChunkVertex(new Vector3<float>(x + fVerts[3].X, y + fVerts[3].Y, z + fVerts[3].Z), textureId, FaceUVs[3], overlayTexId, color, overlayColor);
+        vertices.Add(new ChunkVertex(new Vector3<float>(x + fVerts[0].X, y + fVerts[0].Y, z + fVerts[0].Z), textureId, FaceUVs[0], overlayTexId, color, overlayColor));
+        vertices.Add(new ChunkVertex(new Vector3<float>(x + fVerts[1].X, y + fVerts[1].Y, z + fVerts[1].Z), textureId, FaceUVs[1], overlayTexId, color, overlayColor));
+        vertices.Add(new ChunkVertex(new Vector3<float>(x + fVerts[2].X, y + fVerts[2].Y, z + fVerts[2].Z), textureId, FaceUVs[2], overlayTexId, color, overlayColor));
+        vertices.Add(new ChunkVertex(new Vector3<float>(x + fVerts[3].X, y + fVerts[3].Y, z + fVerts[3].Z), textureId, FaceUVs[3], overlayTexId, color, overlayColor));
 
-        indices[indexCount++] = indexOffset + 0;
-        indices[indexCount++] = indexOffset + 1;
-        indices[indexCount++] = indexOffset + 2;
-        indices[indexCount++] = indexOffset + 2;
-        indices[indexCount++] = indexOffset + 3;
-        indices[indexCount++] = indexOffset + 0;
+        indices.Add(indexOffset + 0);
+        indices.Add(indexOffset + 1);
+        indices.Add(indexOffset + 2);
+        indices.Add(indexOffset + 2);
+        indices.Add(indexOffset + 3);
+        indices.Add(indexOffset + 0);
     }
 }

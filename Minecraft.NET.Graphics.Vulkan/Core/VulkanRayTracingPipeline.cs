@@ -47,12 +47,10 @@ public unsafe class VulkanRayTracingPipeline : IDisposable
 
     private void CreatePipeline()
     {
-        using var compiler = new ShaderCompiler();
-
-        var rgenSpv = compiler.Compile(File.ReadAllText("Assets/Shaders/raygen.glsl"), "raygen.glsl", Silk.NET.Shaderc.ShaderKind.RaygenShader, "main");
-        var rmissSpv = compiler.Compile(File.ReadAllText("Assets/Shaders/miss.glsl"), "miss.glsl", Silk.NET.Shaderc.ShaderKind.MissShader, "main");
-        var rchitSpv = compiler.Compile(File.ReadAllText("Assets/Shaders/chit.glsl"), "chit.glsl", Silk.NET.Shaderc.ShaderKind.ClosesthitShader, "main");
-        var rahitSpv = compiler.Compile(File.ReadAllText("Assets/Shaders/ahit.glsl"), "ahit.glsl", Silk.NET.Shaderc.ShaderKind.AnyhitShader, "main");
+        byte[] rgenSpv = File.ReadAllBytes("Assets/Shaders/raygen.spv");
+        byte[] rmissSpv = File.ReadAllBytes("Assets/Shaders/miss.spv");
+        byte[] rchitSpv = File.ReadAllBytes("Assets/Shaders/chit.spv");
+        byte[] rahitSpv = File.ReadAllBytes("Assets/Shaders/ahit.spv");
 
         ShaderModule rgenModule = CreateShaderModule(rgenSpv);
         ShaderModule rmissModule = CreateShaderModule(rmissSpv);

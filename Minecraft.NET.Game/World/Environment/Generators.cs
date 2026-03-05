@@ -1,6 +1,5 @@
 ﻿using Minecraft.NET.Game.World.Blocks;
 using Minecraft.NET.Game.World.Chunks;
-using Minecraft.NET.Utils.Math;
 
 namespace Minecraft.NET.Game.World.Environment;
 

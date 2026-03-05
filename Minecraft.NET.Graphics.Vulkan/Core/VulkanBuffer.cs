@@ -5,6 +5,7 @@ namespace Minecraft.NET.Graphics.Vulkan.Core;
 public unsafe class VulkanBuffer : IDisposable
 {
     private readonly VulkanDevice _device;
+
     public Silk.NET.Vulkan.Buffer Buffer;
     public DeviceMemory Memory;
 
@@ -14,6 +15,7 @@ public unsafe class VulkanBuffer : IDisposable
     public VulkanBuffer(VulkanDevice device, ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties)
     {
         _device = device;
+
         BufferCreateInfo bufferInfo = new()
         {
             SType = StructureType.BufferCreateInfo,
@@ -40,6 +42,7 @@ public unsafe class VulkanBuffer : IDisposable
         }
 
         var result = _device.Vk.AllocateMemory(_device.Device, in allocInfo, null, out Memory);
+
         if (result != Result.Success)
             throw new Exception($"Failed to allocate VRAM ({size} bytes): {result}");
 
@@ -51,7 +54,6 @@ public unsafe class VulkanBuffer : IDisposable
             result = _device.Vk.MapMemory(_device.Device, Memory, 0, size, 0, &mapped);
             if (result != Result.Success)
                 throw new Exception($"Failed to map VRAM: {result}");
-
             MappedMemory = mapped;
         }
 
@@ -68,6 +70,16 @@ public unsafe class VulkanBuffer : IDisposable
         if (MappedMemory != null)
             fixed (void* pData = data)
                 System.Buffer.MemoryCopy(pData, MappedMemory, size, size);
+    }
+
+    public void UpdateData<T>(in T data) where T : unmanaged
+    {
+        ulong size = (ulong)sizeof(T);
+        if (MappedMemory != null)
+        {
+            fixed (T* pData = &data)
+                System.Buffer.MemoryCopy(pData, MappedMemory, size, size);
+        }
     }
 
     public void Dispose()

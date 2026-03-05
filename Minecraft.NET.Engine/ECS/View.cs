@@ -1,6 +1,4 @@
-﻿using System.Runtime.InteropServices;
-
-namespace Minecraft.NET.Engine.ECS;
+﻿namespace Minecraft.NET.Engine.ECS;
 
 public readonly ref struct QueryItem<T1>
 {
@@ -45,6 +43,7 @@ public readonly ref struct QueryItem<T1, T2, T3>
 }
 
 public readonly ref struct View<T1>(Registry registry)
+    where T1 : unmanaged
 {
     private readonly ComponentPool<T1> _pool1 = registry.GetPool<T1>();
 
@@ -52,7 +51,7 @@ public readonly ref struct View<T1>(Registry registry)
 
     public ref struct Enumerator(ComponentPool<T1> pool1)
     {
-        private readonly ReadOnlySpan<int> _entities = CollectionsMarshal.AsSpan(pool1.EntitiesList);
+        private readonly ReadOnlySpan<int> _entities = pool1.EntitiesList;
         private int _index = -1;
 
         public bool MoveNext() => ++_index < _entities.Length;
@@ -69,6 +68,8 @@ public readonly ref struct View<T1>(Registry registry)
 }
 
 public readonly ref struct View<T1, T2>(Registry registry)
+    where T1 : unmanaged
+    where T2 : unmanaged
 {
     private readonly ComponentPool<T1> _pool1 = registry.GetPool<T1>();
     private readonly ComponentPool<T2> _pool2 = registry.GetPool<T2>();
@@ -88,7 +89,7 @@ public readonly ref struct View<T1, T2>(Registry registry)
             _pool1 = pool1;
             _pool2 = pool2;
             _pool1IsSmaller = pool1.Count <= pool2.Count;
-            _entities = CollectionsMarshal.AsSpan(_pool1IsSmaller ? pool1.EntitiesList : pool2.EntitiesList);
+            _entities = _pool1IsSmaller ? pool1.EntitiesList : pool2.EntitiesList;
         }
 
         public bool MoveNext()
@@ -118,6 +119,9 @@ public readonly ref struct View<T1, T2>(Registry registry)
 }
 
 public readonly ref struct View<T1, T2, T3>(Registry registry)
+    where T1 : unmanaged
+    where T2 : unmanaged
+    where T3 : unmanaged
 {
     private readonly ComponentPool<T1> _pool1 = registry.GetPool<T1>();
     private readonly ComponentPool<T2> _pool2 = registry.GetPool<T2>();
@@ -147,17 +151,17 @@ public readonly ref struct View<T1, T2, T3>(Registry registry)
             if (c1 <= c2 && c1 <= c3)
             {
                 _smallestPoolIndex = 1;
-                _entities = CollectionsMarshal.AsSpan(pool1.EntitiesList);
+                _entities = pool1.EntitiesList;
             }
             else if (c2 <= c1 && c2 <= c3)
             {
                 _smallestPoolIndex = 2;
-                _entities = CollectionsMarshal.AsSpan(pool2.EntitiesList);
+                _entities = pool2.EntitiesList;
             }
             else
             {
                 _smallestPoolIndex = 3;
-                _entities = CollectionsMarshal.AsSpan(pool3.EntitiesList);
+                _entities = pool3.EntitiesList;
             }
         }
 
