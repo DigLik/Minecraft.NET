@@ -39,7 +39,7 @@ public struct Vector2<T>(T x, T y) : IEquatable<Vector2<T>>
             (Vector64.LoadUnsafe(ref X) + Vector64.LoadUnsafe(ref Unsafe.AsRef(in right.X))).StoreUnsafe(ref X);
             return;
         }
-
+        
         X += right.X;
         Y += right.Y;
     }

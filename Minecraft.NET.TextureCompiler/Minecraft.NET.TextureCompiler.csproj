@@ -1,19 +1,15 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
     <PackageReference Include="ZstdSharp.Port" Version="0.8.7" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\Minecraft.NET.Engine\Minecraft.NET.Engine.csproj" />
-    <ProjectReference Include="..\Minecraft.NET.Utils\Minecraft.NET.Utils.csproj" />
   </ItemGroup>
 
 </Project>

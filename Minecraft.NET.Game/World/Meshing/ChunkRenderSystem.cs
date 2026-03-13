@@ -10,8 +10,7 @@ using Minecraft.NET.Game.World.Blocks;
 using Minecraft.NET.Utils.Collections;
 using Minecraft.NET.Utils.Math;
 
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using ZstdSharp;
 
 using GameWorld = Minecraft.NET.Game.World.Environment.World;
 
@@ -78,6 +77,8 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
         int size = 16;
         byte[][] pixels = new byte[files.Count][];
 
+        using var decompressor = new Decompressor();
+
         for (int i = 0; i < files.Count; i++)
         {
             string path = files[i];
@@ -85,8 +86,8 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
 
             if (File.Exists(path))
             {
-                using var image = Image.Load<Rgba32>(path);
-                image.CopyPixelDataTo(pixels[i]);
+                byte[] compressed = File.ReadAllBytes(path);
+                decompressor.Unwrap(compressed, pixels[i]);
             }
             else
             {

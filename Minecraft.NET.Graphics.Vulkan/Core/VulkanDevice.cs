@@ -6,6 +6,10 @@ using Silk.NET.GLFW;
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.KHR;
 
+#if DEBUG
+using Silk.NET.Vulkan.Extensions.EXT;
+#endif
+
 namespace Minecraft.NET.Graphics.Vulkan.Core;
 
 public unsafe class VulkanDevice : IDisposable

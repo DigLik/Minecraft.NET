@@ -55,6 +55,10 @@
 	<None Update="Assets\**" CopyToOutputDirectory="PreserveNewest" />
 	<None Remove="Assets\Shaders\*.rgen;Assets\Shaders\*.rmiss;Assets\Shaders\*.rchit;Assets\Shaders\*.rahit" />
   </ItemGroup>
+	
+  <ItemGroup>
+    <Folder Include="Assets\Shaders\" />
+  </ItemGroup>
 
   <Target Name="CompileVulkanShaders" BeforeTargets="AssignTargetPaths" Inputs="@(VulkanShader)" Outputs="@(VulkanShader->'%(RelativeDir)%(Filename).spv')">
 	<Message Text="[Vulkan] Компиляция шейдера: %(VulkanShader.Filename)%(VulkanShader.Extension)" Importance="high" />
@@ -63,9 +67,29 @@
 
 	<ItemGroup>
 	  <None Include="%(VulkanShader.RelativeDir)%(VulkanShader.Filename).spv">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 	  </None>
 	</ItemGroup>
   </Target>
 
+  <ItemGroup>
+    <RawTexture Include="Assets\Textures\**\*.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="Assets\Textures\**\*.png" />
+  </ItemGroup>
+
+  <Target Name="CompileTextures" BeforeTargets="AssignTargetPaths" Inputs="@(RawTexture)" Outputs="@(RawTexture->'%(RelativeDir)%(Filename).ztex')">
+    <Message Text="[Текстуры] Компиляция: %(RawTexture.Filename)%(RawTexture.Extension)" Importance="high" />
+
+    <Exec Command="dotnet run --project ..\Minecraft.NET.TextureCompiler\Minecraft.NET.TextureCompiler.csproj --configuration Release -- &quot;%(RawTexture.Identity)&quot; &quot;%(RawTexture.RelativeDir)%(RawTexture.Filename).ztex&quot;" />
+
+    <ItemGroup>
+      <None Include="%(RawTexture.RelativeDir)%(RawTexture.Filename).ztex">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+    </ItemGroup>
+  </Target>
+	
 </Project>

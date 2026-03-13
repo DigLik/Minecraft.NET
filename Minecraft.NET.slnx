@@ -3,6 +3,7 @@
   <Project Path="Minecraft.NET.Game/Minecraft.NET.Game.csproj" Id="53c44f1c-3058-4dd7-a277-26a3328bed01" />
   <Project Path="Minecraft.NET.Graphics.Vulkan/Minecraft.NET.Graphics.Vulkan.csproj" Id="4e282b1c-da65-43a3-ab31-89df93cec56b" />
   <Project Path="Minecraft.NET.Platform.Glfw/Minecraft.NET.Platform.Glfw.csproj" Id="33e6f4b4-1f9d-431b-bbb9-80511ced45d7" />
+  <Project Path="Minecraft.NET.TextureCompiler/Minecraft.NET.TextureCompiler.csproj" Id="8acec168-0898-4295-9143-e61a21eddfc7" />
   <Project Path="Minecraft.NET.Utils/Minecraft.NET.Utils.csproj" Id="043032ce-87e2-41a5-b0b3-27f9d2320ffd" />
   <Project Path="Minecraft.NET/Minecraft.NET.csproj" />
 </Solution>
