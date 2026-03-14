@@ -24,6 +24,8 @@ public sealed class EngineApp : IDisposable
     {
         ViewProjection = Matrix4x4.Identity,
         InverseViewProjection = Matrix4x4.Identity,
+        ChunkPosition = Vector3Int.Zero,
+        LocalPosition = Vector3.Zero,
         SunDirection = new(0, 0, 1, 0)
     };
 
@@ -47,7 +49,9 @@ public sealed class EngineApp : IDisposable
     {
         _inputManager.OnUpdate(dt);
         _renderPipeline.ClearDraws();
+
         var time = new Time { DeltaTime = dt, TotalTime = _totalTime += dt };
+
         foreach (var system in CollectionsMarshal.AsSpan(_systems)) system.Update(Registry, in time);
     }
 
@@ -70,6 +74,7 @@ public sealed class EngineApp : IDisposable
     {
         if (_isDisposed) return;
         _isDisposed = true;
+
         _window.Update -= OnUpdate;
         _window.Render -= OnRender;
         _window.FramebufferResize -= OnFramebufferResize;

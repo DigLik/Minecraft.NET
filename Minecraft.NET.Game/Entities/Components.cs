@@ -1,10 +1,13 @@
 ﻿using System.Numerics;
 
+using Minecraft.NET.Utils.Math;
+
 namespace Minecraft.NET.Game.Entities;
 
 public struct TransformComponent
 {
-    public Vector3 Position;
+    public Vector3Int ChunkPosition;
+    public Vector3 LocalPosition;
     public Vector3 Rotation;
 }
 

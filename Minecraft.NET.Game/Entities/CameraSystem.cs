@@ -25,11 +25,12 @@ public class CameraSystem(EngineApp engine, IWindow window) : ISystem
             var forward = new Vector3(cx, cy, cz);
             var up = new Vector3(0, 0, 1);
 
-            var position = transform.Position;
-            position.Z += PlayerEyeHeight;
+            var chunkPos = transform.ChunkPosition;
+            var localPos = transform.LocalPosition;
+            localPos.Z += PlayerEyeHeight;
 
             var view = Matrix4x4.CreateLookAt(
-                position, position + forward, up
+                localPos, localPos + forward, up
             );
 
             float aspect = window.FramebufferSize.X / (float)Math.Max(1, window.FramebufferSize.Y);
@@ -47,7 +48,8 @@ public class CameraSystem(EngineApp engine, IWindow window) : ISystem
             {
                 ViewProjection = viewProj,
                 InverseViewProjection = invViewProj,
-                Position = new Vector4(position.X, position.Y, position.Z, 1.0f),
+                ChunkPosition = chunkPos,
+                LocalPosition = localPos,
                 SunDirection = new Vector4(sunDir.X, sunDir.Y, sunDir.Z, 0.0f)
             };
 

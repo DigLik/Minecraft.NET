@@ -13,6 +13,7 @@ namespace Minecraft.NET.Game.Physics;
 public class PhysicsSystem(GameWorld world) : ISystem
 {
     private const float Gravity = 28.0f;
+
     private readonly Vector3 _playerHalfExtents = new(0.3f, 0.3f, 0.0f);
     private readonly float _playerHeight = 1.8f;
 
@@ -31,9 +32,10 @@ public class PhysicsSystem(GameWorld world) : ISystem
 
             if (isSpectator)
             {
-                transform.Position.X += velocity.Velocity.X * deltaTime;
-                transform.Position.Y += velocity.Velocity.Y * deltaTime;
-                transform.Position.Z += velocity.Velocity.Z * deltaTime;
+                transform.LocalPosition.X += velocity.Velocity.X * deltaTime;
+                transform.LocalPosition.Y += velocity.Velocity.Y * deltaTime;
+                transform.LocalPosition.Z += velocity.Velocity.Z * deltaTime;
+                NormalizePosition(ref transform);
                 continue;
             }
 
@@ -47,8 +49,8 @@ public class PhysicsSystem(GameWorld world) : ISystem
             if (movement.LengthSquared() == 0) continue;
 
             var playerAABB = new BoundingBox(
-                new Vector3(transform.Position.X - _playerHalfExtents.X, transform.Position.Y - _playerHalfExtents.Y, transform.Position.Z),
-                new Vector3(transform.Position.X + _playerHalfExtents.X, transform.Position.Y + _playerHalfExtents.Y, transform.Position.Z + _playerHeight)
+                new Vector3(transform.LocalPosition.X - _playerHalfExtents.X, transform.LocalPosition.Y - _playerHalfExtents.Y, transform.LocalPosition.Z),
+                new Vector3(transform.LocalPosition.X + _playerHalfExtents.X, transform.LocalPosition.Y + _playerHalfExtents.Y, transform.LocalPosition.Z + _playerHeight)
             );
 
             velocity.IsOnGround = false;
@@ -56,7 +58,7 @@ public class PhysicsSystem(GameWorld world) : ISystem
             if (movement.Z != 0)
             {
                 playerAABB = playerAABB.Offset(new Vector3(0, 0, movement.Z));
-                if (CheckCollision(playerAABB))
+                if (CheckCollision(transform.ChunkPosition, playerAABB))
                 {
                     playerAABB = playerAABB.Offset(new Vector3(0, 0, -movement.Z));
                     if (movement.Z < 0) velocity.IsOnGround = true;
@@ -64,60 +66,84 @@ public class PhysicsSystem(GameWorld world) : ISystem
                     movement.Z = 0;
                     velocity.Velocity.Z = 0;
                 }
-                transform.Position.Z += movement.Z;
+                transform.LocalPosition.Z += movement.Z;
             }
 
             if (movement.X != 0)
             {
                 playerAABB = playerAABB.Offset(new Vector3(movement.X, 0, 0));
-                if (CheckCollision(playerAABB))
+                if (CheckCollision(transform.ChunkPosition, playerAABB))
                 {
                     playerAABB = playerAABB.Offset(new Vector3(-movement.X, 0, 0));
                     movement.X = 0;
                     velocity.Velocity.X = 0;
                 }
-                transform.Position.X += movement.X;
+                transform.LocalPosition.X += movement.X;
             }
 
             if (movement.Y != 0)
             {
                 playerAABB = playerAABB.Offset(new Vector3(0, movement.Y, 0));
-                if (CheckCollision(playerAABB))
+                if (CheckCollision(transform.ChunkPosition, playerAABB))
                 {
                     movement.Y = 0;
                     velocity.Velocity.Y = 0;
                 }
-                transform.Position.Y += movement.Y;
+                transform.LocalPosition.Y += movement.Y;
             }
+
+            NormalizePosition(ref transform);
         }
-        ;
     }
 
-    private bool CheckCollision(BoundingBox box)
+    private static void NormalizePosition(ref TransformComponent transform)
     {
-        int minX = (int)MathF.Floor(box.Min.X);
-        int minY = (int)MathF.Floor(box.Min.Y);
-        int minZ = (int)MathF.Floor(box.Min.Z);
+        int cx = (int)MathF.Floor(transform.LocalPosition.X / ChunkSize);
+        int cy = (int)MathF.Floor(transform.LocalPosition.Y / ChunkSize);
+        int cz = (int)MathF.Floor(transform.LocalPosition.Z / ChunkSize);
 
-        int maxX = (int)MathF.Floor(box.Max.X);
-        int maxY = (int)MathF.Floor(box.Max.Y);
-        int maxZ = (int)MathF.Floor(box.Max.Z);
+        if (cx != 0)
+        {
+            transform.ChunkPosition.X += cx;
+            transform.LocalPosition.X -= cx * ChunkSize;
+        }
+        if (cy != 0)
+        {
+            transform.ChunkPosition.Y += cy;
+            transform.LocalPosition.Y -= cy * ChunkSize;
+        }
+        if (cz != 0)
+        {
+            transform.ChunkPosition.Z += cz;
+            transform.LocalPosition.Z -= cz * ChunkSize;
+        }
+    }
+
+    private bool CheckCollision(Vector3Int chunkPos, BoundingBox localBox)
+    {
+        int minX = (int)MathF.Floor(localBox.Min.X);
+        int minY = (int)MathF.Floor(localBox.Min.Y);
+        int minZ = (int)MathF.Floor(localBox.Min.Z);
+
+        int maxX = (int)MathF.Floor(localBox.Max.X);
+        int maxY = (int)MathF.Floor(localBox.Max.Y);
+        int maxZ = (int)MathF.Floor(localBox.Max.Z);
 
         for (int x = minX; x <= maxX; x++)
             for (int y = minY; y <= maxY; y++)
                 for (int z = minZ; z <= maxZ; z++)
                 {
-                    var blockPos = new Vector3Int(x, y, z);
-                    var blockId = world.GetBlock(blockPos);
+                    var globalBlockPos = chunkPos * ChunkSize + new Vector3Int(x, y, z);
+                    var blockId = world.GetBlock(globalBlockPos);
 
                     if (blockId != BlockId.Air)
                     {
-                        var blockBox = new BoundingBox(
+                        var blockLocalBox = new BoundingBox(
                             new Vector3(x, y, z),
                             new Vector3(x + 1.0f, y + 1.0f, z + 1.0f)
                         );
 
-                        if (box.Intersects(blockBox)) return true;
+                        if (localBox.Intersects(blockLocalBox)) return true;
                     }
                 }
         return false;

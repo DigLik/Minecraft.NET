@@ -40,7 +40,10 @@ layout(binding = 0, set = 0) uniform accelerationStructureEXT Scene;
 layout(binding = 2, set = 0) uniform Camera {
     mat4 ViewProj;
     mat4 InverseViewProj;
-    vec4 CameraPos;
+    ivec3 ChunkPosition;
+    float Pad1;
+    vec3 LocalPosition;
+    float Pad2;
     vec4 SunDirection;
 } cam;
 
@@ -52,7 +55,7 @@ void main() {
     uint primId = gl_PrimitiveID;
 
     InstanceData inst = instances.d[instId];
-    
+
     uint i0 = inst.inds.i[inst.IndexOffset + primId * 3 + 0];
     uint i1 = inst.inds.i[inst.IndexOffset + primId * 3 + 1];
     uint i2 = inst.inds.i[inst.IndexOffset + primId * 3 + 2];
@@ -87,12 +90,12 @@ void main() {
     vec3 normal = normalize(cross(e1, e2));
 
     if (dot(normal, gl_WorldRayDirectionEXT) > 0.0) normal = -normal;
-    
+
     vec3 shadowOrigin = worldPos + normal * 0.01;
 
     rayQueryEXT rq;
     rayQueryInitializeEXT(rq, Scene, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, shadowOrigin, 0.001, cam.SunDirection.xyz, 1000.0);
-    
+
     while(rayQueryProceedEXT(rq)) {
         if (rayQueryGetIntersectionTypeEXT(rq, false) == gl_RayQueryCandidateIntersectionTriangleEXT) {
             uint sInstId = rayQueryGetIntersectionInstanceCustomIndexEXT(rq, false);
@@ -100,7 +103,7 @@ void main() {
             vec2 sAttribs = rayQueryGetIntersectionBarycentricsEXT(rq, false);
 
             InstanceData sInst = instances.d[sInstId];
-            
+
             uint si0 = sInst.inds.i[sInst.IndexOffset + sPrimId * 3 + 0];
             uint si1 = sInst.inds.i[sInst.IndexOffset + sPrimId * 3 + 1];
             uint si2 = sInst.inds.i[sInst.IndexOffset + sPrimId * 3 + 2];
@@ -113,7 +116,7 @@ void main() {
             vec2 sUv = sv0.UV * sBary.x + sv1.UV * sBary.y + sv2.UV * sBary.z;
             
             vec4 sTexColor = texture(TexArray, vec3(sUv, float(sv0.TextureIndex)));
-            
+
             if (sTexColor.a >= 0.5)
                 rayQueryConfirmIntersectionEXT(rq);
         }

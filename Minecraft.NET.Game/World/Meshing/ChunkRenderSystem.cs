@@ -80,7 +80,6 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
         byte[][] pixels = new byte[files.Count][];
 
         using var decompressor = new Decompressor();
-
         for (int i = 0; i < files.Count; i++)
         {
             string path = files[i];
@@ -197,7 +196,6 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
             @event.GlobalPosition.Y >> 4,
             @event.GlobalPosition.Z >> 4
         );
-
         MarkForRemesh(chunkPos);
 
         int lx = @event.GlobalPosition.X & 15;
@@ -222,11 +220,7 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
 
         foreach (var item in registry.GetView<TransformComponent>())
         {
-            playerChunkPos = new Vector3Int(
-                (int)MathF.Floor(item.Comp1.Position.X / ChunkSize),
-                (int)MathF.Floor(item.Comp1.Position.Y / ChunkSize),
-                (int)MathF.Floor(item.Comp1.Position.Z / ChunkSize)
-            );
+            playerChunkPos = item.Comp1.ChunkPosition;
             hasPlayer = true;
             break;
         }
@@ -266,6 +260,7 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
         lock (_stateLock)
         {
             _readyList.Clear();
+
             foreach (var kvp in _pendingReadyMeshes)
             {
                 if (kvp.Value.IsReady)
@@ -279,7 +274,12 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
 
             foreach (var kvp in _meshes)
             {
-                Vector3 position = new(kvp.Key.X * ChunkSize, kvp.Key.Y * ChunkSize, kvp.Key.Z * ChunkSize);
+                Vector3 position = new(
+                    (kvp.Key.X - _lastPlayerChunk.X) * ChunkSize,
+                    (kvp.Key.Y - _lastPlayerChunk.Y) * ChunkSize,
+                    (kvp.Key.Z - _lastPlayerChunk.Z) * ChunkSize
+                );
+
                 _pipeline.SubmitDraw(kvp.Value, position);
             }
         }

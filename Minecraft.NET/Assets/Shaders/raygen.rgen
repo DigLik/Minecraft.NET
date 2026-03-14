@@ -3,11 +3,13 @@
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT Scene;
 layout(binding = 1, set = 0, rgba8) uniform image2D RenderTarget;
-
 layout(binding = 2, set = 0) uniform Camera {
     mat4 ViewProj;
     mat4 InverseViewProj;
-    vec4 CameraPos;
+    ivec3 ChunkPosition;
+    float Pad1;
+    vec3 LocalPosition;
+    float Pad2;
     vec4 SunDirection;
 } cam;
 
@@ -28,7 +30,7 @@ void main() {
     crd = crd * 2.0 - 1.0;
 
     vec4 target = cam.InverseViewProj * vec4(crd.x, crd.y, 1.0, 1.0);
-    vec3 rayDir = normalize(target.xyz / target.w - cam.CameraPos.xyz);
+    vec3 rayDir = normalize(target.xyz / target.w - cam.LocalPosition);
 
     uint rayFlags = gl_RayFlagsCullBackFacingTrianglesEXT;
     uint cullMask = 0xFF;
@@ -36,7 +38,7 @@ void main() {
     float tmax = 10000.0;
 
     vec4 finalColor = vec4(0.0);
-    vec3 currentOrigin = cam.CameraPos.xyz;
+    vec3 currentOrigin = cam.LocalPosition;
     vec3 currentDir = rayDir;
     float currentReflectivity = 0.0;
 

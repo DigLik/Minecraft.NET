@@ -46,10 +46,10 @@ public class PlayerInteractionSystem(IInputManager inputManager, GameWorld world
 
             var direction = Vector3.Normalize(new(x, y, z));
 
-            var origin = transform.Position;
-            origin.Z += PlayerEyeHeight;
+            var localOrigin = transform.LocalPosition;
+            localOrigin.Z += PlayerEyeHeight;
 
-            var hit = Raycast(origin, direction, InteractionDistance);
+            var hit = Raycast(transform.ChunkPosition, localOrigin, direction, InteractionDistance);
 
             if (hit.HasValue)
             {
@@ -65,16 +65,15 @@ public class PlayerInteractionSystem(IInputManager inputManager, GameWorld world
                 }
             }
         }
-        ;
     }
 
-    private RaycastResult? Raycast(Vector3 origin, Vector3 direction, float maxDistance)
+    private RaycastResult? Raycast(Vector3Int chunkPos, Vector3 localOrigin, Vector3 direction, float maxDistance)
     {
         Vector3 dir = Vector3.Normalize(direction);
 
-        int x = (int)MathF.Floor(origin.X);
-        int y = (int)MathF.Floor(origin.Y);
-        int z = (int)MathF.Floor(origin.Z);
+        int x = (int)MathF.Floor(localOrigin.X);
+        int y = (int)MathF.Floor(localOrigin.Y);
+        int z = (int)MathF.Floor(localOrigin.Z);
 
         int stepX = Math.Sign(dir.X);
         int stepY = Math.Sign(dir.Y);
@@ -84,22 +83,24 @@ public class PlayerInteractionSystem(IInputManager inputManager, GameWorld world
         float tDeltaY = stepY != 0 ? MathF.Abs(1 / dir.Y) : float.MaxValue;
         float tDeltaZ = stepZ != 0 ? MathF.Abs(1 / dir.Z) : float.MaxValue;
 
-        float tMaxX = (stepX > 0) ? (MathF.Floor(origin.X) + 1 - origin.X) * tDeltaX : (origin.X - MathF.Floor(origin.X)) * tDeltaX;
-        float tMaxY = (stepY > 0) ? (MathF.Floor(origin.Y) + 1 - origin.Y) * tDeltaY : (origin.Y - MathF.Floor(origin.Y)) * tDeltaY;
-        float tMaxZ = (stepZ > 0) ? (MathF.Floor(origin.Z) + 1 - origin.Z) * tDeltaZ : (origin.Z - MathF.Floor(origin.Z)) * tDeltaZ;
+        float tMaxX = (stepX > 0) ? (MathF.Floor(localOrigin.X) + 1 - localOrigin.X) * tDeltaX : (localOrigin.X - MathF.Floor(localOrigin.X)) * tDeltaX;
+        float tMaxY = (stepY > 0) ? (MathF.Floor(localOrigin.Y) + 1 - localOrigin.Y) * tDeltaY : (localOrigin.Y - MathF.Floor(localOrigin.Y)) * tDeltaY;
+        float tMaxZ = (stepZ > 0) ? (MathF.Floor(localOrigin.Z) + 1 - localOrigin.Z) * tDeltaZ : (localOrigin.Z - MathF.Floor(localOrigin.Z)) * tDeltaZ;
 
         int lastX = x, lastY = y, lastZ = z;
         int maxSteps = (int)(maxDistance * 3);
 
         for (int i = 0; i < maxSteps; i++)
         {
-            var currentBlockPos = new Vector3Int(x, y, z);
-            if (z is < 0 or >= WorldHeightInBlocks) break;
+            var localBlockPos = new Vector3Int(x, y, z);
+            var globalBlockPos = chunkPos * ChunkSize + localBlockPos;
 
-            var blockId = world.GetBlock(currentBlockPos);
+            if (globalBlockPos.Z is < 0 or >= WorldHeightInBlocks) break;
+
+            var blockId = world.GetBlock(globalBlockPos);
 
             if (blockId != BlockId.Air)
-                return new RaycastResult(currentBlockPos, new Vector3Int(lastX, lastY, lastZ));
+                return new RaycastResult(globalBlockPos, chunkPos * ChunkSize + new Vector3Int(lastX, lastY, lastZ));
 
             lastX = x;
             lastY = y;

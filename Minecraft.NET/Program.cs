@@ -47,7 +47,7 @@ engine.AddSystem(provider.GetRequiredService<CameraSystem>());
 engine.AddSystem(provider.GetRequiredService<ChunkRenderSystem>());
 
 engine.Registry.Create()
-    .With(new TransformComponent { Position = new(8, 8, 200) })
+    .With(new TransformComponent { ChunkPosition = new(2_000_000, 0, 12), LocalPosition = new(8, 8, 8) })
     .With(new VelocityComponent())
     .With(new PlayerControlledComponent());
 
