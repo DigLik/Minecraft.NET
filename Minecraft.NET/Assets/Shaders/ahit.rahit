@@ -8,12 +8,10 @@
 hitAttributeEXT vec2 attribs;
 
 struct ChunkVertex {
-    vec4 position;
-    int textureIndex;
-    vec2 uv;
-    int overlayTextureIndex;
-    vec4 color;
-    vec4 overlayColor;
+    float x;
+    float y;
+    float z;
+    uint packedData;
 };
 
 struct InstanceData {
@@ -37,7 +35,6 @@ void main()
     
     Vertices verts = Vertices(inst.vertexAddress);
     Indices inds = Indices(inst.indexAddress);
-
     uint baseIndex = inst.indexOffset + (gl_PrimitiveID * 3);
     uint i0 = inds.i[baseIndex + 0];
     uint i1 = inds.i[baseIndex + 1];
@@ -47,12 +44,18 @@ void main()
     ChunkVertex v1 = verts.v[inst.vertexOffset + i1];
     ChunkVertex v2 = verts.v[inst.vertexOffset + i2];
 
-    vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
-    
-    vec2 uv = v0.uv * barycentrics.x + v1.uv * barycentrics.y + v2.uv * barycentrics.z;
-    int texIndex = v0.textureIndex;
+    uint packed0 = v0.packedData;
+    int texIndex = int(packed0 & 0xFFF);
 
-    vec4 texColor = texture(texSampler, vec3(uv, texIndex));
+    vec2 uvs[4] = vec2[](vec2(0,0), vec2(0,1), vec2(1,1), vec2(1,0));
+    vec2 uv0 = uvs[(packed0 >> 24) & 0x3];
+    vec2 uv1 = uvs[(v1.packedData >> 24) & 0x3];
+    vec2 uv2 = uvs[(v2.packedData >> 24) & 0x3];
+
+    vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
+    vec2 uv = uv0 * barycentrics.x + uv1 * barycentrics.y + uv2 * barycentrics.z;
+
+    vec4 texColor = texture(texSampler, vec3(uv, float(texIndex)));
 
     if (texColor.a < 0.5) 
         ignoreIntersectionEXT;

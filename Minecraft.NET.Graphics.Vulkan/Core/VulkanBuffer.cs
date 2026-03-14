@@ -12,16 +12,21 @@ public unsafe class VulkanBuffer : IDisposable
     public void* MappedMemory { get; private set; }
     public ulong DeviceAddress { get; private set; }
 
-    public VulkanBuffer(VulkanDevice device, ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties)
+    public VulkanBuffer(VulkanDevice device, ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties, bool isShared = false)
     {
         _device = device;
+
+        uint[] queueFamilies = [_device.GraphicsFamilyIndex, _device.TransferFamilyIndex];
+        bool useConcurrent = isShared && _device.GraphicsFamilyIndex != _device.TransferFamilyIndex;
 
         BufferCreateInfo bufferInfo = new()
         {
             SType = StructureType.BufferCreateInfo,
             Size = size,
             Usage = usage,
-            SharingMode = SharingMode.Exclusive
+            SharingMode = useConcurrent ? SharingMode.Concurrent : SharingMode.Exclusive,
+            QueueFamilyIndexCount = useConcurrent ? 2u : 0u,
+            PQueueFamilyIndices = useConcurrent ? (uint*)System.Runtime.CompilerServices.Unsafe.AsPointer(ref queueFamilies[0]) : null
         };
 
         _device.Vk.CreateBuffer(_device.Device, in bufferInfo, null, out Buffer);

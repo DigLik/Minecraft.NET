@@ -24,18 +24,17 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
     private readonly GameWorld _world;
     private readonly ChunkMesher _mesher;
 
-    private readonly Dictionary<Vector3Int, IMesh> _meshes = new(32768);
-    private readonly Dictionary<Vector3Int, IMesh> _pendingReadyMeshes = new(4096);
+    private readonly ZeroAllocQueue<Vector3Int> _loadQueue;
+    private readonly ZeroAllocQueue<Vector3Int> _meshQueue;
+    private readonly ZeroAllocQueue<(Vector3Int Pos, IMesh? Mesh)> _builtMeshes;
 
-    private readonly HashSet<Vector3Int> _activeChunks = new(32768);
-    private readonly HashSet<Vector3Int> _loadedChunks = new(32768);
-    private readonly HashSet<Vector3Int> _meshedChunks = new(32768);
+    private readonly Dictionary<Vector3Int, IMesh> _meshes;
+    private readonly Dictionary<Vector3Int, IMesh> _pendingReadyMeshes;
+    private readonly HashSet<Vector3Int> _activeChunks;
+    private readonly HashSet<Vector3Int> _loadedChunks;
+    private readonly HashSet<Vector3Int> _meshedChunks;
 
     private readonly Lock _stateLock = new();
-
-    private readonly ZeroAllocQueue<Vector3Int> _loadQueue = new(131072);
-    private readonly ZeroAllocQueue<Vector3Int> _meshQueue = new(131072);
-    private readonly ZeroAllocQueue<(Vector3Int Pos, IMesh? Mesh)> _builtMeshes = new(131072);
 
     private NativeList<Vector3Int> _chunksToRemove = new(1024);
     private NativeList<Vector3Int> _readyList = new(1024);
@@ -50,6 +49,20 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
         _pipeline = pipeline;
         _world = world;
         _mesher = new ChunkMesher(world.Chunks);
+
+        int volumeX = (RenderDistance * 2) + 4;
+        int maxChunks = volumeX * volumeX * WorldHeightInChunks;
+        int queueCapacity = maxChunks * 2;
+
+        _loadQueue = new ZeroAllocQueue<Vector3Int>(queueCapacity);
+        _meshQueue = new ZeroAllocQueue<Vector3Int>(queueCapacity);
+        _builtMeshes = new ZeroAllocQueue<(Vector3Int Pos, IMesh? Mesh)>(queueCapacity);
+
+        _meshes = new(maxChunks);
+        _pendingReadyMeshes = new(maxChunks / 4);
+        _activeChunks = new(maxChunks);
+        _loadedChunks = new(maxChunks);
+        _meshedChunks = new(maxChunks);
 
         EventBus.Subscribe(this);
         LoadTextures();

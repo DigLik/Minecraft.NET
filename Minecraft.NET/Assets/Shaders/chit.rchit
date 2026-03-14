@@ -15,12 +15,10 @@ layout(location = 0) rayPayloadInEXT Payload payload;
 hitAttributeEXT vec2 attribs;
 
 struct ChunkVertex {
-    vec4 Position;
-    int TextureIndex;
-    vec2 UV;
-    int OverlayTextureIndex;
-    vec4 Color;
-    vec4 OverlayColor;
+    float x;
+    float y;
+    float z;
+    uint packedData;
 };
 
 layout(buffer_reference, scalar, buffer_reference_align = 4) readonly buffer VertexBuffer { ChunkVertex v[]; };
@@ -53,7 +51,6 @@ layout(binding = 4, set = 0, scalar) readonly buffer Instances { InstanceData d[
 void main() {
     uint instId = gl_InstanceID;
     uint primId = gl_PrimitiveID;
-
     InstanceData inst = instances.d[instId];
 
     uint i0 = inst.inds.i[inst.IndexOffset + primId * 3 + 0];
@@ -64,38 +61,55 @@ void main() {
     ChunkVertex v1 = inst.verts.v[inst.VertexOffset + i1];
     ChunkVertex v2 = inst.verts.v[inst.VertexOffset + i2];
 
-    vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
+    vec3 p0 = vec3(v0.x, v0.y, v0.z);
+    vec3 p1 = vec3(v1.x, v1.y, v1.z);
+    vec3 p2 = vec3(v2.x, v2.y, v2.z);
 
-    vec2 uv = v0.UV * barycentrics.x + v1.UV * barycentrics.y + v2.UV * barycentrics.z;
-    vec4 color = v0.Color * barycentrics.x + v1.Color * barycentrics.y + v2.Color * barycentrics.z;
-    
-    int texIndex = v0.TextureIndex;
-    int overlayTexIndex = v0.OverlayTextureIndex;
-    vec4 overlayColor = v0.OverlayColor * barycentrics.x + v1.OverlayColor * barycentrics.y + v2.OverlayColor * barycentrics.z;
-
-    vec4 texColor = texture(TexArray, vec3(uv, float(texIndex)));
-    
-    if (overlayTexIndex >= 0) {
-        vec4 overlayTex = texture(TexArray, vec3(uv, float(overlayTexIndex)));
-        if (overlayTex.a > 0.5) texColor = overlayTex * overlayColor;
-        else texColor *= color;
-    } else {
-        texColor *= color;
-    }
-
-    vec3 worldPos = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
-    
-    vec3 e1 = v1.Position.xyz - v0.Position.xyz;
-    vec3 e2 = v2.Position.xyz - v0.Position.xyz;
+    vec3 e1 = p1 - p0;
+    vec3 e2 = p2 - p0;
     vec3 normal = normalize(cross(e1, e2));
-
     if (dot(normal, gl_WorldRayDirectionEXT) > 0.0) normal = -normal;
 
+    uint pd = v0.packedData;
+    int texIndex = int(pd & 0xFFF);
+    int overlayTexIndex = int((pd >> 12) & 0xFFF);
+    if (overlayTexIndex == 0xFFF) overlayTexIndex = -1;
+    uint tintType = (pd >> 26) & 0x7;
+
+    vec2 uvs[4] = vec2[](vec2(0,0), vec2(0,1), vec2(1,1), vec2(1,0));
+    vec2 uv0 = uvs[(v0.packedData >> 24) & 0x3];
+    vec2 uv1 = uvs[(v1.packedData >> 24) & 0x3];
+    vec2 uv2 = uvs[(v2.packedData >> 24) & 0x3];
+    
+    vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
+    vec2 uv = uv0 * barycentrics.x + uv1 * barycentrics.y + uv2 * barycentrics.z;
+
+    vec4 baseTint = vec4(1.0);
+    vec4 overTint = vec4(1.0);
+    if (tintType == 1) baseTint = vec4(145.0/255.0, 189.0/255.0, 89.0/255.0, 1.0); // Grass Top
+    else if (tintType == 2) overTint = vec4(145.0/255.0, 189.0/255.0, 89.0/255.0, 1.0); // Grass Side
+    else if (tintType == 3) baseTint = vec4(72.0/255.0, 181.0/255.0, 72.0/255.0, 1.0); // Leaves
+
+    vec4 texColor = texture(TexArray, vec3(uv, float(texIndex))) * baseTint;
+
+    if (overlayTexIndex >= 0) {
+        vec4 overlayTex = texture(TexArray, vec3(uv, float(overlayTexIndex)));
+        if (overlayTex.a > 0.5) texColor = overlayTex * overTint;
+    }
+
+    float shade = 1.0;
+    vec3 absN = abs(normal);
+    if (absN.y > 0.5) shade = normal.y > 0.0 ? 1.0 : 0.5;
+    else if (absN.z > 0.5) shade = 0.8;
+    else if (absN.x > 0.5) shade = 0.6;
+    
+    texColor.rgb *= shade;
+
+    vec3 worldPos = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
     vec3 shadowOrigin = worldPos + normal * 0.01;
 
     rayQueryEXT rq;
     rayQueryInitializeEXT(rq, Scene, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, shadowOrigin, 0.001, cam.SunDirection.xyz, 1000.0);
-
     while(rayQueryProceedEXT(rq)) {
         if (rayQueryGetIntersectionTypeEXT(rq, false) == gl_RayQueryCandidateIntersectionTriangleEXT) {
             uint sInstId = rayQueryGetIntersectionInstanceCustomIndexEXT(rq, false);
@@ -103,7 +117,6 @@ void main() {
             vec2 sAttribs = rayQueryGetIntersectionBarycentricsEXT(rq, false);
 
             InstanceData sInst = instances.d[sInstId];
-
             uint si0 = sInst.inds.i[sInst.IndexOffset + sPrimId * 3 + 0];
             uint si1 = sInst.inds.i[sInst.IndexOffset + sPrimId * 3 + 1];
             uint si2 = sInst.inds.i[sInst.IndexOffset + sPrimId * 3 + 2];
@@ -111,12 +124,18 @@ void main() {
             ChunkVertex sv0 = sInst.verts.v[sInst.VertexOffset + si0];
             ChunkVertex sv1 = sInst.verts.v[sInst.VertexOffset + si1];
             ChunkVertex sv2 = sInst.verts.v[sInst.VertexOffset + si2];
+            
+            uint sPacked = sv0.packedData;
+            int sTexIndex = int(sPacked & 0xFFF);
+
+            vec2 sUv0 = uvs[(sPacked >> 24) & 0x3];
+            vec2 sUv1 = uvs[(sv1.packedData >> 24) & 0x3];
+            vec2 sUv2 = uvs[(sv2.packedData >> 24) & 0x3];
 
             vec3 sBary = vec3(1.0 - sAttribs.x - sAttribs.y, sAttribs.x, sAttribs.y);
-            vec2 sUv = sv0.UV * sBary.x + sv1.UV * sBary.y + sv2.UV * sBary.z;
+            vec2 sUv = sUv0 * sBary.x + sUv1 * sBary.y + sUv2 * sBary.z;
             
-            vec4 sTexColor = texture(TexArray, vec3(sUv, float(sv0.TextureIndex)));
-
+            vec4 sTexColor = texture(TexArray, vec3(sUv, float(sTexIndex)));
             if (sTexColor.a >= 0.5)
                 rayQueryConfirmIntersectionEXT(rq);
         }

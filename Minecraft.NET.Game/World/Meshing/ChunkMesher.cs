@@ -9,7 +9,7 @@ using Minecraft.NET.Utils.Math;
 
 namespace Minecraft.NET.Game.World.Meshing;
 
-public unsafe class ChunkMesher(ChunkManager chunkManager)
+public class ChunkMesher(ChunkManager chunkManager)
 {
     private static readonly float[] FaceShades = [1.0f, 0.5f, 0.8f, 0.8f, 0.6f, 0.6f];
 
@@ -175,39 +175,34 @@ public unsafe class ChunkMesher(ChunkManager chunkManager)
             _ => currentDef.Textures.Side
         };
 
-        float shade = FaceShades[faceIndex];
-        Vector4 color = new Vector4(shade, shade, shade, 1.0f);
+        uint tintType = 0;
         int overlayTexId = -1;
-        Vector4 overlayColor = Vector4.Zero;
 
         if (currentId == BlockId.Grass)
         {
-            if (faceIndex == 0)
-            {
-                color.X = (145.0f / 255.0f) * shade;
-                color.Y = (189.0f / 255.0f) * shade;
-                color.Z = (89.0f / 255.0f) * shade;
-            }
+            if (faceIndex == 0) tintType = 1;
             else if (faceIndex >= 2 && grassOverlayId >= 0)
             {
                 overlayTexId = grassOverlayId;
-                overlayColor = new Vector4(145.0f / 255.0f * shade, 189.0f / 255.0f * shade, 89.0f / 255.0f * shade, 1.0f);
+                tintType = 2;
             }
         }
         else if (currentId == BlockId.OakLeaves)
         {
-            color.X = 72.0f / 255.0f * shade;
-            color.Y = 181.0f / 255.0f * shade;
-            color.Z = 72.0f / 255.0f * shade;
+            tintType = 3;
         }
+
+        uint overlay = overlayTexId >= 0 ? (uint)overlayTexId : 0xFFF;
+
+        uint basePacked = (uint)textureId | (overlay << 12) | (tintType << 26);
 
         uint indexOffset = (uint)vertices.Count;
         var fVerts = FaceVertices[faceIndex];
 
-        vertices.Add(new ChunkVertex(new Vector4(x + fVerts[0].X, y + fVerts[0].Y, z + fVerts[0].Z, 1.0f), textureId, FaceUVs[0], overlayTexId, color, overlayColor));
-        vertices.Add(new ChunkVertex(new Vector4(x + fVerts[1].X, y + fVerts[1].Y, z + fVerts[1].Z, 1.0f), textureId, FaceUVs[1], overlayTexId, color, overlayColor));
-        vertices.Add(new ChunkVertex(new Vector4(x + fVerts[2].X, y + fVerts[2].Y, z + fVerts[2].Z, 1.0f), textureId, FaceUVs[2], overlayTexId, color, overlayColor));
-        vertices.Add(new ChunkVertex(new Vector4(x + fVerts[3].X, y + fVerts[3].Y, z + fVerts[3].Z, 1.0f), textureId, FaceUVs[3], overlayTexId, color, overlayColor));
+        vertices.Add(new ChunkVertex(x + fVerts[0].X, y + fVerts[0].Y, z + fVerts[0].Z, basePacked | (0u << 24)));
+        vertices.Add(new ChunkVertex(x + fVerts[1].X, y + fVerts[1].Y, z + fVerts[1].Z, basePacked | (1u << 24)));
+        vertices.Add(new ChunkVertex(x + fVerts[2].X, y + fVerts[2].Y, z + fVerts[2].Z, basePacked | (2u << 24)));
+        vertices.Add(new ChunkVertex(x + fVerts[3].X, y + fVerts[3].Y, z + fVerts[3].Z, basePacked | (3u << 24)));
 
         indices.Add(indexOffset + 0);
         indices.Add(indexOffset + 1);

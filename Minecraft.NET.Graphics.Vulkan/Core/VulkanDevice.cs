@@ -15,6 +15,7 @@ namespace Minecraft.NET.Graphics.Vulkan.Core;
 public unsafe class VulkanDevice : IDisposable
 {
     public readonly Vk Vk;
+
     public KhrSurface KhrSurface = null!;
     public readonly KhrSwapchain KhrSwapchain;
 
@@ -33,14 +34,17 @@ public unsafe class VulkanDevice : IDisposable
     public Device Device;
     public Queue GraphicsQueue;
     public Queue PresentQueue;
+    public Queue TransferQueue;
     public SurfaceKHR Surface;
 
     public CommandPool TransferCommandPool;
 
     public uint GraphicsFamilyIndex;
     public uint PresentFamilyIndex;
+    public uint TransferFamilyIndex;
 
     public readonly Lock QueueLock = new();
+    public readonly Lock TransferQueueLock = new();
 
     public VulkanDevice(void* windowHandle)
     {
@@ -48,6 +52,7 @@ public unsafe class VulkanDevice : IDisposable
         CreateInstance();
         SetupDebugMessenger();
         CreateSurface(windowHandle);
+
         PickPhysicalDevice();
         CreateLogicalDevice();
 
@@ -78,6 +83,7 @@ public unsafe class VulkanDevice : IDisposable
         byte** glfwExtensions = glfw.GetRequiredInstanceExtensions(out uint glfwExtensionCount);
 
         var extensions = new List<string>();
+
         for (int i = 0; i < glfwExtensionCount; i++)
             extensions.Add(Marshal.PtrToStringAnsi((IntPtr)glfwExtensions[i])!);
 
@@ -131,9 +137,11 @@ public unsafe class VulkanDevice : IDisposable
         foreach (var layerName in _validationLayers)
         {
             bool layerFound = false;
+
             foreach (var layerProperties in availableLayers)
             {
                 var name = Marshal.PtrToStringAnsi((IntPtr)layerProperties.LayerName);
+
                 if (name == layerName)
                 {
                     layerFound = true;
@@ -188,6 +196,7 @@ public unsafe class VulkanDevice : IDisposable
     private void CreateSurface(void* windowHandle)
     {
         var glfw = Glfw.GetApi();
+
         VkNonDispatchableHandle surfaceHandle;
         if (glfw.CreateWindowSurface(new VkHandle(Instance.Handle), (WindowHandle*)windowHandle, null, &surfaceHandle) != (int)Result.Success)
             throw new Exception("Failed to create window surface!");
@@ -211,14 +220,23 @@ public unsafe class VulkanDevice : IDisposable
 
             uint? graphicsFamily = null;
             uint? presentFamily = null;
+            uint? transferFamily = null;
 
             for (uint i = 0; i < queueFamilyCount; i++)
             {
                 if (queueFamilies[i].QueueFlags.HasFlag(QueueFlags.GraphicsBit)) graphicsFamily = i;
+
                 KhrSurface.GetPhysicalDeviceSurfaceSupport(device, i, Surface, out var presentSupport);
                 if (presentSupport) presentFamily = i;
 
-                if (graphicsFamily.HasValue && presentFamily.HasValue) break;
+                if (queueFamilies[i].QueueFlags.HasFlag(QueueFlags.TransferBit) &&
+                    !queueFamilies[i].QueueFlags.HasFlag(QueueFlags.GraphicsBit) &&
+                    !queueFamilies[i].QueueFlags.HasFlag(QueueFlags.ComputeBit))
+                {
+                    transferFamily = i;
+                }
+
+                if (graphicsFamily.HasValue && presentFamily.HasValue && transferFamily.HasValue) break;
             }
 
             if (graphicsFamily.HasValue && presentFamily.HasValue)
@@ -226,6 +244,7 @@ public unsafe class VulkanDevice : IDisposable
                 PhysicalDevice = device;
                 GraphicsFamilyIndex = graphicsFamily.Value;
                 PresentFamilyIndex = presentFamily.Value;
+                TransferFamilyIndex = transferFamily ?? graphicsFamily.Value;
                 return;
             }
         }
@@ -234,7 +253,7 @@ public unsafe class VulkanDevice : IDisposable
 
     private void CreateLogicalDevice()
     {
-        var uniqueQueueFamilies = new HashSet<uint> { GraphicsFamilyIndex, PresentFamilyIndex };
+        var uniqueQueueFamilies = new HashSet<uint> { GraphicsFamilyIndex, PresentFamilyIndex, TransferFamilyIndex };
         var queueCreateInfos = new DeviceQueueCreateInfo[uniqueQueueFamilies.Count];
         float queuePriority = 1.0f;
 
@@ -322,12 +341,13 @@ public unsafe class VulkanDevice : IDisposable
 
         Vk.GetDeviceQueue(Device, GraphicsFamilyIndex, 0, out GraphicsQueue);
         Vk.GetDeviceQueue(Device, PresentFamilyIndex, 0, out PresentQueue);
+        Vk.GetDeviceQueue(Device, TransferFamilyIndex, 0, out TransferQueue);
 
         CommandPoolCreateInfo poolInfo = new()
         {
             SType = StructureType.CommandPoolCreateInfo,
             Flags = CommandPoolCreateFlags.TransientBit,
-            QueueFamilyIndex = GraphicsFamilyIndex
+            QueueFamilyIndex = TransferFamilyIndex
         };
 
         Vk.CreateCommandPool(Device, in poolInfo, null, out TransferCommandPool);
@@ -373,10 +393,10 @@ public unsafe class VulkanDevice : IDisposable
         CommandBufferSubmitInfo cmdInfo = new() { SType = StructureType.CommandBufferSubmitInfo, CommandBuffer = commandBuffer };
         SubmitInfo2 submitInfo = new() { SType = StructureType.SubmitInfo2, CommandBufferInfoCount = 1, PCommandBufferInfos = &cmdInfo };
 
-        lock (QueueLock)
+        lock (TransferQueueLock)
         {
-            Vk.QueueSubmit2(GraphicsQueue, 1, in submitInfo, default);
-            Vk.QueueWaitIdle(GraphicsQueue);
+            Vk.QueueSubmit2(TransferQueue, 1, in submitInfo, default);
+            Vk.QueueWaitIdle(TransferQueue);
         }
 
         Vk.FreeCommandBuffers(Device, TransferCommandPool, 1, in commandBuffer);

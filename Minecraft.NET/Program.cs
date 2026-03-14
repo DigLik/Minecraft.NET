@@ -31,13 +31,9 @@ await World.InitializeAsync();
 unsafe
 {
     provider.GetRequiredService<IRenderPipeline>().Initialize([
-        new(0, VertexFormat.Float4, 0),   // Position (Vector4)
-        new(1, VertexFormat.Int, 16),     // TextureIndex (int)
-        new(2, VertexFormat.Float2, 20),  // UV (Vector2)
-        new(3, VertexFormat.Int, 28),     // OverlayTextureIndex (int)
-        new(4, VertexFormat.Float4, 32),  // Color (Vector4)
-        new(5, VertexFormat.Float4, 48)   // OverlayColor (Vector4)
-    ], (uint)sizeof(ChunkVertex));        // Итоговый размер: 64 байта
+        new(0, VertexFormat.Float3, 0),   // Position (Vector3 - 12 байт)
+        new(1, VertexFormat.UInt, 12)     // PackedData (uint - 4 байта)
+    ], (uint)sizeof(ChunkVertex));        // Итоговый размер: 16 байт
 }
 
 engine.AddSystem(provider.GetRequiredService<PlayerInputSystem>());
@@ -47,7 +43,7 @@ engine.AddSystem(provider.GetRequiredService<CameraSystem>());
 engine.AddSystem(provider.GetRequiredService<ChunkRenderSystem>());
 
 engine.Registry.Create()
-    .With(new TransformComponent { ChunkPosition = new(2_000_000, 0, 12), LocalPosition = new(8, 8, 8) })
+    .With(new TransformComponent { ChunkPosition = new(0, 0, 12), LocalPosition = new(8, 8, 8) })
     .With(new VelocityComponent())
     .With(new PlayerControlledComponent());
 

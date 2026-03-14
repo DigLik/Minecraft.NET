@@ -1,5 +1,4 @@
-﻿using System.Numerics;
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 
 using Minecraft.NET.Utils.Collections;
 
@@ -7,12 +6,8 @@ namespace Minecraft.NET.Game.World.Meshing;
 
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public record struct ChunkVertex(
-    Vector4 Position,
-    int TextureIndex,
-    Vector2 UV,
-    int OverlayTextureIndex,
-    Vector4 Color,
-    Vector4 OverlayColor
+    float X, float Y, float Z,
+    uint PackedData
 );
 
 public record struct ChunkMesh(NativeList<ChunkVertex> Vertices = default, NativeList<uint> Indices = default)
