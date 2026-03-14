@@ -1,11 +1,12 @@
-﻿using Minecraft.NET.Engine.Input;
-using Minecraft.NET.Utils.Math;
+﻿using System.Numerics;
+
+using Minecraft.NET.Engine.Input;
 
 namespace Minecraft.NET.Engine.Abstractions;
 
 public interface IInputManager
 {
-    Vector2<float> MousePosition { get; }
+    Vector2 MousePosition { get; }
     bool IsMouseCaptured { get; }
 
     void OnUpdate(double deltaTime);

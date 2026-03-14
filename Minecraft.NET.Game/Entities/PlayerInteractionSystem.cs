@@ -1,4 +1,6 @@
-﻿using Minecraft.NET.Engine.Abstractions;
+﻿using System.Numerics;
+
+using Minecraft.NET.Engine.Abstractions;
 using Minecraft.NET.Engine.Core;
 using Minecraft.NET.Engine.ECS;
 using Minecraft.NET.Engine.Input;
@@ -42,7 +44,7 @@ public class PlayerInteractionSystem(IInputManager inputManager, GameWorld world
             float y = MathF.Cos(yaw) * MathF.Cos(pitch);
             float z = MathF.Sin(pitch);
 
-            var direction = new Vector3<float>(x, y, z).Normalize<float>();
+            var direction = Vector3.Normalize(new(x, y, z));
 
             var origin = transform.Position;
             origin.Z += PlayerEyeHeight;
@@ -66,9 +68,9 @@ public class PlayerInteractionSystem(IInputManager inputManager, GameWorld world
         ;
     }
 
-    private RaycastResult? Raycast(Vector3<float> origin, Vector3<float> direction, float maxDistance)
+    private RaycastResult? Raycast(Vector3 origin, Vector3 direction, float maxDistance)
     {
-        Vector3<float> dir = direction.Normalize<float>();
+        Vector3 dir = Vector3.Normalize(direction);
 
         int x = (int)MathF.Floor(origin.X);
         int y = (int)MathF.Floor(origin.Y);
@@ -91,13 +93,13 @@ public class PlayerInteractionSystem(IInputManager inputManager, GameWorld world
 
         for (int i = 0; i < maxSteps; i++)
         {
-            var currentBlockPos = new Vector3<int>(x, y, z);
+            var currentBlockPos = new Vector3Int(x, y, z);
             if (z is < 0 or >= WorldHeightInBlocks) break;
 
             var blockId = world.GetBlock(currentBlockPos);
 
             if (blockId != BlockId.Air)
-                return new RaycastResult(currentBlockPos, new Vector3<int>(lastX, lastY, lastZ));
+                return new RaycastResult(currentBlockPos, new Vector3Int(lastX, lastY, lastZ));
 
             lastX = x;
             lastY = y;
@@ -138,5 +140,5 @@ public class PlayerInteractionSystem(IInputManager inputManager, GameWorld world
         return null;
     }
 
-    public readonly record struct RaycastResult(Vector3<int> HitPosition, Vector3<int> PlacePosition);
+    public readonly record struct RaycastResult(Vector3Int HitPosition, Vector3Int PlacePosition);
 }

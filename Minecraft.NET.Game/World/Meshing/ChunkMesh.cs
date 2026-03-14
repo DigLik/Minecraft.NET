@@ -1,25 +1,25 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Numerics;
+using System.Runtime.InteropServices;
 
 using Minecraft.NET.Utils.Collections;
-using Minecraft.NET.Utils.Math;
 
 namespace Minecraft.NET.Game.World.Meshing;
 
-[StructLayout(LayoutKind.Sequential, Pack = 4)]
+[StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct ChunkVertex(
-    Vector3<float> position,
+    Vector4 position,
     int textureIndex,
-    Vector2<float> uv,
+    Vector2 uv,
     int overlayTextureIndex,
-    Vector4<float> color,
-    Vector4<float> overlayColor)
+    Vector4 color,
+    Vector4 overlayColor)
 {
-    public Vector3<float> Position = position;
+    public Vector4 Position = position;
     public int TextureIndex = textureIndex;
-    public Vector2<float> UV = uv;
+    public Vector2 UV = uv;
     public int OverlayTextureIndex = overlayTextureIndex;
-    public Vector4<float> Color = color;
-    public Vector4<float> OverlayColor = overlayColor;
+    public Vector4 Color = color;
+    public Vector4 OverlayColor = overlayColor;
 }
 
 public struct ChunkMesh

@@ -15,7 +15,7 @@ public class SparseSet<T> : IDisposable where T : unmanaged
     public void Add(int id, in T element)
     {
         if (id >= _sparse.Length)
-            Array.Resize(ref _sparse, Max(id + 1, _sparse.Length * 2));
+            Array.Resize(ref _sparse, System.Math.Max(id + 1, _sparse.Length * 2));
 
         _dense.Add(id);
         _elements.Add(element);

@@ -11,7 +11,7 @@ public class ChunkManager(WorldStorage storage, IWorldGenerator generator) : IDi
 {
     private readonly ToroidalChunkVolume _volume = new(RenderDistance, WorldHeightInChunks);
 
-    public BlockId GetBlock(Vector3<int> globalPos)
+    public BlockId GetBlock(Vector3Int globalPos)
     {
         var chunkPos = GetChunkPosition(globalPos);
 
@@ -24,7 +24,7 @@ public class ChunkManager(WorldStorage storage, IWorldGenerator generator) : IDi
         return BlockId.Air;
     }
 
-    public void SetBlock(Vector3<int> globalPos, BlockId id)
+    public void SetBlock(Vector3Int globalPos, BlockId id)
     {
         var chunkPos = GetChunkPosition(globalPos);
 
@@ -42,10 +42,10 @@ public class ChunkManager(WorldStorage storage, IWorldGenerator generator) : IDi
         });
     }
 
-    public bool TryGetChunk(Vector3<int> chunkPos, out ChunkSection chunk)
+    public bool TryGetChunk(Vector3Int chunkPos, out ChunkSection chunk)
         => _volume.TryGetChunk(chunkPos, out chunk);
 
-    public void LoadChunk(Vector3<int> chunkPos)
+    public void LoadChunk(Vector3Int chunkPos)
     {
         if (_volume.TryGetChunk(chunkPos, out _)) return;
 
@@ -67,7 +67,7 @@ public class ChunkManager(WorldStorage storage, IWorldGenerator generator) : IDi
         }
     }
 
-    public void UnloadChunk(Vector3<int> chunkPos)
+    public void UnloadChunk(Vector3Int chunkPos)
     {
         _volume.RemoveChunk(chunkPos, out var chunk);
 
@@ -78,13 +78,13 @@ public class ChunkManager(WorldStorage storage, IWorldGenerator generator) : IDi
         }
     }
 
-    private static Vector3<int> GetChunkPosition(Vector3<int> globalPos) => new(
+    private static Vector3Int GetChunkPosition(Vector3Int globalPos) => new(
         globalPos.X >> 4,
         globalPos.Y >> 4,
         globalPos.Z >> 4
     );
 
-    private static Vector3<int> GetLocalPosition(Vector3<int> globalPos) => new(
+    private static Vector3Int GetLocalPosition(Vector3Int globalPos) => new(
         globalPos.X & 15,
         globalPos.Y & 15,
         globalPos.Z & 15

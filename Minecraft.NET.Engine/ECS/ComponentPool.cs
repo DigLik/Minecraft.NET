@@ -2,8 +2,7 @@
 
 namespace Minecraft.NET.Engine.ECS;
 
-public class ComponentPool<T> : IPool
-    where T : unmanaged
+public class ComponentPool<T> : IPool where T : unmanaged
 {
     private readonly SparseSet<T> _sparseSet = new();
 

@@ -1,5 +1,6 @@
-﻿using Minecraft.NET.Engine.Abstractions;
-using Minecraft.NET.Utils.Math;
+﻿using System.Numerics;
+
+using Minecraft.NET.Engine.Abstractions;
 
 using Silk.NET.GLFW;
 
@@ -23,7 +24,7 @@ public unsafe class GlfwInputManager : IInputManager
     private static readonly EngineKey[] _allKeys = Enum.GetValues<EngineKey>();
     private static readonly EngineMouseButton[] _allButtons = Enum.GetValues<EngineMouseButton>();
 
-    public Vector2<float> MousePosition { get; private set; }
+    public Vector2 MousePosition { get; private set; }
     public bool IsMouseCaptured { get; private set; }
 
     public GlfwInputManager(IWindow window)
@@ -38,7 +39,7 @@ public unsafe class GlfwInputManager : IInputManager
         if (_windowHandle == null) return;
 
         _glfw.GetCursorPos(_windowHandle, out double mx, out double my);
-        MousePosition = new Vector2<float>((float)mx, (float)my);
+        MousePosition = new Vector2((float)mx, (float)my);
 
         Array.Copy(_currentKeys, _previousKeys, _currentKeys.Length);
         foreach (var key in _allKeys)

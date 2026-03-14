@@ -21,21 +21,21 @@ public unsafe partial class GlfwWindow : IWindow
     private readonly double _targetUps;
     private readonly double _targetFps;
 
-    public Vector2<int> Size
+    public Vector2Int Size
     {
         get
         {
             _glfw.GetWindowSize(_windowHandle, out int w, out int h);
-            return new Vector2<int>(w, h);
+            return new Vector2Int(w, h);
         }
     }
 
-    public Vector2<int> FramebufferSize
+    public Vector2Int FramebufferSize
     {
         get
         {
             _glfw.GetFramebufferSize(_windowHandle, out int w, out int h);
-            return new Vector2<int>(w, h);
+            return new Vector2Int(w, h);
         }
     }
 
@@ -56,7 +56,7 @@ public unsafe partial class GlfwWindow : IWindow
     public event Action? Load;
     public event Action<double>? Update;
     public event Action<double>? Render;
-    public event Action<Vector2<int>>? FramebufferResize;
+    public event Action<Vector2Int>? FramebufferResize;
     public event Action? Closing;
 
     [LibraryImport("glfw3", EntryPoint = "glfwGetWin32Window")]
@@ -147,7 +147,7 @@ public unsafe partial class GlfwWindow : IWindow
     public void Close() => _glfw.SetWindowShouldClose(_windowHandle, true);
 
     private void OnFramebufferResize(WindowHandle* window, int width, int height)
-        => FramebufferResize?.Invoke(new Vector2<int>(width, height));
+        => FramebufferResize?.Invoke(new Vector2Int(width, height));
 
     private void OnWindowClose(WindowHandle* window) => Close();
 

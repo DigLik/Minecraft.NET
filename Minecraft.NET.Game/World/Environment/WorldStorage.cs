@@ -7,7 +7,7 @@ namespace Minecraft.NET.Game.World.Environment;
 public class WorldStorage : IAsyncDisposable
 {
     private readonly string _worldDirectory;
-    private readonly Dictionary<Vector3<int>, Bucket> _buckets = [];
+    private readonly Dictionary<Vector3Int, Bucket> _buckets = [];
     private readonly Lock _bucketsLock = new();
 
     public WorldStorage(string worldName)
@@ -45,7 +45,7 @@ public class WorldStorage : IAsyncDisposable
         chunk.IsModified = false;
     }
 
-    private Bucket GetOrLoadBucket(Vector3<int> bucketPos)
+    private Bucket GetOrLoadBucket(Vector3Int bucketPos)
     {
         lock (_bucketsLock)
         {
@@ -75,13 +75,13 @@ public class WorldStorage : IAsyncDisposable
         }, bucketsToSave, CancellationToken.None, TaskCreationOptions.None, TaskScheduler.Default);
     }
 
-    private static Vector3<int> GetBucketPosition(Vector3<int> chunkPos) => new(
+    private static Vector3Int GetBucketPosition(Vector3Int chunkPos) => new(
         chunkPos.X >> 4,
         chunkPos.Y >> 4,
         chunkPos.Z >> 4
     );
 
-    private static Vector3<int> GetLocalChunkPosition(Vector3<int> chunkPos) => new(
+    private static Vector3Int GetLocalChunkPosition(Vector3Int chunkPos) => new(
         chunkPos.X & 15,
         chunkPos.Y & 15,
         chunkPos.Z & 15

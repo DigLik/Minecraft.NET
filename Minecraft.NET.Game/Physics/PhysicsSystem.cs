@@ -1,4 +1,6 @@
-﻿using Minecraft.NET.Engine.Core;
+﻿using System.Numerics;
+
+using Minecraft.NET.Engine.Core;
 using Minecraft.NET.Engine.ECS;
 using Minecraft.NET.Game.Entities;
 using Minecraft.NET.Game.World.Blocks;
@@ -11,7 +13,7 @@ namespace Minecraft.NET.Game.Physics;
 public class PhysicsSystem(GameWorld world) : ISystem
 {
     private const float Gravity = 28.0f;
-    private readonly Vector3<float> _playerHalfExtents = new(0.3f, 0.3f, 0.0f);
+    private readonly Vector3 _playerHalfExtents = new(0.3f, 0.3f, 0.0f);
     private readonly float _playerHeight = 1.8f;
 
     public void Update(Registry registry, in Time time)
@@ -44,19 +46,19 @@ public class PhysicsSystem(GameWorld world) : ISystem
 
             if (movement.LengthSquared() == 0) continue;
 
-            var playerAABB = new BoundingBox<float>(
-                new Vector3<float>(transform.Position.X - _playerHalfExtents.X, transform.Position.Y - _playerHalfExtents.Y, transform.Position.Z),
-                new Vector3<float>(transform.Position.X + _playerHalfExtents.X, transform.Position.Y + _playerHalfExtents.Y, transform.Position.Z + _playerHeight)
+            var playerAABB = new BoundingBox(
+                new Vector3(transform.Position.X - _playerHalfExtents.X, transform.Position.Y - _playerHalfExtents.Y, transform.Position.Z),
+                new Vector3(transform.Position.X + _playerHalfExtents.X, transform.Position.Y + _playerHalfExtents.Y, transform.Position.Z + _playerHeight)
             );
 
             velocity.IsOnGround = false;
 
             if (movement.Z != 0)
             {
-                playerAABB = playerAABB.Offset(new Vector3<float>(0, 0, movement.Z));
+                playerAABB = playerAABB.Offset(new Vector3(0, 0, movement.Z));
                 if (CheckCollision(playerAABB))
                 {
-                    playerAABB = playerAABB.Offset(new Vector3<float>(0, 0, -movement.Z));
+                    playerAABB = playerAABB.Offset(new Vector3(0, 0, -movement.Z));
                     if (movement.Z < 0) velocity.IsOnGround = true;
 
                     movement.Z = 0;
@@ -67,10 +69,10 @@ public class PhysicsSystem(GameWorld world) : ISystem
 
             if (movement.X != 0)
             {
-                playerAABB = playerAABB.Offset(new Vector3<float>(movement.X, 0, 0));
+                playerAABB = playerAABB.Offset(new Vector3(movement.X, 0, 0));
                 if (CheckCollision(playerAABB))
                 {
-                    playerAABB = playerAABB.Offset(new Vector3<float>(-movement.X, 0, 0));
+                    playerAABB = playerAABB.Offset(new Vector3(-movement.X, 0, 0));
                     movement.X = 0;
                     velocity.Velocity.X = 0;
                 }
@@ -79,7 +81,7 @@ public class PhysicsSystem(GameWorld world) : ISystem
 
             if (movement.Y != 0)
             {
-                playerAABB = playerAABB.Offset(new Vector3<float>(0, movement.Y, 0));
+                playerAABB = playerAABB.Offset(new Vector3(0, movement.Y, 0));
                 if (CheckCollision(playerAABB))
                 {
                     movement.Y = 0;
@@ -91,7 +93,7 @@ public class PhysicsSystem(GameWorld world) : ISystem
         ;
     }
 
-    private bool CheckCollision(BoundingBox<float> box)
+    private bool CheckCollision(BoundingBox box)
     {
         int minX = (int)MathF.Floor(box.Min.X);
         int minY = (int)MathF.Floor(box.Min.Y);
@@ -105,14 +107,14 @@ public class PhysicsSystem(GameWorld world) : ISystem
             for (int y = minY; y <= maxY; y++)
                 for (int z = minZ; z <= maxZ; z++)
                 {
-                    var blockPos = new Vector3<int>(x, y, z);
+                    var blockPos = new Vector3Int(x, y, z);
                     var blockId = world.GetBlock(blockPos);
 
                     if (blockId != BlockId.Air)
                     {
-                        var blockBox = new BoundingBox<float>(
-                            new Vector3<float>(x, y, z),
-                            new Vector3<float>(x + 1.0f, y + 1.0f, z + 1.0f)
+                        var blockBox = new BoundingBox(
+                            new Vector3(x, y, z),
+                            new Vector3(x + 1.0f, y + 1.0f, z + 1.0f)
                         );
 
                         if (box.Intersects(blockBox)) return true;

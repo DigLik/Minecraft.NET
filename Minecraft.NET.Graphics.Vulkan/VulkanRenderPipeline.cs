@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 
 using Minecraft.NET.Engine.Abstractions;
@@ -18,7 +19,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     private struct DrawCall
     {
         public IMesh Mesh;
-        public Vector3<float> Position;
+        public Vector3 Position;
     }
 
     public struct InstanceData
@@ -48,7 +49,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     private DescriptorPool _descriptorPool;
     private readonly DescriptorSet[] _descriptorSets = new DescriptorSet[MaxFramesInFlight];
 
-    private Vector2<int> _framebufferSize;
+    private Vector2Int _framebufferSize;
     private bool _framebufferResized = false;
 
     private Image _storageImage;
@@ -127,7 +128,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     public ITextureArray CreateTextureArray(int width, int height, byte[][] pixels) => new VulkanTextureArray(_device, width, height, pixels);
     public void BindTextureArray(ITextureArray textureArray) => _currentTextureArray = textureArray;
 
-    public void SubmitDraw(IMesh mesh, Vector3<float> position)
+    public void SubmitDraw(IMesh mesh, Vector3 position)
     {
         if (_drawCallCount >= _drawCalls.Length)
             Array.Resize(ref _drawCalls, _drawCalls.Length * 2);
@@ -406,7 +407,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         _device.Vk.CmdPipelineBarrier2(cmd, in depInfo);
     }
 
-    public void OnFramebufferResize(Vector2<int> newSize)
+    public void OnFramebufferResize(Vector2Int newSize)
     {
         _framebufferSize = newSize;
         _framebufferResized = true;

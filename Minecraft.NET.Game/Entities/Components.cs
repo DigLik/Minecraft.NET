@@ -1,16 +1,16 @@
-﻿using Minecraft.NET.Utils.Math;
+﻿using System.Numerics;
 
 namespace Minecraft.NET.Game.Entities;
 
 public struct TransformComponent
 {
-    public Vector3<float> Position;
-    public Vector3<float> Rotation;
+    public Vector3 Position;
+    public Vector3 Rotation;
 }
 
 public struct VelocityComponent
 {
-    public Vector3<float> Velocity;
+    public Vector3 Velocity;
     public bool IsOnGround;
 }
 

@@ -1,4 +1,6 @@
-﻿using HighPerformanceBus;
+﻿using System.Numerics;
+
+using HighPerformanceBus;
 
 using Minecraft.NET.Engine.Abstractions;
 using Minecraft.NET.Engine.Abstractions.Graphics;
@@ -22,23 +24,23 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
     private readonly GameWorld _world;
     private readonly ChunkMesher _mesher;
 
-    private readonly Dictionary<Vector3<int>, IMesh> _meshes = new(32768);
-    private readonly Dictionary<Vector3<int>, IMesh> _pendingReadyMeshes = new(4096);
+    private readonly Dictionary<Vector3Int, IMesh> _meshes = new(32768);
+    private readonly Dictionary<Vector3Int, IMesh> _pendingReadyMeshes = new(4096);
 
-    private readonly HashSet<Vector3<int>> _activeChunks = new(32768);
-    private readonly HashSet<Vector3<int>> _loadedChunks = new(32768);
-    private readonly HashSet<Vector3<int>> _meshedChunks = new(32768);
+    private readonly HashSet<Vector3Int> _activeChunks = new(32768);
+    private readonly HashSet<Vector3Int> _loadedChunks = new(32768);
+    private readonly HashSet<Vector3Int> _meshedChunks = new(32768);
 
     private readonly Lock _stateLock = new();
 
-    private readonly ZeroAllocQueue<Vector3<int>> _loadQueue = new(131072);
-    private readonly ZeroAllocQueue<Vector3<int>> _meshQueue = new(131072);
-    private readonly ZeroAllocQueue<(Vector3<int> Pos, IMesh? Mesh)> _builtMeshes = new(131072);
+    private readonly ZeroAllocQueue<Vector3Int> _loadQueue = new(131072);
+    private readonly ZeroAllocQueue<Vector3Int> _meshQueue = new(131072);
+    private readonly ZeroAllocQueue<(Vector3Int Pos, IMesh? Mesh)> _builtMeshes = new(131072);
 
-    private NativeList<Vector3<int>> _chunksToRemove = new(1024);
-    private NativeList<Vector3<int>> _readyList = new(1024);
+    private NativeList<Vector3Int> _chunksToRemove = new(1024);
+    private NativeList<Vector3Int> _readyList = new(1024);
 
-    private Vector3<int> _lastPlayerChunk = new(int.MaxValue);
+    private Vector3Int _lastPlayerChunk = new(int.MaxValue);
     private ITextureArray? _textureArray;
     private readonly Thread[] _genWorkers;
     private readonly Thread[] _meshWorkers;
@@ -105,20 +107,20 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
             _textureArray = _pipeline.CreateTextureArray(size, size, pixels);
     }
 
-    private void MarkForRemesh(Vector3<int> pos)
+    private void MarkForRemesh(Vector3Int pos)
     {
         lock (_stateLock)
         {
             if (!_activeChunks.Contains(pos)) return;
 
-            bool IsLoadedOrOOB(Vector3<int> p) => p.Z < 0 || p.Z >= WorldHeightInChunks || !_activeChunks.Contains(p) || _loadedChunks.Contains(p);
+            bool IsLoadedOrOOB(Vector3Int p) => p.Z < 0 || p.Z >= WorldHeightInChunks || !_activeChunks.Contains(p) || _loadedChunks.Contains(p);
 
-            if (IsLoadedOrOOB(pos + new Vector3<int>(1, 0, 0)) &&
-                IsLoadedOrOOB(pos + new Vector3<int>(-1, 0, 0)) &&
-                IsLoadedOrOOB(pos + new Vector3<int>(0, 1, 0)) &&
-                IsLoadedOrOOB(pos + new Vector3<int>(0, -1, 0)) &&
-                IsLoadedOrOOB(pos + new Vector3<int>(0, 0, 1)) &&
-                IsLoadedOrOOB(pos + new Vector3<int>(0, 0, -1)))
+            if (IsLoadedOrOOB(pos + new Vector3Int(1, 0, 0)) &&
+                IsLoadedOrOOB(pos + new Vector3Int(-1, 0, 0)) &&
+                IsLoadedOrOOB(pos + new Vector3Int(0, 1, 0)) &&
+                IsLoadedOrOOB(pos + new Vector3Int(0, -1, 0)) &&
+                IsLoadedOrOOB(pos + new Vector3Int(0, 0, 1)) &&
+                IsLoadedOrOOB(pos + new Vector3Int(0, 0, -1)))
             {
                 _meshedChunks.Remove(pos);
                 if (_meshedChunks.Add(pos)) _meshQueue.Add(pos);
@@ -145,12 +147,12 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
                 }
 
                 MarkForRemesh(loadPos);
-                MarkForRemesh(loadPos + new Vector3<int>(1, 0, 0));
-                MarkForRemesh(loadPos + new Vector3<int>(-1, 0, 0));
-                MarkForRemesh(loadPos + new Vector3<int>(0, 1, 0));
-                MarkForRemesh(loadPos + new Vector3<int>(0, -1, 0));
-                MarkForRemesh(loadPos + new Vector3<int>(0, 0, 1));
-                MarkForRemesh(loadPos + new Vector3<int>(0, 0, -1));
+                MarkForRemesh(loadPos + new Vector3Int(1, 0, 0));
+                MarkForRemesh(loadPos + new Vector3Int(-1, 0, 0));
+                MarkForRemesh(loadPos + new Vector3Int(0, 1, 0));
+                MarkForRemesh(loadPos + new Vector3Int(0, -1, 0));
+                MarkForRemesh(loadPos + new Vector3Int(0, 0, 1));
+                MarkForRemesh(loadPos + new Vector3Int(0, 0, -1));
             }
         }
         catch (Exception ex)
@@ -190,7 +192,7 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
 
     public void Handle(in BlockChangedEvent @event)
     {
-        Vector3<int> chunkPos = new(
+        Vector3Int chunkPos = new(
             @event.GlobalPosition.X >> 4,
             @event.GlobalPosition.Y >> 4,
             @event.GlobalPosition.Z >> 4
@@ -202,12 +204,12 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
         int ly = @event.GlobalPosition.Y & 15;
         int lz = @event.GlobalPosition.Z & 15;
 
-        if (lx == 0) MarkForRemesh(chunkPos + new Vector3<int>(-1, 0, 0));
-        if (lx == 15) MarkForRemesh(chunkPos + new Vector3<int>(1, 0, 0));
-        if (ly == 0) MarkForRemesh(chunkPos + new Vector3<int>(0, -1, 0));
-        if (ly == 15) MarkForRemesh(chunkPos + new Vector3<int>(0, 1, 0));
-        if (lz == 0) MarkForRemesh(chunkPos + new Vector3<int>(0, 0, -1));
-        if (lz == 15) MarkForRemesh(chunkPos + new Vector3<int>(0, 0, 1));
+        if (lx == 0) MarkForRemesh(chunkPos + new Vector3Int(-1, 0, 0));
+        if (lx == 15) MarkForRemesh(chunkPos + new Vector3Int(1, 0, 0));
+        if (ly == 0) MarkForRemesh(chunkPos + new Vector3Int(0, -1, 0));
+        if (ly == 15) MarkForRemesh(chunkPos + new Vector3Int(0, 1, 0));
+        if (lz == 0) MarkForRemesh(chunkPos + new Vector3Int(0, 0, -1));
+        if (lz == 15) MarkForRemesh(chunkPos + new Vector3Int(0, 0, 1));
     }
 
     public void Update(Registry registry, in Time time)
@@ -215,12 +217,12 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
         if (_textureArray != null)
             _pipeline.BindTextureArray(_textureArray);
 
-        Vector3<int> playerChunkPos = default;
+        Vector3Int playerChunkPos = default;
         bool hasPlayer = false;
 
         foreach (var item in registry.GetView<TransformComponent>())
         {
-            playerChunkPos = new Vector3<int>(
+            playerChunkPos = new Vector3Int(
                 (int)MathF.Floor(item.Comp1.Position.X / ChunkSize),
                 (int)MathF.Floor(item.Comp1.Position.Y / ChunkSize),
                 (int)MathF.Floor(item.Comp1.Position.Z / ChunkSize)
@@ -277,13 +279,13 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
 
             foreach (var kvp in _meshes)
             {
-                Vector3<float> position = new(kvp.Key.X * ChunkSize, kvp.Key.Y * ChunkSize, kvp.Key.Z * ChunkSize);
+                Vector3 position = new(kvp.Key.X * ChunkSize, kvp.Key.Y * ChunkSize, kvp.Key.Z * ChunkSize);
                 _pipeline.SubmitDraw(kvp.Value, position);
             }
         }
     }
 
-    private void UpdateRenderDistance(Vector3<int> center)
+    private void UpdateRenderDistance(Vector3Int center)
     {
         lock (_stateLock)
         {
@@ -293,7 +295,7 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
                 {
                     for (int z = 0; z < WorldHeightInChunks; z++)
                     {
-                        var pos = new Vector3<int>(x, y, z);
+                        var pos = new Vector3Int(x, y, z);
                         if (_activeChunks.Add(pos))
                             _loadQueue.Add(pos);
                     }

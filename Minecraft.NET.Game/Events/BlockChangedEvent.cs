@@ -4,7 +4,7 @@ using Minecraft.NET.Utils.Math;
 namespace Minecraft.NET.Game.Events;
 
 public readonly record struct BlockChangedEvent(
-    Vector3<int> GlobalPosition,
+    Vector3Int GlobalPosition,
     BlockId OldBlock,
     BlockId NewBlock
 );

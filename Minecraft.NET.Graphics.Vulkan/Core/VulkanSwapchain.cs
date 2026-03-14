@@ -17,14 +17,14 @@ public unsafe class VulkanSwapchain : IDisposable
     public Image[] Images = [];
     public ImageView[] ImageViews = [];
 
-    public VulkanSwapchain(VulkanDevice device, Vector2<int> windowSize)
+    public VulkanSwapchain(VulkanDevice device, Vector2Int windowSize)
     {
         _device = device;
         CreateSwapchain(windowSize);
         CreateImageViews();
     }
 
-    private void CreateSwapchain(Vector2<int> windowSize)
+    private void CreateSwapchain(Vector2Int windowSize)
     {
         _device.KhrSurface.GetPhysicalDeviceSurfaceCapabilities(_device.PhysicalDevice, _device.Surface, out var capabilities);
 

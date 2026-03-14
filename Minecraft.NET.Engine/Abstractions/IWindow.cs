@@ -4,8 +4,8 @@ namespace Minecraft.NET.Engine.Abstractions;
 
 public interface IWindow : IDisposable
 {
-    Vector2<int> Size { get; }
-    Vector2<int> FramebufferSize { get; }
+    Vector2Int Size { get; }
+    Vector2Int FramebufferSize { get; }
     string Title { get; set; }
     bool IsClosing { get; }
 
@@ -15,7 +15,7 @@ public interface IWindow : IDisposable
     event Action? Load;
     event Action<double>? Update;
     event Action<double>? Render;
-    event Action<Vector2<int>>? FramebufferResize;
+    event Action<Vector2Int>? FramebufferResize;
     event Action? Closing;
 
     void Run();

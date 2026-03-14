@@ -74,7 +74,7 @@ public unsafe class VulkanRayTracingPipeline : IDisposable
 
         RayTracingPipelineCreateInfoKHR pipelineInfo = new()
         {
-            SType = StructureType.RayTracingPipelineCreateInfoKhr, StageCount = 4, PStages = stages, // StageCount = 4
+            SType = StructureType.RayTracingPipelineCreateInfoKhr, StageCount = 4, PStages = stages,
             GroupCount = 3, PGroups = groups, MaxPipelineRayRecursionDepth = 1, Layout = PipelineLayout
         };
 

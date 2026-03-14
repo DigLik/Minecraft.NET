@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Numerics;
+using System.Runtime.CompilerServices;
 
 using Minecraft.NET.Game.World.Blocks;
 using Minecraft.NET.Game.World.Chunks;
@@ -12,7 +13,7 @@ public unsafe class ChunkMesher(ChunkManager chunkManager)
 {
     private static readonly float[] FaceShades = [1.0f, 0.5f, 0.8f, 0.8f, 0.6f, 0.6f];
 
-    private static readonly Vector3<float>[][] FaceVertices = [
+    private static readonly Vector3[][] FaceVertices = [
         [new(0, 1, 1), new(0, 0, 1), new(1, 0, 1), new(1, 1, 1)],
         [new(1, 1, 0), new(1, 0, 0), new(0, 0, 0), new(0, 1, 0)],
         [new(0, 1, 1), new(0, 1, 0), new(0, 0, 0), new(0, 0, 1)],
@@ -21,21 +22,21 @@ public unsafe class ChunkMesher(ChunkManager chunkManager)
         [new(0, 0, 1), new(0, 0, 0), new(1, 0, 0), new(1, 0, 1)]
     ];
 
-    private static readonly Vector2<float>[] FaceUVs = [
+    private static readonly Vector2[] FaceUVs = [
         new(0, 0), new(0, 1), new(1, 1), new(1, 0)
     ];
 
-    public ChunkMesh GenerateMesh(Vector3<int> chunkPos)
+    public ChunkMesh GenerateMesh(Vector3Int chunkPos)
     {
         if (!chunkManager.TryGetChunk(chunkPos, out ChunkSection centerChunk) || centerChunk.IsEmpty)
             return new ChunkMesh { Vertices = default, Indices = default };
 
-        chunkManager.TryGetChunk(chunkPos + new Vector3<int>(0, 0, 1), out ChunkSection nPosZ);
-        chunkManager.TryGetChunk(chunkPos + new Vector3<int>(0, 0, -1), out ChunkSection nNegZ);
-        chunkManager.TryGetChunk(chunkPos + new Vector3<int>(-1, 0, 0), out ChunkSection nNegX);
-        chunkManager.TryGetChunk(chunkPos + new Vector3<int>(1, 0, 0), out ChunkSection nPosX);
-        chunkManager.TryGetChunk(chunkPos + new Vector3<int>(0, 1, 0), out ChunkSection nPosY);
-        chunkManager.TryGetChunk(chunkPos + new Vector3<int>(0, -1, 0), out ChunkSection nNegY);
+        chunkManager.TryGetChunk(chunkPos + new Vector3Int(0, 0, 1), out ChunkSection nPosZ);
+        chunkManager.TryGetChunk(chunkPos + new Vector3Int(0, 0, -1), out ChunkSection nNegZ);
+        chunkManager.TryGetChunk(chunkPos + new Vector3Int(-1, 0, 0), out ChunkSection nNegX);
+        chunkManager.TryGetChunk(chunkPos + new Vector3Int(1, 0, 0), out ChunkSection nPosX);
+        chunkManager.TryGetChunk(chunkPos + new Vector3Int(0, 1, 0), out ChunkSection nPosY);
+        chunkManager.TryGetChunk(chunkPos + new Vector3Int(0, -1, 0), out ChunkSection nNegY);
 
         NativeList<ChunkVertex> vertices = new(4096);
         NativeList<uint> indices = new(6144);
@@ -175,9 +176,9 @@ public unsafe class ChunkMesher(ChunkManager chunkManager)
         };
 
         float shade = FaceShades[faceIndex];
-        Vector4<float> color = new Vector4<float>(shade, shade, shade, 1.0f);
+        Vector4 color = new Vector4(shade, shade, shade, 1.0f);
         int overlayTexId = -1;
-        Vector4<float> overlayColor = Vector4<float>.Zero;
+        Vector4 overlayColor = Vector4.Zero;
 
         if (currentId == BlockId.Grass)
         {
@@ -190,7 +191,7 @@ public unsafe class ChunkMesher(ChunkManager chunkManager)
             else if (faceIndex >= 2 && grassOverlayId >= 0)
             {
                 overlayTexId = grassOverlayId;
-                overlayColor = new Vector4<float>(145.0f / 255.0f * shade, 189.0f / 255.0f * shade, 89.0f / 255.0f * shade, 1.0f);
+                overlayColor = new Vector4(145.0f / 255.0f * shade, 189.0f / 255.0f * shade, 89.0f / 255.0f * shade, 1.0f);
             }
         }
         else if (currentId == BlockId.OakLeaves)
@@ -203,10 +204,10 @@ public unsafe class ChunkMesher(ChunkManager chunkManager)
         uint indexOffset = (uint)vertices.Count;
         var fVerts = FaceVertices[faceIndex];
 
-        vertices.Add(new ChunkVertex(new Vector3<float>(x + fVerts[0].X, y + fVerts[0].Y, z + fVerts[0].Z), textureId, FaceUVs[0], overlayTexId, color, overlayColor));
-        vertices.Add(new ChunkVertex(new Vector3<float>(x + fVerts[1].X, y + fVerts[1].Y, z + fVerts[1].Z), textureId, FaceUVs[1], overlayTexId, color, overlayColor));
-        vertices.Add(new ChunkVertex(new Vector3<float>(x + fVerts[2].X, y + fVerts[2].Y, z + fVerts[2].Z), textureId, FaceUVs[2], overlayTexId, color, overlayColor));
-        vertices.Add(new ChunkVertex(new Vector3<float>(x + fVerts[3].X, y + fVerts[3].Y, z + fVerts[3].Z), textureId, FaceUVs[3], overlayTexId, color, overlayColor));
+        vertices.Add(new ChunkVertex(new Vector4(x + fVerts[0].X, y + fVerts[0].Y, z + fVerts[0].Z, 1.0f), textureId, FaceUVs[0], overlayTexId, color, overlayColor));
+        vertices.Add(new ChunkVertex(new Vector4(x + fVerts[1].X, y + fVerts[1].Y, z + fVerts[1].Z, 1.0f), textureId, FaceUVs[1], overlayTexId, color, overlayColor));
+        vertices.Add(new ChunkVertex(new Vector4(x + fVerts[2].X, y + fVerts[2].Y, z + fVerts[2].Z, 1.0f), textureId, FaceUVs[2], overlayTexId, color, overlayColor));
+        vertices.Add(new ChunkVertex(new Vector4(x + fVerts[3].X, y + fVerts[3].Y, z + fVerts[3].Z, 1.0f), textureId, FaceUVs[3], overlayTexId, color, overlayColor));
 
         indices.Add(indexOffset + 0);
         indices.Add(indexOffset + 1);

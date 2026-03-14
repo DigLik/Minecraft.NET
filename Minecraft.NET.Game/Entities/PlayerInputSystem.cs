@@ -1,8 +1,9 @@
-﻿using Minecraft.NET.Engine.Abstractions;
+﻿using System.Numerics;
+
+using Minecraft.NET.Engine.Abstractions;
 using Minecraft.NET.Engine.Core;
 using Minecraft.NET.Engine.ECS;
 using Minecraft.NET.Engine.Input;
-using Minecraft.NET.Utils.Math;
 
 namespace Minecraft.NET.Game.Entities;
 
@@ -14,7 +15,7 @@ public class PlayerInputSystem(IInputManager inputManager) : ISystem
     private const float JumpForce = 9.0f;
     private const float MouseSensitivity = 0.002f;
 
-    private Vector2<float> _lastMousePos;
+    private Vector2 _lastMousePos;
 
     public void Update(Registry registry, in Time time)
     {
@@ -60,24 +61,24 @@ public class PlayerInputSystem(IInputManager inputManager) : ISystem
             float yaw = transform.Rotation.Y;
             float pitch = transform.Rotation.X;
 
-            Vector3<float> forward, right;
+            Vector3 forward, right;
 
             if (playerCtrl.IsSpectatorMode)
             {
-                forward = new Vector3<float>(
+                forward = Vector3.Normalize(new(
                     MathF.Sin(yaw) * MathF.Cos(pitch),
                     MathF.Cos(yaw) * MathF.Cos(pitch),
                     MathF.Sin(pitch)
-                ).Normalize<float>();
+                ));
             }
             else
             {
-                forward = new Vector3<float>(MathF.Sin(yaw), MathF.Cos(yaw), 0).Normalize<float>();
+                forward = Vector3.Normalize(new(MathF.Sin(yaw), MathF.Cos(yaw), 0));
             }
 
-            right = new Vector3<float>(MathF.Cos(yaw), -MathF.Sin(yaw), 0).Normalize<float>();
+            right = Vector3.Normalize(new(MathF.Cos(yaw), -MathF.Sin(yaw), 0));
 
-            Vector3<float> moveDir = Vector3<float>.Zero;
+            Vector3 moveDir = Vector3.Zero;
 
             if (inputManager.IsKey(Key.W)) moveDir += forward;
             if (inputManager.IsKey(Key.S)) moveDir -= forward;
@@ -91,7 +92,7 @@ public class PlayerInputSystem(IInputManager inputManager) : ISystem
 
             if (moveDir.LengthSquared() > 0)
             {
-                moveDir = moveDir.Normalize<float>();
+                moveDir = Vector3.Normalize(moveDir);
                 velocity.Velocity.X = moveDir.X * currentSpeed;
                 velocity.Velocity.Y = moveDir.Y * currentSpeed;
 

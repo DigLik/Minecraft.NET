@@ -12,11 +12,11 @@ public class Bucket
     private readonly Lock _ioLock = new();
     private readonly Lock _dataLock = new();
 
-    private readonly Dictionary<Vector3<int>, PooledChunkData> _chunkData = [];
+    private readonly Dictionary<Vector3Int, PooledChunkData> _chunkData = [];
 
     public bool IsDirty { get; private set; }
 
-    public Bucket(string directory, Vector3<int> bucketPos)
+    public Bucket(string directory, Vector3Int bucketPos)
     {
         _filePath = Path.Combine(directory, $"bucket.{bucketPos.X}.{bucketPos.Y}.{bucketPos.Z}.bin");
         Load();
@@ -44,7 +44,7 @@ public class Bucket
                         int dataLength = reader.ReadInt32();
                         byte[] buffer = ArrayPool<byte>.Shared.Rent(dataLength);
                         reader.Read(buffer, 0, dataLength);
-                        _chunkData[new Vector3<int>(x, y, z)] = new PooledChunkData(buffer, dataLength);
+                        _chunkData[new Vector3Int(x, y, z)] = new PooledChunkData(buffer, dataLength);
                     }
                 }
             }
@@ -87,7 +87,7 @@ public class Bucket
         }
     }
 
-    public ReadOnlySpan<byte> GetChunkData(Vector3<int> localChunkPos)
+    public ReadOnlySpan<byte> GetChunkData(Vector3Int localChunkPos)
     {
         lock (_dataLock)
         {
@@ -97,7 +97,7 @@ public class Bucket
         }
     }
 
-    public void SetChunkData(Vector3<int> localChunkPos, PooledChunkData data)
+    public void SetChunkData(Vector3Int localChunkPos, PooledChunkData data)
     {
         lock (_dataLock)
         {

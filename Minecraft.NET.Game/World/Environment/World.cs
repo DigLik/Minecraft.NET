@@ -23,11 +23,11 @@ public sealed class World : IAsyncDisposable
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void SetBlock(Vector3<int> position, BlockId id)
+    public void SetBlock(Vector3Int position, BlockId id)
         => Chunks.SetBlock(position, id);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public BlockId GetBlock(Vector3<int> blockPos)
+    public BlockId GetBlock(Vector3Int blockPos)
         => Chunks.GetBlock(blockPos);
 
     public async ValueTask DisposeAsync()
