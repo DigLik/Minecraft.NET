@@ -17,7 +17,6 @@ struct Payload {
     vec3 hitPos;
     vec3 normal;
     vec4 color;
-    float reflectivity;
 };
 
 layout(location = 0) rayPayloadEXT Payload payload;
@@ -37,30 +36,7 @@ void main() {
     float tmin = 0.001;
     float tmax = 10000.0;
 
-    vec4 finalColor = vec4(0.0);
-    vec3 currentOrigin = cam.LocalPosition;
-    vec3 currentDir = rayDir;
-    float currentReflectivity = 0.0;
+    traceRayEXT(Scene, rayFlags, cullMask, 0, 0, 0, cam.LocalPosition, tmin, rayDir, tmax, 0);
 
-    for (int i = 0; i < 2; i++) {
-        payload.reflectivity = 0.0;
-        traceRayEXT(Scene, rayFlags, cullMask, 0, 0, 0, currentOrigin, tmin, currentDir, tmax, 0);
-
-        if (i == 0) {
-            finalColor = payload.color;
-            currentReflectivity = payload.reflectivity;
-        } else {
-            finalColor.rgb = mix(finalColor.rgb, payload.color.rgb, currentReflectivity);
-        }
-
-        if (payload.reflectivity > 0.0) {
-            currentOrigin = payload.hitPos + payload.normal * 0.01;
-            currentDir = reflect(currentDir, payload.normal);
-            currentReflectivity = payload.reflectivity;
-        } else {
-            break;
-        }
-    }
-
-    imageStore(RenderTarget, launchIndex, finalColor.bgra);
+    imageStore(RenderTarget, launchIndex, payload.color.bgra);
 }

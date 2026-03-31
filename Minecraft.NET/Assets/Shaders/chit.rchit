@@ -8,7 +8,6 @@ struct Payload {
     vec3 hitPos;
     vec3 normal;
     vec4 color;
-    float reflectivity;
 };
 
 layout(location = 0) rayPayloadInEXT Payload payload;
@@ -146,5 +145,4 @@ void main() {
     payload.hitPos = worldPos;
     payload.normal = normal;
     payload.color = texColor;
-    payload.reflectivity = (texIndex == 0) ? 1.0 : 0.0;
 }
