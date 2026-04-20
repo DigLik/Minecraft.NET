@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 
 using Minecraft.NET.Engine.Abstractions;
 using Minecraft.NET.Engine.Abstractions.Graphics;
@@ -44,13 +44,17 @@ public class CameraSystem(EngineApp engine, IWindow window) : ISystem
 
             var sunDir = Vector3.Normalize(new(0.5f, 0.8f, 1.0f));
 
+            var oldCamera = engine.Camera;
             engine.Camera = new CameraData
             {
                 ViewProjection = viewProj,
                 InverseViewProjection = invViewProj,
                 ChunkPosition = chunkPos,
                 LocalPosition = localPos,
-                SunDirection = new Vector4(sunDir.X, sunDir.Y, sunDir.Z, 0.0f)
+                SunDirection = new Vector4(sunDir.X, sunDir.Y, sunDir.Z, 0.0f),
+                SamplesPerPixel = oldCamera.SamplesPerPixel,
+                FrameCount = oldCamera.FrameCount,
+                Seed = oldCamera.Seed
             };
 
             break;

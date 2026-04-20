@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 
 using HighPerformanceBus;
 
@@ -66,6 +66,7 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
 
         EventBus.Subscribe(this);
         LoadTextures();
+        _pipeline.BindMaterials([.. BlockRegistry.MaterialConfigs]);
 
         int cores = System.Environment.ProcessorCount;
         int genThreads = Math.Max(1, (int)(cores * 0.10f));

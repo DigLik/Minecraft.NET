@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using System.Runtime.InteropServices;
 
 using Minecraft.NET.Engine.Abstractions;
@@ -26,7 +26,8 @@ public sealed class EngineApp : IDisposable
         InverseViewProjection = Matrix4x4.Identity,
         ChunkPosition = Vector3Int.Zero,
         LocalPosition = Vector3.Zero,
-        SunDirection = new(0, 0, 1, 0)
+        SunDirection = new(0, 0, 1, 0),
+        SamplesPerPixel = 1
     };
 
     public EngineApp(IWindow window, IInputManager inputManager, IRenderPipeline renderPipeline)

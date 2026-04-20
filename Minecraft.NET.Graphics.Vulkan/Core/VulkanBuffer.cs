@@ -1,4 +1,4 @@
-﻿using Silk.NET.Vulkan;
+using Silk.NET.Vulkan;
 
 namespace Minecraft.NET.Graphics.Vulkan.Core;
 
@@ -11,10 +11,12 @@ public unsafe class VulkanBuffer : IDisposable
 
     public void* MappedMemory { get; private set; }
     public ulong DeviceAddress { get; private set; }
+    public ulong Size { get; private set; }
 
     public VulkanBuffer(VulkanDevice device, ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties, bool isShared = false)
     {
         _device = device;
+        Size = size;
 
         uint[] queueFamilies = [_device.GraphicsFamilyIndex, _device.TransferFamilyIndex];
         bool useConcurrent = isShared && _device.GraphicsFamilyIndex != _device.TransferFamilyIndex;

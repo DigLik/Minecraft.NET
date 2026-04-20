@@ -3,40 +3,167 @@
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT Scene;
 layout(binding = 1, set = 0, rgba8) uniform image2D RenderTarget;
+layout(binding = 5, set = 0, rgba32f) uniform image2D AccumulationTarget;
+
 layout(binding = 2, set = 0) uniform Camera {
     mat4 ViewProj;
     mat4 InverseViewProj;
     ivec3 ChunkPosition;
-    float Pad1;
+    uint FrameCount;
     vec3 LocalPosition;
-    float Pad2;
+    uint SamplesPerPixel;
     vec4 SunDirection;
+    uint Seed;
+    uint Pad1;
+    uint Pad2;
+    uint Pad3;
 } cam;
 
 struct Payload {
     vec3 hitPos;
+    float hitDistance;
     vec3 normal;
-    vec4 color;
+    float roughness;
+    vec3 albedo;
+    float metallic;
+    vec3 emission;
+    float pad;
 };
 
 layout(location = 0) rayPayloadEXT Payload payload;
+
+uint seed;
+uint pcg_hash() {
+    seed = seed * 747796405u + 2891336453u;
+    uint word = ((seed >> ((seed >> 28u) + 4u)) ^ seed) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+float rnd() {
+    return float(pcg_hash()) / 4294967296.0;
+}
+
+vec3 random_on_unit_sphere() {
+    float z = rnd() * 2.0 - 1.0;
+    float a = rnd() * 6.28318530718;
+    float r = sqrt(1.0 - z * z);
+    return vec3(r * cos(a), r * sin(a), z);
+}
+
+vec3 random_in_unit_sphere() {
+    return random_on_unit_sphere() * pow(rnd(), 1.0/3.0);
+}
+
+vec3 random_cosine_hemisphere(vec3 n) {
+    vec3 p = random_on_unit_sphere();
+    return normalize(n + p);
+}
 
 void main() {
     ivec2 launchIndex = ivec2(gl_LaunchIDEXT.xy);
     ivec2 launchDim = ivec2(gl_LaunchSizeEXT.xy);
 
+    seed = cam.Seed + launchIndex.y * launchDim.x + launchIndex.x;
+
     vec2 crd = vec2(launchIndex) / vec2(launchDim);
     crd = crd * 2.0 - 1.0;
 
+    if (cam.FrameCount > 1) {
+        vec2 jitter = vec2(rnd() - 0.5, rnd() - 0.5) / vec2(launchDim);
+        crd += jitter;
+    }
+
     vec4 target = cam.InverseViewProj * vec4(crd.x, crd.y, 1.0, 1.0);
-    vec3 rayDir = normalize(target.xyz / target.w - cam.LocalPosition);
+    vec3 baseRayDir = normalize(target.xyz / target.w - cam.LocalPosition);
 
     uint rayFlags = gl_RayFlagsCullBackFacingTrianglesEXT;
     uint cullMask = 0xFF;
-    float tmin = 0.001;
+    float tmin = 0.0;
     float tmax = 10000.0;
 
-    traceRayEXT(Scene, rayFlags, cullMask, 0, 0, 0, cam.LocalPosition, tmin, rayDir, tmax, 0);
+    vec3 finalColor = vec3(0.0);
 
-    imageStore(RenderTarget, launchIndex, payload.color.bgra);
+    for (uint s = 0; s < cam.SamplesPerPixel; s++) {
+        vec3 radiance = vec3(0.0);
+        vec3 throughput = vec3(1.0);
+        vec3 rayOrigin = cam.LocalPosition;
+        vec3 rayDir = baseRayDir;
+
+        for (int bounce = 0; bounce < 4; bounce++) {
+            payload.hitDistance = -1.0;
+            traceRayEXT(Scene, rayFlags, cullMask, 0, 0, 0, rayOrigin, tmin, rayDir, tmax, 0);
+
+            if (payload.hitDistance < 0.0) {
+                radiance += throughput * payload.emission;
+                break;
+            }
+
+            radiance += throughput * payload.emission;
+
+            vec3 surfaceNormal = payload.normal;
+            vec3 surfaceAlbedo = payload.albedo;
+            float surfaceRoughness = payload.roughness;
+            float surfaceMetallic = payload.metallic;
+            vec3 surfaceHitPos = payload.hitPos;
+
+            vec3 safeOrigin = surfaceHitPos + surfaceNormal * 0.001;
+
+            // Direct Lighting (Next Event Estimation)
+            vec3 sunDir = normalize(cam.SunDirection.xyz);
+            float sunRadius = 0.05; // Create soft shadows with random sun perturbation
+            vec3 sunJitter = random_in_unit_sphere() * sunRadius;
+            vec3 lightDir = normalize(sunDir + sunJitter);
+
+            float nDotL = max(dot(surfaceNormal, lightDir), 0.0);
+            if (nDotL > 0.0) {
+                payload.hitDistance = 1.0; 
+                uint shadowFlags = gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT;
+                traceRayEXT(Scene, shadowFlags, cullMask, 0, 0, 0, safeOrigin, 0.0, lightDir, 10000.0, 0);
+
+                if (payload.hitDistance < 0.0) {
+                    vec3 sunLightColor = pow(vec3(1.0, 0.95, 0.8), vec3(2.2)) * 5.0; 
+                    vec3 diffuse = surfaceAlbedo / 3.14159265;
+                    radiance += throughput * diffuse * sunLightColor * nDotL;
+                }
+            }
+
+            vec3 diffuseDir = random_cosine_hemisphere(surfaceNormal);
+            vec3 reflectDir = reflect(rayDir, surfaceNormal);
+            reflectDir = normalize(mix(reflectDir, diffuseDir, surfaceRoughness));
+            
+            bool isSpecular = rnd() < surfaceMetallic;
+            vec3 nextDir = isSpecular ? reflectDir : diffuseDir;
+
+            throughput *= surfaceAlbedo;
+            
+            rayOrigin = safeOrigin;
+            rayDir = nextDir;
+            
+            if (bounce > 2) {
+                float maxThroughput = max(max(throughput.r, throughput.g), throughput.b);
+                if (rnd() > maxThroughput) break;
+                throughput /= maxThroughput;
+            }
+        }
+        
+        if (any(isnan(radiance))) radiance = vec3(0.0);
+        radiance = clamp(radiance, 0.0, 50.0);
+        finalColor += radiance;
+    }
+    
+    finalColor /= float(cam.SamplesPerPixel);
+
+    vec4 prevColor = imageLoad(AccumulationTarget, launchIndex);
+    vec3 accumColor = finalColor;
+
+    if (cam.FrameCount > 1) {
+        accumColor = mix(prevColor.rgb, finalColor, 1.0 / float(cam.FrameCount));
+    }
+
+    imageStore(AccumulationTarget, launchIndex, vec4(accumColor, 1.0));
+
+    vec3 linearColor = clamp(accumColor, 0.0, 1.0);
+    vec3 sdr = pow(linearColor, vec3(1.0 / 2.2));
+    
+    imageStore(RenderTarget, launchIndex, vec4(sdr.b, sdr.g, sdr.r, 1.0));
 }

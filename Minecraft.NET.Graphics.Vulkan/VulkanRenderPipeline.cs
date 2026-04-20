@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 
@@ -56,6 +56,16 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     private DeviceMemory _storageImageMemory;
     private ImageView _storageImageView;
 
+    private Image _accumulationImage;
+    private DeviceMemory _accumulationImageMemory;
+    private ImageView _accumulationImageView;
+    
+    private VulkanBuffer? _materialBuffer;
+    private Matrix4x4 _lastViewProj;
+    private Vector3 _lastLocalPos;
+    private uint _frameCount = 1;
+    private uint _seed = 0;
+
     private DrawCall[] _drawCalls = new DrawCall[32768];
     private int _drawCallCount = 0;
     private ITextureArray? _currentTextureArray;
@@ -100,7 +110,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
             Format = Format.R8G8B8A8Unorm,
             Extent = new Extent3D((uint)_framebufferSize.X, (uint)_framebufferSize.Y, 1),
             MipLevels = 1, ArrayLayers = 1, Samples = SampleCountFlags.Count1Bit,
-            Tiling = ImageTiling.Optimal, Usage = ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit,
+            Tiling = ImageTiling.Optimal, Usage = ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit,
             InitialLayout = ImageLayout.Undefined
         };
 
@@ -118,6 +128,22 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
             SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1)
         };
         _device.Vk.CreateImageView(_device.Device, in viewInfo, null, out _storageImageView);
+
+        ImageCreateInfo accumInfo = imageInfo;
+        accumInfo.Format = Format.R32G32B32A32Sfloat;
+        accumInfo.Usage = ImageUsageFlags.StorageBit;
+        _device.Vk.CreateImage(_device.Device, in accumInfo, null, out _accumulationImage);
+        _device.Vk.GetImageMemoryRequirements(_device.Device, _accumulationImage, out memReqs);
+
+        allocInfo.AllocationSize = memReqs.Size;
+        allocInfo.MemoryTypeIndex = _device.FindMemoryType(memReqs.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit);
+        _device.Vk.AllocateMemory(_device.Device, in allocInfo, null, out _accumulationImageMemory);
+        _device.Vk.BindImageMemory(_device.Device, _accumulationImage, _accumulationImageMemory, 0);
+
+        ImageViewCreateInfo accumViewInfo = viewInfo;
+        accumViewInfo.Image = _accumulationImage;
+        accumViewInfo.Format = Format.R32G32B32A32Sfloat;
+        _device.Vk.CreateImageView(_device.Device, in accumViewInfo, null, out _accumulationImageView);
     }
 
     public IMesh CreateMesh<T>(NativeList<T> vertices, NativeList<uint> indices) where T : unmanaged
@@ -127,6 +153,18 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
 
     public ITextureArray CreateTextureArray(int width, int height, byte[][] pixels) => new VulkanTextureArray(_device, width, height, pixels);
     public void BindTextureArray(ITextureArray textureArray) => _currentTextureArray = textureArray;
+
+    public void BindMaterials(MaterialData[] materials)
+    {
+        ulong size = (ulong)(materials.Length * sizeof(MaterialData));
+        if (_materialBuffer == null || _materialBuffer.Size < size)
+        {
+            _materialBuffer?.Dispose();
+            _materialBuffer = new VulkanBuffer(_device, size, BufferUsageFlags.StorageBufferBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+        }
+        var span = new Span<MaterialData>(_materialBuffer.MappedMemory, materials.Length);
+        materials.CopyTo(span);
+    }
 
     public void SubmitDraw(IMesh mesh, Vector3 position)
     {
@@ -166,10 +204,10 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     {
         DescriptorPoolSize[] poolSizes = [
             new() { Type = DescriptorType.AccelerationStructureKhr, DescriptorCount = MaxFramesInFlight },
-            new() { Type = DescriptorType.StorageImage, DescriptorCount = MaxFramesInFlight },
+            new() { Type = DescriptorType.StorageImage, DescriptorCount = MaxFramesInFlight * 2 },
             new() { Type = DescriptorType.UniformBuffer, DescriptorCount = MaxFramesInFlight },
             new() { Type = DescriptorType.CombinedImageSampler, DescriptorCount = MaxFramesInFlight },
-            new() { Type = DescriptorType.StorageBuffer, DescriptorCount = MaxFramesInFlight }
+            new() { Type = DescriptorType.StorageBuffer, DescriptorCount = MaxFramesInFlight * 2 }
         ];
 
         fixed (DescriptorPoolSize* pPoolSizes = poolSizes)
@@ -203,6 +241,10 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         _device.Vk.DestroyImage(_device.Device, _storageImage, null);
         _device.Vk.FreeMemory(_device.Device, _storageImageMemory, null);
 
+        _device.Vk.DestroyImageView(_device.Device, _accumulationImageView, null);
+        _device.Vk.DestroyImage(_device.Device, _accumulationImage, null);
+        _device.Vk.FreeMemory(_device.Device, _accumulationImageMemory, null);
+
         _swapchain.Dispose();
         _swapchain = new VulkanSwapchain(_device, _framebufferSize);
 
@@ -212,6 +254,21 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     public void RenderFrame(CameraData cameraData)
     {
         if (_pipeline == null) throw new Exception("Pipeline is not initialized.");
+
+        if (cameraData.ViewProjection != _lastViewProj || cameraData.LocalPosition != _lastLocalPos)
+        {
+            _frameCount = 1;
+            _lastViewProj = cameraData.ViewProjection;
+            _lastLocalPos = cameraData.LocalPosition;
+        }
+        else
+        {
+            _frameCount++;
+        }
+        
+        _seed = unchecked(_seed + 1664525 * _frameCount + 1013904223);
+        cameraData.FrameCount = _frameCount;
+        cameraData.Seed = _seed;
 
         _device.Vk.WaitForFences(_device.Device, 1, ref _inFlightFences[_currentFrame], Vk.True, ulong.MaxValue);
 
@@ -338,11 +395,21 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
             DescriptorImageInfo storageImageInfo = new() { ImageLayout = ImageLayout.General, ImageView = _storageImageView };
             WriteDescriptorSet writeStorageImage = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 1, DescriptorCount = 1, DescriptorType = DescriptorType.StorageImage, PImageInfo = &storageImageInfo };
 
+            DescriptorImageInfo accumImageInfo = new() { ImageLayout = ImageLayout.General, ImageView = _accumulationImageView };
+            WriteDescriptorSet writeAccumImage = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 5, DescriptorCount = 1, DescriptorType = DescriptorType.StorageImage, PImageInfo = &accumImageInfo };
+
             DescriptorBufferInfo instanceDataInfo = new() { Buffer = _instanceDataBuffers[_currentFrame].Buffer, Offset = 0, Range = Vk.WholeSize };
             WriteDescriptorSet writeInstanceData = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 4, DescriptorCount = 1, DescriptorType = DescriptorType.StorageBuffer, PBufferInfo = &instanceDataInfo };
 
-            var writes = stackalloc WriteDescriptorSet[3] { writeAS, writeStorageImage, writeInstanceData };
-            _device.Vk.UpdateDescriptorSets(_device.Device, 3, writes, 0, null);
+            var writes = stackalloc WriteDescriptorSet[4] { writeAS, writeStorageImage, writeAccumImage, writeInstanceData };
+            _device.Vk.UpdateDescriptorSets(_device.Device, 4, writes, 0, null);
+
+            if (_materialBuffer != null)
+            {
+                DescriptorBufferInfo matBufferInfo = new() { Buffer = _materialBuffer.Buffer, Offset = 0, Range = Vk.WholeSize };
+                WriteDescriptorSet writeMatData = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 6, DescriptorCount = 1, DescriptorType = DescriptorType.StorageBuffer, PBufferInfo = &matBufferInfo };
+                _device.Vk.UpdateDescriptorSets(_device.Device, 1, &writeMatData, 0, null);
+            }
 
             if (_currentTextureArray is VulkanTextureArray vkTexArray)
             {
@@ -352,6 +419,11 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
             }
 
             TransitionImageLayout(cmd, _storageImage, ImageLayout.Undefined, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
+            
+            if (_frameCount == 1)
+                TransitionImageLayout(cmd, _accumulationImage, ImageLayout.Undefined, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit | AccessFlags2.ShaderReadBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
+            else
+                TransitionImageLayout(cmd, _accumulationImage, ImageLayout.General, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit | AccessFlags2.ShaderReadBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
 
             _device.Vk.CmdBindPipeline(cmd, PipelineBindPoint.RayTracingKhr, _pipeline.Pipeline);
             var descSet = _descriptorSets[_currentFrame];

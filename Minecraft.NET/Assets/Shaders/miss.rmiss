@@ -3,12 +3,18 @@
 
 struct Payload {
     vec3 hitPos;
+    float hitDistance;
     vec3 normal;
-    vec4 color;
+    float roughness;
+    vec3 albedo;
+    float metallic;
+    vec3 emission;
+    float pad;
 };
 
 layout(location = 0) rayPayloadInEXT Payload payload;
 
 void main() {
-    payload.color = vec4(0.4, 0.6, 0.9, 1.0);
+    payload.hitDistance = -1.0;
+    payload.emission = pow(vec3(0.4, 0.6, 0.9), vec3(2.2)); // Sky color
 }

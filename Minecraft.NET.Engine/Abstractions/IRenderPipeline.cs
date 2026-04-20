@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 
 using Minecraft.NET.Engine.Abstractions.Graphics;
 using Minecraft.NET.Utils.Collections;
@@ -13,6 +13,7 @@ public interface IRenderPipeline : IDisposable
     void DeleteMesh(IMesh mesh);
     ITextureArray CreateTextureArray(int width, int height, byte[][] pixels);
     void BindTextureArray(ITextureArray textureArray);
+    void BindMaterials(MaterialData[] materials);
     void SubmitDraw(IMesh mesh, Vector3 position);
     void ClearDraws();
     void RenderFrame(CameraData cameraData);
