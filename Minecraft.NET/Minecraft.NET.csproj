@@ -58,6 +58,7 @@
 	
   <ItemGroup>
     <Folder Include="Assets\Shaders\" />
+    <Folder Include="Assets\Textures\Blocks\" />
   </ItemGroup>
 
   <Target Name="CompileVulkanShaders" BeforeTargets="AssignTargetPaths" Inputs="@(VulkanShader)" Outputs="@(VulkanShader->'%(RelativeDir)%(Filename).spv')">

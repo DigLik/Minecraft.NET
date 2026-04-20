@@ -6,7 +6,7 @@ using Minecraft.NET.Utils.Math;
 
 namespace Minecraft.NET.Game.World.Chunks;
 
-public unsafe struct ChunkSection
+public struct ChunkSection
 {
     public NativeList<BlockId> Blocks;
     public int NonAirBlockCount;

@@ -10,7 +10,7 @@ public class SparseSet<T> : IDisposable where T : unmanaged
 
     public int Count => _dense.Count;
 
-    public ReadOnlySpan<int> Entities => MemoryMarshal.CreateReadOnlySpan(ref _dense[0], _dense.Count);
+    public ReadOnlySpan<int> Data => MemoryMarshal.CreateReadOnlySpan(ref _dense[0], _dense.Count);
 
     public void Add(int id, in T element)
     {
