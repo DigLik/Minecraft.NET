@@ -1,0 +1,69 @@
+[
+  {
+    "Name": "stone",
+    "TexturePath": "Assets/Textures/Blocks/stone.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Bindings": [ { "Block": "Stone", "Face": "All" } ]
+  },
+  {
+    "Name": "dirt",
+    "TexturePath": "Assets/Textures/Blocks/dirt.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Bindings": [
+      { "Block": "Dirt", "Face": "All" },
+      { "Block": "Grass", "Face": "Bottom" }
+    ]
+  },
+  {
+    "Name": "grass_top",
+    "TexturePath": "Assets/Textures/Blocks/grass_top.ztex",
+    "Roughness": 1.0,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Bindings": [ { "Block": "Grass", "Face": "Top" } ]
+  },
+  {
+    "Name": "grass_side",
+    "TexturePath": "Assets/Textures/Blocks/grass_side.ztex",
+    "Roughness": 1.0,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Bindings": [ { "Block": "Grass", "Face": "Side" } ]
+  },
+  {
+    "Name": "grass_side_overlay",
+    "TexturePath": "Assets/Textures/Blocks/grass_side_overlay.ztex",
+    "Roughness": 1.0,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Bindings": []
+  },
+  {
+    "Name": "oak_log_top",
+    "TexturePath": "Assets/Textures/Blocks/oak_log_top.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Bindings": [ { "Block": "OakLog", "Face": "Top" }, { "Block": "OakLog", "Face": "Bottom" } ]
+  },
+  {
+    "Name": "oak_log_side",
+    "TexturePath": "Assets/Textures/Blocks/oak_log_side.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Bindings": [ { "Block": "OakLog", "Face": "Side" } ]
+  },
+  {
+    "Name": "oak_leaves",
+    "TexturePath": "Assets/Textures/Blocks/oak_leaves.ztex",
+    "Roughness": 0.7,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Bindings": [ { "Block": "OakLeaves", "Face": "All" } ]
+  }
+]

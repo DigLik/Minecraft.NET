@@ -113,7 +113,6 @@ void main() {
         if (overlayTex.a > 0.5) texColor = overlayTex * overTint;
     }
 
-    // Convert sRGB texture to Linear space to get true physics calculations
     texColor.rgb = pow(texColor.rgb, vec3(2.2));
 
     MaterialData mat = materials.m[texIndex];

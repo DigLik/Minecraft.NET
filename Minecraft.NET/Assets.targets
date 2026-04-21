@@ -1,0 +1,43 @@
+<Project>
+
+  <ItemGroup>
+    <!-- Assets handling: Shader & Texture raw sources -->
+    <VulkanShader Include="Assets\Shaders\*.rgen;Assets\Shaders\*.rmiss;Assets\Shaders\*.rchit;Assets\Shaders\*.rahit" />
+    <RawTexture Include="Assets\Textures\**\*.png" />
+
+    <!-- Verbatim copy ALL assets by default -->
+    <None Update="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+
+    <!-- OVERRIDE raw sources: Keep them visible in VS but do NOT copy verbatim to Output -->
+    <None Update="Assets\Shaders\*.rgen;Assets\Shaders\*.rmiss;Assets\Shaders\*.rchit;Assets\Shaders\*.rahit" CopyToOutputDirectory="Never" />
+    <None Update="Assets\Textures\**\*.png" CopyToOutputDirectory="Never" />
+    
+    <Folder Include="Assets\" />
+  </ItemGroup>
+
+  <!-- Auto-compile MSBuild steps -->
+  <Target Name="CompileVulkanShaders" BeforeTargets="AssignTargetPaths" Inputs="@(VulkanShader)" Outputs="@(VulkanShader->'$(IntermediateOutputPath)Assets\%(Filename).spv')">
+    <Message Text="[Vulkan] Компиляция шейдера: %(VulkanShader.Filename)%(VulkanShader.Extension)" Importance="high" />
+    <MakeDir Directories="$(IntermediateOutputPath)Assets" />
+    <Exec Command="glslc &quot;%(VulkanShader.Identity)&quot; -O --target-env=vulkan1.4 -o &quot;$(IntermediateOutputPath)Assets\%(VulkanShader.Filename).spv&quot;" />
+    <ItemGroup>
+      <Content Include="$(IntermediateOutputPath)Assets\%(VulkanShader.Filename).spv">
+        <Link>Assets\Shaders\%(VulkanShader.Filename).spv</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+    </ItemGroup>
+  </Target>
+
+  <Target Name="CompileTextures" BeforeTargets="AssignTargetPaths" Inputs="@(RawTexture)" Outputs="@(RawTexture->'$(IntermediateOutputPath)%(RelativeDir)%(Filename).ztex')">
+    <Message Text="[Текстуры] Компиляция: %(RawTexture.Filename)%(RawTexture.Extension)" Importance="high" />
+    <MakeDir Directories="$(IntermediateOutputPath)%(RawTexture.RelativeDir)" />
+    <Exec Command="dotnet run --project ../Minecraft.NET.TextureCompiler/Minecraft.NET.TextureCompiler.csproj --configuration Release -- &quot;%(RawTexture.Identity)&quot; &quot;$(IntermediateOutputPath)%(RawTexture.RelativeDir)%(RawTexture.Filename).ztex&quot;" />
+    <ItemGroup>
+      <Content Include="$(IntermediateOutputPath)%(RawTexture.RelativeDir)%(RawTexture.Filename).ztex">
+        <Link>%(RawTexture.RelativeDir)%(RawTexture.Filename).ztex</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+    </ItemGroup>
+  </Target>
+
+</Project>

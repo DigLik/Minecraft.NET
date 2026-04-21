@@ -1,0 +1,26 @@
+[
+  {
+    "Id": "Air",
+    "Transparency": "Transparent"
+  },
+  {
+    "Id": "Stone",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "Dirt",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "Grass",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "OakLog",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "OakLeaves",
+    "Transparency": "Transparent"
+  }
+]

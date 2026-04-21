@@ -8,11 +8,9 @@ using Minecraft.NET.Engine.Core;
 using Minecraft.NET.Engine.ECS;
 using Minecraft.NET.Game.Entities;
 using Minecraft.NET.Game.Events;
-using Minecraft.NET.Game.World.Blocks;
+using Minecraft.NET.Game.World.Blocks.Services;
 using Minecraft.NET.Utils.Collections;
 using Minecraft.NET.Utils.Math;
-
-using ZstdSharp;
 
 using GameWorld = Minecraft.NET.Game.World.Environment.World;
 
@@ -20,12 +18,13 @@ namespace Minecraft.NET.Game.World.Meshing;
 
 public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChangedEvent>
 {
+    private readonly EngineApp _engineApp;
     private readonly IRenderPipeline _pipeline;
     private readonly GameWorld _world;
     private readonly ChunkMesher _mesher;
 
-    private readonly ZeroAllocQueue<Vector3Int> _loadQueue;
-    private readonly ZeroAllocQueue<Vector3Int> _meshQueue;
+    private readonly PriorityChunkQueue _loadQueue;
+    private readonly PriorityChunkQueue _meshQueue;
     private readonly ZeroAllocQueue<(Vector3Int Pos, IMesh? Mesh)> _builtMeshes;
 
     private readonly Dictionary<Vector3Int, IMesh> _meshes;
@@ -44,18 +43,23 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
     private readonly Thread[] _genWorkers;
     private readonly Thread[] _meshWorkers;
 
-    public ChunkRenderSystem(IRenderPipeline pipeline, GameWorld world)
+    private readonly IResourceService _resourceService;
+    private readonly IBlockService _blockService;
+
+    public ChunkRenderSystem(EngineApp engineApp, IRenderPipeline pipeline, GameWorld world, IResourceService resourceService, IBlockService blockService)
     {
+        _engineApp = engineApp;
         _pipeline = pipeline;
         _world = world;
-        _mesher = new ChunkMesher(world.Chunks);
+        _resourceService = resourceService;
+        _blockService = blockService;
+        _mesher = new ChunkMesher(world.Chunks, _blockService, _resourceService);
 
         int volumeX = (RenderDistance * 2) + 4;
         int maxChunks = volumeX * volumeX * WorldHeightInChunks;
         int queueCapacity = maxChunks * 2;
-
-        _loadQueue = new ZeroAllocQueue<Vector3Int>(queueCapacity);
-        _meshQueue = new ZeroAllocQueue<Vector3Int>(queueCapacity);
+        _loadQueue = new PriorityChunkQueue();
+        _meshQueue = new PriorityChunkQueue();
         _builtMeshes = new ZeroAllocQueue<(Vector3Int Pos, IMesh? Mesh)>(queueCapacity);
 
         _meshes = new(maxChunks);
@@ -66,7 +70,7 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
 
         EventBus.Subscribe(this);
         LoadTextures();
-        _pipeline.BindMaterials([.. BlockRegistry.MaterialConfigs]);
+        _pipeline.BindMaterials([.. _resourceService.GetMaterialConfigs()]);
 
         int cores = System.Environment.ProcessorCount;
         int genThreads = Math.Max(1, (int)(cores * 0.10f));
@@ -89,34 +93,10 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
 
     private void LoadTextures()
     {
-        var files = BlockRegistry.TextureFiles;
         int size = 16;
-        byte[][] pixels = new byte[files.Count][];
+        byte[][] pixels = _resourceService.LoadTexturePixels(size);
 
-        using var decompressor = new Decompressor();
-        for (int i = 0; i < files.Count; i++)
-        {
-            string path = files[i];
-            pixels[i] = new byte[size * size * 4];
-
-            if (File.Exists(path))
-            {
-                byte[] compressed = File.ReadAllBytes(path);
-                decompressor.Unwrap(compressed, pixels[i]);
-            }
-            else
-            {
-                for (int p = 0; p < pixels[i].Length; p += 4)
-                {
-                    pixels[i][p] = 255;
-                    pixels[i][p + 1] = 0;
-                    pixels[i][p + 2] = 255;
-                    pixels[i][p + 3] = 255;
-                }
-            }
-        }
-
-        if (files.Count > 0)
+        if (pixels.Length > 0)
             _textureArray = _pipeline.CreateTextureArray(size, size, pixels);
     }
 
@@ -228,6 +208,10 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
     {
         if (_textureArray != null)
             _pipeline.BindTextureArray(_textureArray);
+
+        var cam = _engineApp.Camera;
+        _loadQueue.UpdateCamera(in cam);
+        _meshQueue.UpdateCamera(in cam);
 
         Vector3Int playerChunkPos = default;
         bool hasPlayer = false;
@@ -346,6 +330,11 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
 
         foreach (var worker in _genWorkers) worker.Join(TimeSpan.FromSeconds(1));
         foreach (var worker in _meshWorkers) worker.Join(TimeSpan.FromSeconds(1));
+
+        while (_builtMeshes.TryTake(out var result, block: false))
+        {
+            if (result.Mesh != null) _pipeline.DeleteMesh(result.Mesh);
+        }
 
         lock (_stateLock)
         {

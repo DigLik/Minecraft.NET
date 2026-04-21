@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 
 using Minecraft.NET.Game.World.Blocks;
 using Minecraft.NET.Utils.Math;
@@ -14,12 +14,6 @@ public sealed class World : IAsyncDisposable
     {
         _storage = storage;
         Chunks = new ChunkManager(_storage, generator);
-    }
-
-    public static Task InitializeAsync()
-    {
-        BlockRegistry.Initialize();
-        return Task.CompletedTask;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -1,10 +1,11 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 
 using Minecraft.NET.Engine.Abstractions;
 using Minecraft.NET.Engine.Abstractions.Graphics;
 using Minecraft.NET.Engine.Core;
 using Minecraft.NET.Game.Entities;
 using Minecraft.NET.Game.Physics;
+using Minecraft.NET.Game.World.Blocks.Services;
 using Minecraft.NET.Game.World.Environment;
 using Minecraft.NET.Game.World.Meshing;
 using Minecraft.NET.Graphics.Vulkan;
@@ -14,6 +15,8 @@ var services = new ServiceCollection()
     .AddSingleton<IWindow>(_ => new GlfwWindow("Minecraft.NET Engine", 1280, 720))
     .AddSingleton<IInputManager, GlfwInputManager>()
     .AddSingleton<IRenderPipeline, VulkanRenderPipeline>()
+    .AddSingleton<IBlockService, BlockService>()
+    .AddSingleton<IResourceService, ResourceService>()
     .AddSingleton<EngineApp>()
     .AddSingleton(_ => new WorldStorage("World1"))
     .AddSingleton<IWorldGenerator, TerrainWorldGenerator>()
@@ -26,7 +29,6 @@ var services = new ServiceCollection()
 
 var provider = services.BuildServiceProvider();
 var engine = provider.GetRequiredService<EngineApp>();
-await World.InitializeAsync();
 
 unsafe
 {

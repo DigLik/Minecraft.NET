@@ -1,4 +1,4 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 
 using Silk.NET.Core;
 using Silk.NET.Core.Native;
@@ -43,8 +43,8 @@ public unsafe class VulkanDevice : IDisposable
     public uint PresentFamilyIndex;
     public uint TransferFamilyIndex;
 
-    public readonly Lock QueueLock = new();
-    public readonly Lock TransferQueueLock = new();
+    public Lock QueueLock = new();
+    public Lock TransferQueueLock = new();
 
     public VulkanDevice(void* windowHandle)
     {
@@ -317,7 +317,7 @@ public unsafe class VulkanDevice : IDisposable
         PhysicalDeviceFeatures2 deviceFeatures = new()
         {
             SType = StructureType.PhysicalDeviceFeatures2,
-            Features = new PhysicalDeviceFeatures { SamplerAnisotropy = Vk.True },
+            Features = new PhysicalDeviceFeatures { SamplerAnisotropy = Vk.True, ShaderInt64 = Vk.True },
             PNext = &rqFeatures
         };
 
@@ -342,6 +342,9 @@ public unsafe class VulkanDevice : IDisposable
         Vk.GetDeviceQueue(Device, GraphicsFamilyIndex, 0, out GraphicsQueue);
         Vk.GetDeviceQueue(Device, PresentFamilyIndex, 0, out PresentQueue);
         Vk.GetDeviceQueue(Device, TransferFamilyIndex, 0, out TransferQueue);
+
+        if (TransferQueue.Handle == GraphicsQueue.Handle)
+            TransferQueueLock = QueueLock;
 
         CommandPoolCreateInfo poolInfo = new()
         {

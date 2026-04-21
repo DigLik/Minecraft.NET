@@ -59,7 +59,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     private Image _accumulationImage;
     private DeviceMemory _accumulationImageMemory;
     private ImageView _accumulationImageView;
-    
+
     private VulkanBuffer? _materialBuffer;
     private Matrix4x4 _lastViewProj;
     private Vector3 _lastLocalPos;
@@ -265,7 +265,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         {
             _frameCount++;
         }
-        
+
         _seed = unchecked(_seed + 1664525 * _frameCount + 1013904223);
         cameraData.FrameCount = _frameCount;
         cameraData.Seed = _seed;
@@ -419,7 +419,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
             }
 
             TransitionImageLayout(cmd, _storageImage, ImageLayout.Undefined, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
-            
+
             if (_frameCount == 1)
                 TransitionImageLayout(cmd, _accumulationImage, ImageLayout.Undefined, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit | AccessFlags2.ShaderReadBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
             else
@@ -489,6 +489,8 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     {
         _device.Vk.DeviceWaitIdle(_device.Device);
 
+        _materialBuffer?.Dispose();
+
         foreach (var list in _meshesToDispose)
             foreach (var mesh in list)
             {
@@ -529,6 +531,10 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         _device.Vk.DestroyImageView(_device.Device, _storageImageView, null);
         _device.Vk.DestroyImage(_device.Device, _storageImage, null);
         _device.Vk.FreeMemory(_device.Device, _storageImageMemory, null);
+
+        _device.Vk.DestroyImageView(_device.Device, _accumulationImageView, null);
+        _device.Vk.DestroyImage(_device.Device, _accumulationImage, null);
+        _device.Vk.FreeMemory(_device.Device, _accumulationImageMemory, null);
 
         _device.Vk.DestroyCommandPool(_device.Device, _commandPool, null);
         _pipeline?.Dispose();

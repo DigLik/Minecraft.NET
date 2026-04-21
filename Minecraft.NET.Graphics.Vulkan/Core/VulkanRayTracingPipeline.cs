@@ -49,10 +49,11 @@ public unsafe class VulkanRayTracingPipeline : IDisposable
 
     private void CreatePipeline()
     {
-        byte[] rgenSpv = File.ReadAllBytes("Assets/Shaders/raygen.spv");
-        byte[] rmissSpv = File.ReadAllBytes("Assets/Shaders/miss.spv");
-        byte[] rchitSpv = File.ReadAllBytes("Assets/Shaders/chit.spv");
-        byte[] rahitSpv = File.ReadAllBytes("Assets/Shaders/ahit.spv");
+        string baseDir = AppContext.BaseDirectory;
+        byte[] rgenSpv = File.ReadAllBytes(Path.Combine(baseDir, "Assets/Shaders/raygen.spv"));
+        byte[] rmissSpv = File.ReadAllBytes(Path.Combine(baseDir, "Assets/Shaders/miss.spv"));
+        byte[] rchitSpv = File.ReadAllBytes(Path.Combine(baseDir, "Assets/Shaders/chit.spv"));
+        byte[] rahitSpv = File.ReadAllBytes(Path.Combine(baseDir, "Assets/Shaders/ahit.spv"));
 
         ShaderModule rgenModule = CreateShaderModule(rgenSpv);
         ShaderModule rmissModule = CreateShaderModule(rmissSpv);
@@ -76,8 +77,13 @@ public unsafe class VulkanRayTracingPipeline : IDisposable
 
         RayTracingPipelineCreateInfoKHR pipelineInfo = new()
         {
-            SType = StructureType.RayTracingPipelineCreateInfoKhr, StageCount = 4, PStages = stages,
-            GroupCount = 3, PGroups = groups, MaxPipelineRayRecursionDepth = 1, Layout = PipelineLayout
+            SType = StructureType.RayTracingPipelineCreateInfoKhr,
+            StageCount = 4,
+            PStages = stages,
+            GroupCount = 3,
+            PGroups = groups,
+            MaxPipelineRayRecursionDepth = 1,
+            Layout = PipelineLayout
         };
 
         _device.KhrRayTracingPipeline.CreateRayTracingPipelines(_device.Device, default, default, 1, in pipelineInfo, null, out Pipeline);

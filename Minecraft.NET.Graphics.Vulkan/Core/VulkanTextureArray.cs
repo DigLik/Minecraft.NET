@@ -1,4 +1,4 @@
-﻿using Minecraft.NET.Engine.Abstractions.Graphics;
+using Minecraft.NET.Engine.Abstractions.Graphics;
 
 using Silk.NET.Vulkan;
 
@@ -124,9 +124,9 @@ public unsafe class VulkanTextureArray : ITextureArray
         else if (oldLayout == ImageLayout.TransferDstOptimal && newLayout == ImageLayout.ShaderReadOnlyOptimal)
         {
             barrier.SrcAccessMask = AccessFlags2.TransferWriteBit;
-            barrier.DstAccessMask = AccessFlags2.ShaderReadBit;
+            barrier.DstAccessMask = AccessFlags2.None;
             barrier.SrcStageMask = PipelineStageFlags2.TransferBit;
-            barrier.DstStageMask = PipelineStageFlags2.FragmentShaderBit;
+            barrier.DstStageMask = PipelineStageFlags2.BottomOfPipeBit;
         }
         else throw new Exception("Unsupported layout transition!");
 

@@ -1,7 +1,8 @@
-﻿using System.Numerics;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 
 using Minecraft.NET.Game.World.Blocks;
+using Minecraft.NET.Game.World.Blocks.Services;
 using Minecraft.NET.Game.World.Chunks;
 using Minecraft.NET.Game.World.Environment;
 using Minecraft.NET.Utils.Collections;
@@ -9,7 +10,7 @@ using Minecraft.NET.Utils.Math;
 
 namespace Minecraft.NET.Game.World.Meshing;
 
-public class ChunkMesher(ChunkManager chunkManager)
+public class ChunkMesher(ChunkManager chunkManager, IBlockService blockService, IResourceService resourceService)
 {
     private static readonly float[] FaceShades = [1.0f, 0.5f, 0.8f, 0.8f, 0.6f, 0.6f];
 
@@ -41,8 +42,8 @@ public class ChunkMesher(ChunkManager chunkManager)
         NativeList<ChunkVertex> vertices = new(4096);
         NativeList<uint> indices = new(6144);
 
-        int grassOverlayId = BlockRegistry.TextureFiles.FindIndex(f => f.Contains("grass_side_overlay"));
-        BlockDefinition[] defs = BlockRegistry.Definitions;
+        int grassOverlayId = resourceService.GetSpecialMaterialIndex(SpecialMaterialId.GrassSideOverlay);
+        ReadOnlySpan<BlockDefinition> defs = blockService.GetDefinitionsFast();
 
         ref NativeList<BlockId> blocks = ref centerChunk.Blocks;
         BlockId uniformId = centerChunk.UniformId;
@@ -63,74 +64,74 @@ public class ChunkMesher(ChunkManager chunkManager)
                     BlockId currentId = isUniform ? uniformId : blocks[index];
                     if (currentId == BlockId.Air) continue;
 
-                    ref BlockDefinition currentDef = ref defs[(int)currentId];
+                    ref readonly BlockDefinition currentDef = ref defs[(int)currentId];
                     bool xMin = x == 0;
                     bool xMax = x == 15;
 
                     if (zMax)
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)GetNeighborBlock(ref nPosZ, x | (y << 8))]))
-                            BuildFace(ref vertices, ref indices, x, y, z, 0, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 0, currentId, in currentDef, grassOverlayId);
                     }
                     else
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)(isUniform ? uniformId : blocks[index + 16])]))
-                            BuildFace(ref vertices, ref indices, x, y, z, 0, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 0, currentId, in currentDef, grassOverlayId);
                     }
 
                     if (zMin)
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)GetNeighborBlock(ref nNegZ, x | 240 | (y << 8))]))
-                            BuildFace(ref vertices, ref indices, x, y, z, 1, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 1, currentId, in currentDef, grassOverlayId);
                     }
                     else
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)(isUniform ? uniformId : blocks[index - 16])]))
-                            BuildFace(ref vertices, ref indices, x, y, z, 1, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 1, currentId, in currentDef, grassOverlayId);
                     }
 
                     if (xMin)
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)GetNeighborBlock(ref nNegX, 15 | (z << 4) | (y << 8))]))
-                            BuildFace(ref vertices, ref indices, x, y, z, 2, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 2, currentId, in currentDef, grassOverlayId);
                     }
                     else
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)(isUniform ? uniformId : blocks[index - 1])]))
-                            BuildFace(ref vertices, ref indices, x, y, z, 2, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 2, currentId, in currentDef, grassOverlayId);
                     }
 
                     if (xMax)
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)GetNeighborBlock(ref nPosX, (z << 4) | (y << 8))]))
-                            BuildFace(ref vertices, ref indices, x, y, z, 3, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 3, currentId, in currentDef, grassOverlayId);
                     }
                     else
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)(isUniform ? uniformId : blocks[index + 1])]))
-                            BuildFace(ref vertices, ref indices, x, y, z, 3, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 3, currentId, in currentDef, grassOverlayId);
                     }
 
                     if (yMax)
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)GetNeighborBlock(ref nPosY, x | (z << 4))]))
-                            BuildFace(ref vertices, ref indices, x, y, z, 4, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 4, currentId, in currentDef, grassOverlayId);
                     }
                     else
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)(isUniform ? uniformId : blocks[index + 256])]))
-                            BuildFace(ref vertices, ref indices, x, y, z, 4, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 4, currentId, in currentDef, grassOverlayId);
                     }
 
                     if (yMin)
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)GetNeighborBlock(ref nNegY, x | (z << 4) | 3840)]))
-                            BuildFace(ref vertices, ref indices, x, y, z, 5, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 5, currentId, in currentDef, grassOverlayId);
                     }
                     else
                     {
                         if (ShouldRenderFace(in currentDef, in defs[(int)(isUniform ? uniformId : blocks[index - 256])]))
-                            BuildFace(ref vertices, ref indices, x, y, z, 5, currentId, ref currentDef, grassOverlayId);
+                            BuildFace(ref vertices, ref indices, x, y, z, 5, currentId, in currentDef, grassOverlayId);
                     }
                 }
             }
@@ -166,7 +167,7 @@ public class ChunkMesher(ChunkManager chunkManager)
     private static void BuildFace(
         ref NativeList<ChunkVertex> vertices, ref NativeList<uint> indices,
         int x, int y, int z, int faceIndex,
-        BlockId currentId, ref BlockDefinition currentDef, int grassOverlayId)
+        BlockId currentId, ref readonly BlockDefinition currentDef, int grassOverlayId)
     {
         int textureId = faceIndex switch
         {
