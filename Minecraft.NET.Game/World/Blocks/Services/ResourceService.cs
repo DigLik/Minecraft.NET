@@ -58,16 +58,18 @@ public class ResourceService : IResourceService
     {
         byte[][] pixels = new byte[_textureFiles.Count][];
         using var decompressor = new Decompressor();
-        string baseDir = AppContext.BaseDirectory;
 
         for (int i = 0; i < _textureFiles.Count; i++)
         {
-            string path = Path.Combine(baseDir, _textureFiles[i]);
+            string logicalName = "Minecraft.NET." + _textureFiles[i].Replace('/', '.').Replace('\\', '.');
             pixels[i] = new byte[sizeMap * sizeMap * 4];
 
-            if (File.Exists(path))
+            using var stream = System.Reflection.Assembly.GetEntryAssembly()?.GetManifestResourceStream(logicalName);
+            if (stream != null)
             {
-                byte[] compressed = File.ReadAllBytes(path);
+                using var ms = new MemoryStream();
+                stream.CopyTo(ms);
+                byte[] compressed = ms.ToArray();
                 decompressor.Unwrap(compressed, pixels[i]);
             }
             else

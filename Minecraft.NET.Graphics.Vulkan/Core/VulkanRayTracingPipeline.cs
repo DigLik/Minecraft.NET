@@ -47,13 +47,21 @@ public unsafe class VulkanRayTracingPipeline : IDisposable
         }
     }
 
+    private static byte[] GetShaderResourceBytes(string name)
+    {
+        using var stream = System.Reflection.Assembly.GetEntryAssembly()!.GetManifestResourceStream("Minecraft.NET.Assets.Shaders." + name + ".spv");
+        if (stream == null) throw new FileNotFoundException($"Shader resource {name} not found.");
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms);
+        return ms.ToArray();
+    }
+
     private void CreatePipeline()
     {
-        string baseDir = AppContext.BaseDirectory;
-        byte[] rgenSpv = File.ReadAllBytes(Path.Combine(baseDir, "Assets/Shaders/raygen.spv"));
-        byte[] rmissSpv = File.ReadAllBytes(Path.Combine(baseDir, "Assets/Shaders/miss.spv"));
-        byte[] rchitSpv = File.ReadAllBytes(Path.Combine(baseDir, "Assets/Shaders/chit.spv"));
-        byte[] rahitSpv = File.ReadAllBytes(Path.Combine(baseDir, "Assets/Shaders/ahit.spv"));
+        byte[] rgenSpv = GetShaderResourceBytes("raygen");
+        byte[] rmissSpv = GetShaderResourceBytes("miss");
+        byte[] rchitSpv = GetShaderResourceBytes("chit");
+        byte[] rahitSpv = GetShaderResourceBytes("ahit");
 
         ShaderModule rgenModule = CreateShaderModule(rgenSpv);
         ShaderModule rmissModule = CreateShaderModule(rmissSpv);
