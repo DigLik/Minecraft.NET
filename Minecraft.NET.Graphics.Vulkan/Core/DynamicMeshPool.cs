@@ -79,6 +79,7 @@ public unsafe class DynamicMeshPool : IDisposable
         public void* Indices;
         public int IndexByteSize;
         public int IndexCount;
+        public uint OpaqueIndexCount;
         public MeshAllocation Allocation;
     }
 
@@ -104,6 +105,7 @@ public unsafe class DynamicMeshPool : IDisposable
     private readonly Thread _uploadThread;
 
     private const int MaxInFlight = 3;
+    private const int MaxBatchUploads = 256;
 
     private CommandPool _cmdPool;
     private readonly CommandBuffer[] _cmds = new CommandBuffer[MaxInFlight];
@@ -111,6 +113,9 @@ public unsafe class DynamicMeshPool : IDisposable
     private CommandPool _transferCmdPool;
     private readonly CommandBuffer[] _transferCmds = new CommandBuffer[MaxInFlight];
     private Semaphore _transferCompleteSemaphore;
+    private Fence _uploadFence;
+
+    private QueryPool _queryPool;
 
     private readonly VulkanBuffer?[] _stagingBuffers = new VulkanBuffer?[MaxInFlight];
     private readonly ulong[] _stagingCapacities = new ulong[MaxInFlight];
@@ -132,6 +137,9 @@ public unsafe class DynamicMeshPool : IDisposable
         SemaphoreCreateInfo binSemInfo = new() { SType = StructureType.SemaphoreCreateInfo };
         _device.Vk.CreateSemaphore(_device.Device, in binSemInfo, null, out _transferCompleteSemaphore);
 
+        FenceCreateInfo fenceInfo = new() { SType = StructureType.FenceCreateInfo };
+        _device.Vk.CreateFence(_device.Device, in fenceInfo, null, out _uploadFence);
+
         CommandPoolCreateInfo poolInfo = new() { SType = StructureType.CommandPoolCreateInfo, Flags = CommandPoolCreateFlags.ResetCommandBufferBit, QueueFamilyIndex = _device.GraphicsFamilyIndex };
         _device.Vk.CreateCommandPool(_device.Device, in poolInfo, null, out _cmdPool);
 
@@ -144,14 +152,17 @@ public unsafe class DynamicMeshPool : IDisposable
         CommandBufferAllocateInfo transferAllocInfo = new() { SType = StructureType.CommandBufferAllocateInfo, Level = CommandBufferLevel.Primary, CommandPool = _transferCmdPool, CommandBufferCount = MaxInFlight };
         fixed (CommandBuffer* pCmds = _transferCmds) _device.Vk.AllocateCommandBuffers(_device.Device, in transferAllocInfo, pCmds);
 
+        QueryPoolCreateInfo queryPoolInfo = new() { SType = StructureType.QueryPoolCreateInfo, QueryType = QueryType.AccelerationStructureCompactedSizeKhr, QueryCount = MaxBatchUploads };
+        _device.Vk.CreateQueryPool(_device.Device, in queryPoolInfo, null, out _queryPool);
+
         _uploadThread = new Thread(UploadLoop) { IsBackground = true, Name = "VulkanUploadThread" };
         _uploadThread.Start();
     }
 
-    public MeshAllocation Allocate<T>(NativeList<T> vertices, NativeList<uint> indices) where T : unmanaged
+    public MeshAllocation Allocate<T>(NativeList<T> vertices, NativeList<ushort> indices, uint opaqueIndexCount) where T : unmanaged
     {
         ulong exactVertexSize = (ulong)(vertices.Count * sizeof(T));
-        ulong exactIndexSize = (ulong)(indices.Count * sizeof(uint));
+        ulong exactIndexSize = (ulong)(indices.Count * sizeof(ushort));
 
         ulong alignedVertexSize = AlignUp(exactVertexSize, 256);
         ulong alignedIndexSize = AlignUp(exactIndexSize, 256);
@@ -184,7 +195,7 @@ public unsafe class DynamicMeshPool : IDisposable
             }
         }
 
-        var alloc = new MeshAllocation(this, (uint)indices.Count, (uint)(iOffset / sizeof(uint)), (int)(vOffset / (ulong)sizeof(T)), vOffset, alignedVertexSize, iOffset, alignedIndexSize)
+        var alloc = new MeshAllocation(this, (uint)indices.Count, (uint)(iOffset / sizeof(ushort)), (int)(vOffset / (ulong)sizeof(T)), opaqueIndexCount, vOffset, alignedVertexSize, iOffset, alignedIndexSize)
         {
             VertexChunk = vChunk!,
             IndexChunk = iChunk!
@@ -199,6 +210,7 @@ public unsafe class DynamicMeshPool : IDisposable
             Indices = indices.Data,
             IndexByteSize = (int)exactIndexSize,
             IndexCount = indices.Count,
+            OpaqueIndexCount = opaqueIndexCount,
             Allocation = alloc
         });
 
@@ -217,16 +229,8 @@ public unsafe class DynamicMeshPool : IDisposable
         {
             foreach (var firstUpload in _pendingUploads.GetConsumingEnumerable())
             {
-                ulong waitValue = _submitCounter >= MaxInFlight ? _submitCounter - MaxInFlight + 1 : 0;
-                if (waitValue > 0)
-                {
-                    SemaphoreWaitInfo waitInfo = new() { SType = StructureType.SemaphoreWaitInfo, SemaphoreCount = 1, PSemaphores = (Semaphore*)Unsafe.AsPointer(ref _timelineSemaphore), PValues = &waitValue };
-                    _device.Vk.WaitSemaphores(_device.Device, in waitInfo, ulong.MaxValue);
-                }
-
                 int frameIndex = (int)(_submitCounter % MaxInFlight);
                 ProcessBatch(firstUpload, frameIndex);
-
                 _submitCounter++;
             }
         }
@@ -238,7 +242,6 @@ public unsafe class DynamicMeshPool : IDisposable
 
     private void ProcessBatch(PendingUpload firstUpload, int frameIndex)
     {
-        const int MaxBatchUploads = 256;
         const ulong MaxBatchBytes = 32UL * 1024 * 1024;
 
         PendingUpload[] uploads = new PendingUpload[MaxBatchUploads];
@@ -308,48 +311,97 @@ public unsafe class DynamicMeshPool : IDisposable
             SType = StructureType.MemoryBarrier2,
             SrcStageMask = PipelineStageFlags2.TransferBit,
             SrcAccessMask = AccessFlags2.TransferWriteBit,
-            DstStageMask = PipelineStageFlags2.AccelerationStructureBuildBitKhr | PipelineStageFlags2.RayTracingShaderBitKhr,
-            DstAccessMask = AccessFlags2.AccelerationStructureReadBitKhr | AccessFlags2.ShaderReadBit
+            DstStageMask = PipelineStageFlags2.AccelerationStructureBuildBitKhr,
+            DstAccessMask = AccessFlags2.AccelerationStructureReadBitKhr
         };
         var depInfo1 = new DependencyInfo { SType = StructureType.DependencyInfo, MemoryBarrierCount = 1, PMemoryBarriers = &transferBarrier };
         _device.Vk.CmdPipelineBarrier2(graphicsCmd, in depInfo1);
 
-        var geometries = stackalloc AccelerationStructureGeometryKHR[uploadCount];
+        int totalGeometries = 0;
+        for (int i = 0; i < uploadCount; i++)
+        {
+            if (uploads[i].OpaqueIndexCount > 0) totalGeometries++;
+            if (uploads[i].IndexCount > uploads[i].OpaqueIndexCount) totalGeometries++;
+        }
+
+        var geometries = stackalloc AccelerationStructureGeometryKHR[totalGeometries];
         var buildInfos = stackalloc AccelerationStructureBuildGeometryInfoKHR[uploadCount];
-        var buildRanges = stackalloc AccelerationStructureBuildRangeInfoKHR[uploadCount];
+        var buildRanges = stackalloc AccelerationStructureBuildRangeInfoKHR[totalGeometries];
         var scratchAlignedSizes = stackalloc ulong[uploadCount];
+        var uncompactedHandles = stackalloc AccelerationStructureKHR[uploadCount];
         ulong totalScratchSize = 0;
+
+        int geomIdx = 0;
 
         for (int i = 0; i < uploadCount; i++)
         {
             var upload = uploads[i];
             var alloc = upload.Allocation;
+            int startGeomIdx = geomIdx;
 
-            var triangles = new AccelerationStructureGeometryTrianglesDataKHR
+            if (upload.OpaqueIndexCount > 0)
             {
-                SType = StructureType.AccelerationStructureGeometryTrianglesDataKhr,
-                VertexFormat = Format.R32G32B32Sfloat,
-                VertexData = new DeviceOrHostAddressConstKHR { DeviceAddress = alloc.VertexAddress + alloc.VertexByteOffset },
-                VertexStride = (ulong)upload.VertexStride,
-                MaxVertex = (uint)(alloc.VertexByteSize / (ulong)upload.VertexStride) - 1,
-                IndexType = IndexType.Uint32,
-                IndexData = new DeviceOrHostAddressConstKHR { DeviceAddress = alloc.IndexAddress + alloc.IndexByteOffset }
+                var triangles = new AccelerationStructureGeometryTrianglesDataKHR
+                {
+                    SType = StructureType.AccelerationStructureGeometryTrianglesDataKhr,
+                    VertexFormat = Format.R32G32B32Sfloat,
+                    VertexData = new DeviceOrHostAddressConstKHR { DeviceAddress = alloc.VertexAddress + alloc.VertexByteOffset },
+                    VertexStride = (ulong)upload.VertexStride,
+                    MaxVertex = (uint)(alloc.VertexByteSize / (ulong)upload.VertexStride) - 1,
+                    IndexType = IndexType.Uint16,
+                    IndexData = new DeviceOrHostAddressConstKHR { DeviceAddress = alloc.IndexAddress + alloc.IndexByteOffset }
+                };
+
+                geometries[geomIdx] = new AccelerationStructureGeometryKHR
+                {
+                    SType = StructureType.AccelerationStructureGeometryKhr,
+                    GeometryType = GeometryTypeKHR.TrianglesKhr,
+                    Geometry = new AccelerationStructureGeometryDataKHR { Triangles = triangles },
+                    Flags = GeometryFlagsKHR.OpaqueBitKhr
+                };
+                buildRanges[geomIdx] = new AccelerationStructureBuildRangeInfoKHR { PrimitiveCount = upload.OpaqueIndexCount / 3, PrimitiveOffset = 0, FirstVertex = 0, TransformOffset = 0 };
+                geomIdx++;
+            }
+
+            if (upload.IndexCount > upload.OpaqueIndexCount)
+            {
+                uint transparentCount = (uint)upload.IndexCount - upload.OpaqueIndexCount;
+                var triangles = new AccelerationStructureGeometryTrianglesDataKHR
+                {
+                    SType = StructureType.AccelerationStructureGeometryTrianglesDataKhr,
+                    VertexFormat = Format.R32G32B32Sfloat,
+                    VertexData = new DeviceOrHostAddressConstKHR { DeviceAddress = alloc.VertexAddress + alloc.VertexByteOffset },
+                    VertexStride = (ulong)upload.VertexStride,
+                    MaxVertex = (uint)(alloc.VertexByteSize / (ulong)upload.VertexStride) - 1,
+                    IndexType = IndexType.Uint16,
+                    IndexData = new DeviceOrHostAddressConstKHR { DeviceAddress = alloc.IndexAddress + alloc.IndexByteOffset + (upload.OpaqueIndexCount * sizeof(ushort)) }
+                };
+
+                geometries[geomIdx] = new AccelerationStructureGeometryKHR
+                {
+                    SType = StructureType.AccelerationStructureGeometryKhr,
+                    GeometryType = GeometryTypeKHR.TrianglesKhr,
+                    Geometry = new AccelerationStructureGeometryDataKHR { Triangles = triangles },
+                    Flags = GeometryFlagsKHR.None
+                };
+                buildRanges[geomIdx] = new AccelerationStructureBuildRangeInfoKHR { PrimitiveCount = transparentCount / 3, PrimitiveOffset = 0, FirstVertex = 0, TransformOffset = 0 };
+                geomIdx++;
+            }
+
+            var buildInfoSize = new AccelerationStructureBuildGeometryInfoKHR
+            {
+                SType = StructureType.AccelerationStructureBuildGeometryInfoKhr,
+                Type = AccelerationStructureTypeKHR.BottomLevelKhr,
+                Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr | BuildAccelerationStructureFlagsKHR.AllowCompactionBitKhr,
+                GeometryCount = (uint)(geomIdx - startGeomIdx),
+                PGeometries = &geometries[startGeomIdx]
             };
 
-            geometries[i] = new AccelerationStructureGeometryKHR
-            {
-                SType = StructureType.AccelerationStructureGeometryKhr,
-                GeometryType = GeometryTypeKHR.TrianglesKhr,
-                Geometry = new AccelerationStructureGeometryDataKHR { Triangles = triangles },
-                Flags = GeometryFlagsKHR.None
-            };
+            uint* maxPrimitiveCounts = stackalloc uint[(geomIdx - startGeomIdx)];
+            for (int j = 0; j < (geomIdx - startGeomIdx); j++)
+                maxPrimitiveCounts[j] = buildRanges[startGeomIdx + j].PrimitiveCount;
 
-            var buildInfoSize = new AccelerationStructureBuildGeometryInfoKHR { SType = StructureType.AccelerationStructureBuildGeometryInfoKhr, Type = AccelerationStructureTypeKHR.BottomLevelKhr, Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr, GeometryCount = 1 };
-            uint maxPrimitiveCount = alloc.IndexCount / 3;
-            AccelerationStructureGeometryKHR tempGeom = geometries[i];
-            buildInfoSize.PGeometries = &tempGeom;
-
-            _device.KhrAccelerationStructure.GetAccelerationStructureBuildSizes(_device.Device, AccelerationStructureBuildTypeKHR.DeviceKhr, in buildInfoSize, &maxPrimitiveCount, out var buildSizes);
+            _device.KhrAccelerationStructure.GetAccelerationStructureBuildSizes(_device.Device, AccelerationStructureBuildTypeKHR.DeviceKhr, in buildInfoSize, maxPrimitiveCounts, out var buildSizes);
 
             ulong alignedBlasSize = (buildSizes.AccelerationStructureSize + 255) & ~255UL;
             ulong blasOffset = ulong.MaxValue;
@@ -373,10 +425,7 @@ public unsafe class DynamicMeshPool : IDisposable
             alloc.BlasChunk = bChunk!;
 
             var createInfo = new AccelerationStructureCreateInfoKHR { SType = StructureType.AccelerationStructureCreateInfoKhr, Buffer = bChunk!.Buffer.Buffer, Offset = blasOffset, Size = buildSizes.AccelerationStructureSize, Type = AccelerationStructureTypeKHR.BottomLevelKhr };
-            _device.KhrAccelerationStructure.CreateAccelerationStructure(_device.Device, in createInfo, null, out alloc.Blas);
-
-            var addressInfo = new AccelerationStructureDeviceAddressInfoKHR { SType = StructureType.AccelerationStructureDeviceAddressInfoKhr, AccelerationStructure = alloc.Blas };
-            alloc.BlasDeviceAddress = _device.KhrAccelerationStructure.GetAccelerationStructureDeviceAddress(_device.Device, in addressInfo);
+            _device.KhrAccelerationStructure.CreateAccelerationStructure(_device.Device, in createInfo, null, out uncompactedHandles[i]);
 
             ulong alignedScratch = (buildSizes.BuildScratchSize + 255) & ~255UL;
             scratchAlignedSizes[i] = alignedScratch;
@@ -396,23 +445,27 @@ public unsafe class DynamicMeshPool : IDisposable
             ulong scratchOffset = 0;
             var ppBuildRanges = stackalloc AccelerationStructureBuildRangeInfoKHR*[uploadCount];
 
+            int currentGeom = 0;
             for (int i = 0; i < uploadCount; i++)
             {
-                var alloc = uploads[i].Allocation;
+                uint gCount = 0;
+                if (uploads[i].OpaqueIndexCount > 0) gCount++;
+                if (uploads[i].IndexCount > uploads[i].OpaqueIndexCount) gCount++;
 
                 buildInfos[i] = new AccelerationStructureBuildGeometryInfoKHR
                 {
                     SType = StructureType.AccelerationStructureBuildGeometryInfoKhr, Type = AccelerationStructureTypeKHR.BottomLevelKhr,
-                    Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr, Mode = BuildAccelerationStructureModeKHR.BuildKhr,
-                    DstAccelerationStructure = alloc.Blas, GeometryCount = 1, PGeometries = &geometries[i],
+                    Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr | BuildAccelerationStructureFlagsKHR.AllowCompactionBitKhr, Mode = BuildAccelerationStructureModeKHR.BuildKhr,
+                    DstAccelerationStructure = uncompactedHandles[i], GeometryCount = gCount, PGeometries = &geometries[currentGeom],
                     ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = _scratchBuffers[frameIndex]!.DeviceAddress + scratchOffset }
                 };
 
-                buildRanges[i] = new AccelerationStructureBuildRangeInfoKHR { PrimitiveCount = alloc.IndexCount / 3, PrimitiveOffset = 0, FirstVertex = 0, TransformOffset = 0 };
-                ppBuildRanges[i] = &buildRanges[i];
+                ppBuildRanges[i] = &buildRanges[currentGeom];
+                currentGeom += (int)gCount;
                 scratchOffset += scratchAlignedSizes[i];
             }
 
+            _device.Vk.CmdResetQueryPool(graphicsCmd, _queryPool, 0, (uint)uploadCount);
             _device.KhrAccelerationStructure.CmdBuildAccelerationStructures(graphicsCmd, (uint)uploadCount, buildInfos, ppBuildRanges);
 
             var buildBarrier = new MemoryBarrier2
@@ -421,37 +474,104 @@ public unsafe class DynamicMeshPool : IDisposable
                 SrcStageMask = PipelineStageFlags2.AccelerationStructureBuildBitKhr,
                 SrcAccessMask = AccessFlags2.AccelerationStructureWriteBitKhr,
                 DstStageMask = PipelineStageFlags2.AccelerationStructureBuildBitKhr,
-                DstAccessMask = AccessFlags2.AccelerationStructureReadBitKhr | AccessFlags2.AccelerationStructureWriteBitKhr
+                DstAccessMask = AccessFlags2.AccelerationStructureReadBitKhr
             };
             var depInfo2 = new DependencyInfo { SType = StructureType.DependencyInfo, MemoryBarrierCount = 1, PMemoryBarriers = &buildBarrier };
             _device.Vk.CmdPipelineBarrier2(graphicsCmd, in depInfo2);
+
+            _device.KhrAccelerationStructure.CmdWriteAccelerationStructuresProperties(graphicsCmd, (uint)uploadCount, uncompactedHandles, QueryType.AccelerationStructureCompactedSizeKhr, _queryPool, 0);
         }
 
         _device.Vk.EndCommandBuffer(graphicsCmd);
-
-        ulong signalValue = _submitCounter + 1;
 
         var transferSignalInfo = new SemaphoreSubmitInfo { SType = StructureType.SemaphoreSubmitInfo, Semaphore = _transferCompleteSemaphore, StageMask = PipelineStageFlags2.TransferBit };
         var transferCmdInfo = new CommandBufferSubmitInfo { SType = StructureType.CommandBufferSubmitInfo, CommandBuffer = transferCmd };
         var transferSubmit = new SubmitInfo2 { SType = StructureType.SubmitInfo2, CommandBufferInfoCount = 1, PCommandBufferInfos = &transferCmdInfo, SignalSemaphoreInfoCount = 1, PSignalSemaphoreInfos = &transferSignalInfo };
 
         lock (_device.TransferQueueLock)
-        {
             _device.Vk.QueueSubmit2(_device.TransferQueue, 1, in transferSubmit, default);
-        }
 
         var graphicsWaitInfo = new SemaphoreSubmitInfo { SType = StructureType.SemaphoreSubmitInfo, Semaphore = _transferCompleteSemaphore, StageMask = PipelineStageFlags2.AccelerationStructureBuildBitKhr };
-        var graphicsSignalInfo = new SemaphoreSubmitInfo { SType = StructureType.SemaphoreSubmitInfo, Semaphore = _timelineSemaphore, Value = signalValue, StageMask = PipelineStageFlags2.AllCommandsBit };
         var graphicsCmdInfo = new CommandBufferSubmitInfo { SType = StructureType.CommandBufferSubmitInfo, CommandBuffer = graphicsCmd };
+        var graphicsSubmit = new SubmitInfo2 { SType = StructureType.SubmitInfo2, WaitSemaphoreInfoCount = 1, PWaitSemaphoreInfos = &graphicsWaitInfo, CommandBufferInfoCount = 1, PCommandBufferInfos = &graphicsCmdInfo };
 
-        var graphicsSubmit = new SubmitInfo2 { SType = StructureType.SubmitInfo2, WaitSemaphoreInfoCount = 1, PWaitSemaphoreInfos = &graphicsWaitInfo, CommandBufferInfoCount = 1, PCommandBufferInfos = &graphicsCmdInfo, SignalSemaphoreInfoCount = 1, PSignalSemaphoreInfos = &graphicsSignalInfo };
+        _device.Vk.ResetFences(_device.Device, 1, in _uploadFence);
 
         lock (_device.QueueLock)
+            _device.Vk.QueueSubmit2(_device.GraphicsQueue, 1, in graphicsSubmit, _uploadFence);
+
+        _device.Vk.WaitForFences(_device.Device, 1, in _uploadFence, Vk.True, ulong.MaxValue);
+
+        ulong* compactedSizes = stackalloc ulong[uploadCount];
+        _device.Vk.GetQueryPoolResults(_device.Device, _queryPool, 0, (uint)uploadCount, (nuint)(uploadCount * sizeof(ulong)), compactedSizes, (ulong)sizeof(ulong), QueryResultFlags.ResultWaitBit | QueryResultFlags.Result64Bit);
+
+        _device.Vk.ResetCommandBuffer(graphicsCmd, 0);
+        _device.Vk.BeginCommandBuffer(graphicsCmd, in beginGraphicsInfo);
+
+        AccelerationStructureKHR[] compactedHandles = new AccelerationStructureKHR[uploadCount];
+        ulong[] oldOffsets = new ulong[uploadCount];
+        ulong[] oldSizes = new ulong[uploadCount];
+        BufferChunk[] oldChunks = new BufferChunk[uploadCount];
+
+        for (int i = 0; i < uploadCount; i++)
         {
-            _device.Vk.QueueSubmit2(_device.GraphicsQueue, 1, in graphicsSubmit, default);
+            var alloc = uploads[i].Allocation;
+            oldOffsets[i] = alloc.BlasByteOffset;
+            oldSizes[i] = alloc.BlasByteSize;
+            oldChunks[i] = alloc.BlasChunk;
+
+            ulong compactedSize = AlignUp(compactedSizes[i], 256);
+            ulong blasOffset = ulong.MaxValue;
+            BufferChunk? bChunk = null;
+
+            lock (_allocLock)
+            {
+                foreach (var chunk in _blasChunks)
+                {
+                    blasOffset = chunk.Allocate(compactedSize);
+                    if (blasOffset != ulong.MaxValue) { bChunk = chunk; break; }
+                }
+                if (blasOffset == ulong.MaxValue)
+                {
+                    bChunk = new BufferChunk(_device, BlasChunkCapacity, bUsage, isShared: true);
+                    blasOffset = bChunk.Allocate(compactedSize); _blasChunks.Add(bChunk);
+                }
+            }
+
+            alloc.BlasByteOffset = blasOffset;
+            alloc.BlasByteSize = compactedSize;
+            alloc.BlasChunk = bChunk!;
+
+            var createInfo = new AccelerationStructureCreateInfoKHR { SType = StructureType.AccelerationStructureCreateInfoKhr, Buffer = bChunk!.Buffer.Buffer, Offset = blasOffset, Size = compactedSize, Type = AccelerationStructureTypeKHR.BottomLevelKhr };
+            _device.KhrAccelerationStructure.CreateAccelerationStructure(_device.Device, in createInfo, null, out compactedHandles[i]);
+
+            var copyInfo = new CopyAccelerationStructureInfoKHR { SType = StructureType.CopyAccelerationStructureInfoKhr, Src = uncompactedHandles[i], Dst = compactedHandles[i], Mode = CopyAccelerationStructureModeKHR.CompactKhr };
+            _device.KhrAccelerationStructure.CmdCopyAccelerationStructure(graphicsCmd, in copyInfo);
+
+            var addressInfo = new AccelerationStructureDeviceAddressInfoKHR { SType = StructureType.AccelerationStructureDeviceAddressInfoKhr, AccelerationStructure = compactedHandles[i] };
+            alloc.BlasDeviceAddress = _device.KhrAccelerationStructure.GetAccelerationStructureDeviceAddress(_device.Device, in addressInfo);
+            alloc.Blas = compactedHandles[i];
         }
 
-        for (int i = 0; i < uploadCount; i++) uploads[i].Allocation.ReadySyncValue = signalValue;
+        _device.Vk.EndCommandBuffer(graphicsCmd);
+
+        ulong signalValue = _submitCounter + 1;
+        var graphicsSignalInfo = new SemaphoreSubmitInfo { SType = StructureType.SemaphoreSubmitInfo, Semaphore = _timelineSemaphore, Value = signalValue, StageMask = PipelineStageFlags2.AllCommandsBit };
+        var graphicsSubmit2 = new SubmitInfo2 { SType = StructureType.SubmitInfo2, CommandBufferInfoCount = 1, PCommandBufferInfos = &graphicsCmdInfo, SignalSemaphoreInfoCount = 1, PSignalSemaphoreInfos = &graphicsSignalInfo };
+
+        _device.Vk.ResetFences(_device.Device, 1, in _uploadFence);
+
+        lock (_device.QueueLock)
+            _device.Vk.QueueSubmit2(_device.GraphicsQueue, 1, in graphicsSubmit2, _uploadFence);
+
+        _device.Vk.WaitForFences(_device.Device, 1, in _uploadFence, Vk.True, ulong.MaxValue);
+
+        for (int i = 0; i < uploadCount; i++)
+        {
+            _device.KhrAccelerationStructure.DestroyAccelerationStructure(_device.Device, uncompactedHandles[i], null);
+            lock (_allocLock) oldChunks[i].Free(oldOffsets[i], oldSizes[i]);
+            uploads[i].Allocation.ReadySyncValue = signalValue;
+        }
     }
 
     public void Free(MeshAllocation allocation)
@@ -468,6 +588,9 @@ public unsafe class DynamicMeshPool : IDisposable
     {
         _pendingUploads.CompleteAdding();
         _uploadThread.Join(TimeSpan.FromSeconds(1));
+
+        _device.Vk.DestroyQueryPool(_device.Device, _queryPool, null);
+        _device.Vk.DestroyFence(_device.Device, _uploadFence, null);
 
         _device.Vk.DestroySemaphore(_device.Device, _timelineSemaphore, null);
         _device.Vk.DestroySemaphore(_device.Device, _transferCompleteSemaphore, null);

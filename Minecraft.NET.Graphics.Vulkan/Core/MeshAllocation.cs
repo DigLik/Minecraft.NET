@@ -6,13 +6,14 @@ namespace Minecraft.NET.Graphics.Vulkan.Core;
 
 public class MeshAllocation(
     DynamicMeshPool pool,
-    uint indexCount, uint firstIndex, int vertexOffset,
+    uint indexCount, uint firstIndex, int vertexOffset, uint opaqueIndexCount,
     ulong vertexByteOffset, ulong vertexByteSize,
     ulong indexByteOffset, ulong indexByteSize) : IMesh
 {
     public uint IndexCount { get; } = indexCount;
     public uint FirstIndex { get; } = firstIndex;
     public int VertexOffset { get; } = vertexOffset;
+    public uint OpaqueIndexCount { get; } = opaqueIndexCount;
 
     internal ulong VertexByteOffset { get; } = vertexByteOffset;
     internal ulong VertexByteSize { get; } = vertexByteSize;

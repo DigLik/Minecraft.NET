@@ -10,7 +10,7 @@ public record struct ChunkVertex(
     uint PackedData
 );
 
-public record struct ChunkMesh(NativeList<ChunkVertex> Vertices = default, NativeList<uint> Indices = default)
+public record struct ChunkMesh(NativeList<ChunkVertex> Vertices = default, NativeList<ushort> Indices = default, uint OpaqueIndexCount = 0)
 {
     public readonly bool IsEmpty => !Vertices.IsCreated || !Indices.IsCreated || Vertices.Count == 0 || Indices.Count == 0;
 }

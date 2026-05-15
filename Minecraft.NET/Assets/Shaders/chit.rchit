@@ -3,6 +3,7 @@
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_ray_query : require
 #extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
 
 struct Payload {
     vec3 hitPos;
@@ -26,12 +27,12 @@ struct ChunkVertex {
 };
 
 layout(buffer_reference, scalar, buffer_reference_align = 4) readonly buffer VertexBuffer { ChunkVertex v[]; };
-layout(buffer_reference, scalar, buffer_reference_align = 4) readonly buffer IndexBuffer { uint i[]; };
+layout(buffer_reference, scalar, buffer_reference_align = 2) readonly buffer IndexBuffer { uint16_t i[]; };
 
 struct InstanceData {
     uint VertexOffset;
     uint IndexOffset;
-    uint Pad1;
+    uint OpaqueIndexCount;
     uint Pad2;
     VertexBuffer verts;
     IndexBuffer inds;
@@ -69,9 +70,12 @@ void main() {
     uint primId = gl_PrimitiveID;
     InstanceData inst = instances.d[instId];
 
-    uint i0 = inst.inds.i[inst.IndexOffset + primId * 3 + 0];
-    uint i1 = inst.inds.i[inst.IndexOffset + primId * 3 + 1];
-    uint i2 = inst.inds.i[inst.IndexOffset + primId * 3 + 2];
+    uint geomIdx = gl_GeometryIndexEXT;
+    uint baseIndex = inst.IndexOffset + ((geomIdx > 0) ? inst.OpaqueIndexCount : 0) + (primId * 3);
+
+    uint i0 = uint(inst.inds.i[baseIndex + 0]);
+    uint i1 = uint(inst.inds.i[baseIndex + 1]);
+    uint i2 = uint(inst.inds.i[baseIndex + 2]);
 
     ChunkVertex v0 = inst.verts.v[inst.VertexOffset + i0];
     ChunkVertex v1 = inst.verts.v[inst.VertexOffset + i1];
@@ -102,9 +106,9 @@ void main() {
 
     vec4 baseTint = vec4(1.0);
     vec4 overTint = vec4(1.0);
-    if (tintType == 1) baseTint = vec4(145.0/255.0, 189.0/255.0, 89.0/255.0, 1.0); // Grass Top
-    else if (tintType == 2) overTint = vec4(145.0/255.0, 189.0/255.0, 89.0/255.0, 1.0); // Grass Side
-    else if (tintType == 3) baseTint = vec4(72.0/255.0, 181.0/255.0, 72.0/255.0, 1.0); // Leaves
+    if (tintType == 1) baseTint = vec4(145.0/255.0, 189.0/255.0, 89.0/255.0, 1.0);
+    else if (tintType == 2) overTint = vec4(145.0/255.0, 189.0/255.0, 89.0/255.0, 1.0);
+    else if (tintType == 3) baseTint = vec4(72.0/255.0, 181.0/255.0, 72.0/255.0, 1.0);
 
     vec4 texColor = texture(TexArray, vec3(uv, float(texIndex))) * baseTint;
 

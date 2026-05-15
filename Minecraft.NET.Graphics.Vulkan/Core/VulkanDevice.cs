@@ -179,7 +179,7 @@ public unsafe class VulkanDevice : IDisposable
     private uint DebugCallback(DebugUtilsMessageSeverityFlagsEXT messageSeverity, DebugUtilsMessageTypeFlagsEXT messageTypes, DebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData)
     {
         string message = Marshal.PtrToStringAnsi((IntPtr)pCallbackData->PMessage) ?? "Unknown Vulkan Error";
-        
+
         if (messageSeverity >= DebugUtilsMessageSeverityFlagsEXT.ErrorBitExt)
             Console.Error.WriteLine($"[Vulkan Error] {message}");
         else if (messageSeverity >= DebugUtilsMessageSeverityFlagsEXT.WarningBitExt)
@@ -279,11 +279,18 @@ public unsafe class VulkanDevice : IDisposable
 
         var pDeviceExtensions = SilkMarshal.StringArrayToPtr(deviceExtensions);
 
+        PhysicalDeviceVulkan11Features vk11Features = new()
+        {
+            SType = StructureType.PhysicalDeviceVulkan11Features,
+            StorageBuffer16BitAccess = Vk.True
+        };
+
         PhysicalDeviceVulkan12Features vk12Features = new()
         {
             SType = StructureType.PhysicalDeviceVulkan12Features,
             TimelineSemaphore = Vk.True,
-            BufferDeviceAddress = Vk.True
+            BufferDeviceAddress = Vk.True,
+            PNext = &vk11Features
         };
 
         PhysicalDeviceVulkan13Features vk13Features = new()
@@ -317,7 +324,7 @@ public unsafe class VulkanDevice : IDisposable
         PhysicalDeviceFeatures2 deviceFeatures = new()
         {
             SType = StructureType.PhysicalDeviceFeatures2,
-            Features = new PhysicalDeviceFeatures { SamplerAnisotropy = Vk.True, ShaderInt64 = Vk.True },
+            Features = new PhysicalDeviceFeatures { SamplerAnisotropy = Vk.True, ShaderInt64 = Vk.True, ShaderInt16 = Vk.True },
             PNext = &rqFeatures
         };
 

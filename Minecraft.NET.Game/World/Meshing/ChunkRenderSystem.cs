@@ -168,7 +168,7 @@ public class ChunkRenderSystem : ISystem, IDisposable, IEventHandler<BlockChange
 
                 if (!meshData.IsEmpty)
                 {
-                    var gpuMesh = _pipeline.CreateMesh(meshData.Vertices, meshData.Indices);
+                    var gpuMesh = _pipeline.CreateMesh(meshData.Vertices, meshData.Indices, meshData.OpaqueIndexCount);
                     _builtMeshes.Add((meshPos, gpuMesh));
                 }
                 else

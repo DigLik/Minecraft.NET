@@ -49,8 +49,8 @@ public unsafe class VulkanRayTracingPipeline : IDisposable
 
     private static byte[] GetShaderResourceBytes(string name)
     {
-        using var stream = System.Reflection.Assembly.GetEntryAssembly()!.GetManifestResourceStream("Minecraft.NET.Assets.Shaders." + name + ".spv");
-        if (stream == null) throw new FileNotFoundException($"Shader resource {name} not found.");
+        using var stream = System.Reflection.Assembly.GetEntryAssembly()!.GetManifestResourceStream("Minecraft.NET.Assets.Shaders." + name + ".spv")
+            ?? throw new FileNotFoundException($"Shader resource {name} not found.");
         using var ms = new MemoryStream();
         stream.CopyTo(ms);
         return ms.ToArray();

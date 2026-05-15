@@ -26,7 +26,8 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     {
         public uint VertexOffset;
         public uint IndexOffset;
-        public uint Pad1, Pad2;
+        public uint OpaqueIndexCount;
+        public uint Pad2;
         public ulong VertexAddress;
         public ulong IndexAddress;
     }
@@ -79,7 +80,11 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     private readonly VulkanBuffer[] _instancesBuffers = new VulkanBuffer[MaxFramesInFlight];
     private readonly VulkanBuffer[] _instanceDataBuffers = new VulkanBuffer[MaxFramesInFlight];
     private readonly VulkanBuffer[] _tlasScratchBuffers = new VulkanBuffer[MaxFramesInFlight];
+
     private readonly int[] _tlasCapacities = new int[MaxFramesInFlight];
+    private readonly int[] _tlasInstanceCounts = new int[MaxFramesInFlight];
+    private readonly ulong[] _tlasScratchCapacities = new ulong[MaxFramesInFlight];
+    private readonly bool[] _tlasNeedsRebuild = new bool[MaxFramesInFlight];
 
     public VulkanRenderPipeline(IWindow window)
     {
@@ -87,7 +92,12 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         _device = new VulkanDevice(window.Handle);
         _swapchain = new VulkanSwapchain(_device, _framebufferSize);
 
-        for (int i = 0; i < MaxFramesInFlight; i++) _meshesToDispose[i] = [];
+        for (int i = 0; i < MaxFramesInFlight; i++)
+        {
+            _meshesToDispose[i] = [];
+            _tlasInstanceCounts[i] = -1;
+            _tlasNeedsRebuild[i] = true;
+        }
 
         CreateCommandPool();
         CreateCommandBuffers();
@@ -146,8 +156,8 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         _device.Vk.CreateImageView(_device.Device, in accumViewInfo, null, out _accumulationImageView);
     }
 
-    public IMesh CreateMesh<T>(NativeList<T> vertices, NativeList<uint> indices) where T : unmanaged
-        => _meshPool.Allocate(vertices, indices);
+    public IMesh CreateMesh<T>(NativeList<T> vertices, NativeList<ushort> indices, uint opaqueIndexCount = 0) where T : unmanaged
+        => _meshPool.Allocate(vertices, indices, opaqueIndexCount);
 
     public void DeleteMesh(IMesh mesh) => _pendingMeshesToDispose.Enqueue(mesh);
 
@@ -311,35 +321,21 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
 
         if (_drawCallCount > 0)
         {
+            bool needsRebuild = _tlasNeedsRebuild[_currentFrame] || _drawCallCount != _tlasInstanceCounts[_currentFrame];
             int requiredCapacity = Math.Max(128, _drawCallCount);
 
-            if (_tlasCapacities[_currentFrame] < _drawCallCount)
+            if (_tlasCapacities[_currentFrame] < requiredCapacity)
             {
                 requiredCapacity = Math.Max(_tlasCapacities[_currentFrame] * 2, requiredCapacity);
 
                 _instancesBuffers[_currentFrame]?.Dispose();
                 _instanceDataBuffers[_currentFrame]?.Dispose();
-                _tlasScratchBuffers[_currentFrame]?.Dispose();
-                _tlasBuffers[_currentFrame]?.Dispose();
-
-                if (_tlasHandles[_currentFrame].Handle != 0) _device.KhrAccelerationStructure.DestroyAccelerationStructure(_device.Device, _tlasHandles[_currentFrame], null);
 
                 _instancesBuffers[_currentFrame] = new VulkanBuffer(_device, (ulong)(requiredCapacity * sizeof(AccelerationStructureInstanceKHR)), BufferUsageFlags.ShaderDeviceAddressBit | BufferUsageFlags.AccelerationStructureBuildInputReadOnlyBitKhr, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
                 _instanceDataBuffers[_currentFrame] = new VulkanBuffer(_device, (ulong)(requiredCapacity * sizeof(InstanceData)), BufferUsageFlags.StorageBufferBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
 
-                var instancesDataInfo = new AccelerationStructureGeometryInstancesDataKHR { SType = StructureType.AccelerationStructureGeometryInstancesDataKhr, ArrayOfPointers = Vk.False, Data = new DeviceOrHostAddressConstKHR { DeviceAddress = _instancesBuffers[_currentFrame].DeviceAddress } };
-                var geometryInfo = new AccelerationStructureGeometryKHR { SType = StructureType.AccelerationStructureGeometryKhr, GeometryType = GeometryTypeKHR.InstancesKhr, Geometry = new AccelerationStructureGeometryDataKHR { Instances = instancesDataInfo } };
-                var buildInfoSize = new AccelerationStructureBuildGeometryInfoKHR { SType = StructureType.AccelerationStructureBuildGeometryInfoKhr, Type = AccelerationStructureTypeKHR.TopLevelKhr, Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr, GeometryCount = 1, PGeometries = &geometryInfo };
-
-                uint maxInstanceCount = (uint)requiredCapacity;
-                _device.KhrAccelerationStructure.GetAccelerationStructureBuildSizes(_device.Device, AccelerationStructureBuildTypeKHR.DeviceKhr, in buildInfoSize, &maxInstanceCount, out var buildSizes);
-
-                _tlasBuffers[_currentFrame] = new VulkanBuffer(_device, buildSizes.AccelerationStructureSize, BufferUsageFlags.AccelerationStructureStorageBitKhr, MemoryPropertyFlags.DeviceLocalBit);
-                var createInfo = new AccelerationStructureCreateInfoKHR { SType = StructureType.AccelerationStructureCreateInfoKhr, Buffer = _tlasBuffers[_currentFrame].Buffer, Size = buildSizes.AccelerationStructureSize, Type = AccelerationStructureTypeKHR.TopLevelKhr };
-                _device.KhrAccelerationStructure.CreateAccelerationStructure(_device.Device, in createInfo, null, out _tlasHandles[_currentFrame]);
-
-                _tlasScratchBuffers[_currentFrame] = new VulkanBuffer(_device, buildSizes.BuildScratchSize, BufferUsageFlags.StorageBufferBit | BufferUsageFlags.ShaderDeviceAddressBit, MemoryPropertyFlags.DeviceLocalBit);
                 _tlasCapacities[_currentFrame] = requiredCapacity;
+                needsRebuild = true;
             }
 
             var instSpan = new Span<AccelerationStructureInstanceKHR>(_instancesBuffers[_currentFrame].MappedMemory, _drawCallCount);
@@ -369,6 +365,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
                 {
                     VertexOffset = (uint)alloc.VertexOffset,
                     IndexOffset = alloc.FirstIndex,
+                    OpaqueIndexCount = alloc.OpaqueIndexCount,
                     VertexAddress = alloc.VertexAddress,
                     IndexAddress = alloc.IndexAddress
                 };
@@ -377,11 +374,63 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
             var instancesData = new AccelerationStructureGeometryInstancesDataKHR { SType = StructureType.AccelerationStructureGeometryInstancesDataKhr, ArrayOfPointers = Vk.False, Data = new DeviceOrHostAddressConstKHR { DeviceAddress = _instancesBuffers[_currentFrame].DeviceAddress } };
             var geometry = new AccelerationStructureGeometryKHR { SType = StructureType.AccelerationStructureGeometryKhr, GeometryType = GeometryTypeKHR.InstancesKhr, Geometry = new AccelerationStructureGeometryDataKHR { Instances = instancesData } };
 
-            var buildInfo = new AccelerationStructureBuildGeometryInfoKHR { SType = StructureType.AccelerationStructureBuildGeometryInfoKhr, Type = AccelerationStructureTypeKHR.TopLevelKhr, Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr, GeometryCount = 1, PGeometries = &geometry, Mode = BuildAccelerationStructureModeKHR.BuildKhr, DstAccelerationStructure = _tlasHandles[_currentFrame], ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = _tlasScratchBuffers[_currentFrame].DeviceAddress } };
+            var buildFlags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr | BuildAccelerationStructureFlagsKHR.AllowUpdateBitKhr;
+
+            var buildInfoSize = new AccelerationStructureBuildGeometryInfoKHR
+            {
+                SType = StructureType.AccelerationStructureBuildGeometryInfoKhr,
+                Type = AccelerationStructureTypeKHR.TopLevelKhr,
+                Flags = buildFlags,
+                GeometryCount = 1,
+                PGeometries = &geometry
+            };
+
+            uint maxInstanceCount = (uint)_drawCallCount;
+            _device.KhrAccelerationStructure.GetAccelerationStructureBuildSizes(_device.Device, AccelerationStructureBuildTypeKHR.DeviceKhr, in buildInfoSize, &maxInstanceCount, out var buildSizes);
+
+            ulong requiredScratchSize = needsRebuild ? buildSizes.BuildScratchSize : buildSizes.UpdateScratchSize;
+
+            if (_tlasScratchCapacities[_currentFrame] < requiredScratchSize)
+            {
+                _tlasScratchBuffers[_currentFrame]?.Dispose();
+                ulong newCap = Math.Max(requiredScratchSize, _tlasScratchCapacities[_currentFrame] * 2);
+                newCap = Math.Max(newCap, 1024 * 1024);
+                _tlasScratchBuffers[_currentFrame] = new VulkanBuffer(_device, newCap, BufferUsageFlags.StorageBufferBit | BufferUsageFlags.ShaderDeviceAddressBit, MemoryPropertyFlags.DeviceLocalBit);
+                _tlasScratchCapacities[_currentFrame] = newCap;
+            }
+
+            if (needsRebuild)
+            {
+                if (_tlasHandles[_currentFrame].Handle != 0)
+                    _device.KhrAccelerationStructure.DestroyAccelerationStructure(_device.Device, _tlasHandles[_currentFrame], null);
+
+                _tlasBuffers[_currentFrame]?.Dispose();
+                _tlasBuffers[_currentFrame] = new VulkanBuffer(_device, buildSizes.AccelerationStructureSize, BufferUsageFlags.AccelerationStructureStorageBitKhr, MemoryPropertyFlags.DeviceLocalBit);
+
+                var createInfo = new AccelerationStructureCreateInfoKHR { SType = StructureType.AccelerationStructureCreateInfoKhr, Buffer = _tlasBuffers[_currentFrame].Buffer, Size = buildSizes.AccelerationStructureSize, Type = AccelerationStructureTypeKHR.TopLevelKhr };
+                _device.KhrAccelerationStructure.CreateAccelerationStructure(_device.Device, in createInfo, null, out _tlasHandles[_currentFrame]);
+            }
+
+            var buildInfo = new AccelerationStructureBuildGeometryInfoKHR
+            {
+                SType = StructureType.AccelerationStructureBuildGeometryInfoKhr,
+                Type = AccelerationStructureTypeKHR.TopLevelKhr,
+                Flags = buildFlags,
+                GeometryCount = 1,
+                PGeometries = &geometry,
+                Mode = needsRebuild ? BuildAccelerationStructureModeKHR.BuildKhr : BuildAccelerationStructureModeKHR.UpdateKhr,
+                SrcAccelerationStructure = needsRebuild ? default : _tlasHandles[_currentFrame],
+                DstAccelerationStructure = _tlasHandles[_currentFrame],
+                ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = _tlasScratchBuffers[_currentFrame].DeviceAddress }
+            };
+
             var buildRange = new AccelerationStructureBuildRangeInfoKHR { PrimitiveCount = (uint)_drawCallCount, PrimitiveOffset = 0, FirstVertex = 0, TransformOffset = 0 };
             var pBuildRange = &buildRange;
 
             _device.KhrAccelerationStructure.CmdBuildAccelerationStructures(cmd, 1, in buildInfo, &pBuildRange);
+
+            _tlasInstanceCounts[_currentFrame] = _drawCallCount;
+            _tlasNeedsRebuild[_currentFrame] = false;
 
             var buildBarrier = new MemoryBarrier2 { SType = StructureType.MemoryBarrier2, SrcStageMask = PipelineStageFlags2.AccelerationStructureBuildBitKhr, SrcAccessMask = AccessFlags2.AccelerationStructureWriteBitKhr, DstStageMask = PipelineStageFlags2.RayTracingShaderBitKhr, DstAccessMask = AccessFlags2.AccelerationStructureReadBitKhr };
             var depInfo1 = new DependencyInfo { SType = StructureType.DependencyInfo, MemoryBarrierCount = 1, PMemoryBarriers = &buildBarrier };
