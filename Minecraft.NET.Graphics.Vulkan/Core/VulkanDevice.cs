@@ -76,7 +76,7 @@ public unsafe class VulkanDevice : IDisposable
             ApplicationVersion = new Version32(1, 0, 0),
             PEngineName = (byte*)SilkMarshal.StringToPtr("Minecraft.NET Engine"),
             EngineVersion = new Version32(1, 0, 0),
-            ApiVersion = new Version32(1, 4, 0)
+            ApiVersion = new Version32(1, 3, 0)
         };
 
         var glfw = Glfw.GetApi();
@@ -90,6 +90,11 @@ public unsafe class VulkanDevice : IDisposable
 #if DEBUG
         extensions.Add(ExtDebugUtils.ExtensionName);
 #endif
+
+        // Extensions required by Streamline/NGX
+        extensions.Add("VK_KHR_get_physical_device_properties2");
+        extensions.Add("VK_KHR_external_memory_capabilities");
+        extensions.Add("VK_KHR_external_semaphore_capabilities");
 
         var pExtensions = SilkMarshal.StringArrayToPtr([.. extensions]);
 
@@ -269,7 +274,21 @@ public unsafe class VulkanDevice : IDisposable
             };
         }
 
-        var deviceExtensions = new[] {
+        uint extensionCount = 0;
+        Vk.EnumerateDeviceExtensionProperties(PhysicalDevice, (byte*)null, &extensionCount, null);
+        var availableExtensions = new ExtensionProperties[extensionCount];
+        var supportedExtensions = new HashSet<string>();
+        fixed (ExtensionProperties* pExtensions = availableExtensions)
+        {
+            Vk.EnumerateDeviceExtensionProperties(PhysicalDevice, (byte*)null, &extensionCount, pExtensions);
+            for (int e = 0; e < extensionCount; e++)
+            {
+                byte* pName = pExtensions[e].ExtensionName;
+                supportedExtensions.Add(Marshal.PtrToStringAnsi((IntPtr)pName)!);
+            }
+        }
+
+        var enabledExtensions = new List<string> {
             KhrSwapchain.ExtensionName,
             KhrAccelerationStructure.ExtensionName,
             KhrRayTracingPipeline.ExtensionName,
@@ -277,6 +296,38 @@ public unsafe class VulkanDevice : IDisposable
             "VK_KHR_ray_query"
         };
 
+        if (supportedExtensions.Contains("VK_NVX_binary_import"))
+        {
+            enabledExtensions.Add("VK_NVX_binary_import");
+        }
+        if (supportedExtensions.Contains("VK_KHR_push_descriptor"))
+        {
+            enabledExtensions.Add("VK_KHR_push_descriptor");
+        }
+
+        // Extensions required by Streamline/NGX for CUDA integration and sharing
+        if (supportedExtensions.Contains("VK_KHR_external_memory"))
+        {
+            enabledExtensions.Add("VK_KHR_external_memory");
+        }
+        if (supportedExtensions.Contains("VK_KHR_external_memory_win32"))
+        {
+            enabledExtensions.Add("VK_KHR_external_memory_win32");
+        }
+        if (supportedExtensions.Contains("VK_KHR_external_semaphore"))
+        {
+            enabledExtensions.Add("VK_KHR_external_semaphore");
+        }
+        if (supportedExtensions.Contains("VK_KHR_external_semaphore_win32"))
+        {
+            enabledExtensions.Add("VK_KHR_external_semaphore_win32");
+        }
+        if (supportedExtensions.Contains("VK_NVX_image_view_handle"))
+        {
+            enabledExtensions.Add("VK_NVX_image_view_handle");
+        }
+
+        var deviceExtensions = enabledExtensions.ToArray();
         var pDeviceExtensions = SilkMarshal.StringArrayToPtr(deviceExtensions);
 
         PhysicalDeviceVulkan11Features vk11Features = new()

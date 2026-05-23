@@ -11,6 +11,8 @@ using Minecraft.NET.Game.World.Meshing;
 using Minecraft.NET.Graphics.Vulkan;
 using Minecraft.NET.Platform.Glfw;
 
+Streamline.StreamlineAPI.EarlyInitStreamline();
+
 var services = new ServiceCollection()
     .AddSingleton<IWindow>(_ => new GlfwWindow("Minecraft.NET Engine", 1280, 720))
     .AddSingleton<IInputManager, GlfwInputManager>()

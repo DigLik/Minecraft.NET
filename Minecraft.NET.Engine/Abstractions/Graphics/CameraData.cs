@@ -8,6 +8,7 @@ public struct CameraData
 {
     public Matrix4x4 ViewProjection;
     public Matrix4x4 InverseViewProjection;
+    public Matrix4x4 PrevViewProjection;
 
     // 16 bytes
     public Vector3Int ChunkPosition;
@@ -21,8 +22,14 @@ public struct CameraData
     public Vector4 SunDirection;
 
     // 16 bytes
+    public Vector3 CameraUp;
     public uint Seed;
-    public uint Pad1;
-    public uint Pad2;
-    public uint Pad3;
+
+    // 16 bytes
+    public Vector3 CameraRight;
+    public float JitterX;
+
+    // 16 bytes
+    public Vector3 CameraFwd;
+    public float JitterY;
 }

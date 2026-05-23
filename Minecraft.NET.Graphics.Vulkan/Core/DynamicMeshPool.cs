@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -332,6 +332,7 @@ public unsafe class DynamicMeshPool : IDisposable
         ulong totalScratchSize = 0;
 
         int geomIdx = 0;
+        uint* maxPrimitiveCounts = stackalloc uint[2];
 
         for (int i = 0; i < uploadCount; i++)
         {
@@ -397,8 +398,8 @@ public unsafe class DynamicMeshPool : IDisposable
                 PGeometries = &geometries[startGeomIdx]
             };
 
-            uint* maxPrimitiveCounts = stackalloc uint[(geomIdx - startGeomIdx)];
-            for (int j = 0; j < (geomIdx - startGeomIdx); j++)
+            int geomCount = geomIdx - startGeomIdx;
+            for (int j = 0; j < geomCount; j++)
                 maxPrimitiveCounts[j] = buildRanges[startGeomIdx + j].PrimitiveCount;
 
             _device.KhrAccelerationStructure.GetAccelerationStructureBuildSizes(_device.Device, AccelerationStructureBuildTypeKHR.DeviceKhr, in buildInfoSize, maxPrimitiveCounts, out var buildSizes);

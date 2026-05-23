@@ -5,7 +5,12 @@
     "Roughness": 0.9,
     "Metallic": 0.0,
     "Emission": 0.0,
-    "Bindings": [ { "Block": "Stone", "Face": "All" } ]
+    "Bindings": [
+      {
+        "Block": "Stone",
+        "Face": "All"
+      }
+    ]
   },
   {
     "Name": "dirt",
@@ -14,8 +19,14 @@
     "Metallic": 0.0,
     "Emission": 0.0,
     "Bindings": [
-      { "Block": "Dirt", "Face": "All" },
-      { "Block": "Grass", "Face": "Bottom" }
+      {
+        "Block": "Dirt",
+        "Face": "All"
+      },
+      {
+        "Block": "Grass",
+        "Face": "Bottom"
+      }
     ]
   },
   {
@@ -24,7 +35,12 @@
     "Roughness": 1.0,
     "Metallic": 0.0,
     "Emission": 0.0,
-    "Bindings": [ { "Block": "Grass", "Face": "Top" } ]
+    "Bindings": [
+      {
+        "Block": "Grass",
+        "Face": "Top"
+      }
+    ]
   },
   {
     "Name": "grass_side",
@@ -32,7 +48,12 @@
     "Roughness": 1.0,
     "Metallic": 0.0,
     "Emission": 0.0,
-    "Bindings": [ { "Block": "Grass", "Face": "Side" } ]
+    "Bindings": [
+      {
+        "Block": "Grass",
+        "Face": "Side"
+      }
+    ]
   },
   {
     "Name": "grass_side_overlay",
@@ -48,7 +69,16 @@
     "Roughness": 0.9,
     "Metallic": 0.0,
     "Emission": 0.0,
-    "Bindings": [ { "Block": "OakLog", "Face": "Top" }, { "Block": "OakLog", "Face": "Bottom" } ]
+    "Bindings": [
+      {
+        "Block": "OakLog",
+        "Face": "Top"
+      },
+      {
+        "Block": "OakLog",
+        "Face": "Bottom"
+      }
+    ]
   },
   {
     "Name": "oak_log_side",
@@ -56,7 +86,12 @@
     "Roughness": 0.9,
     "Metallic": 0.0,
     "Emission": 0.0,
-    "Bindings": [ { "Block": "OakLog", "Face": "Side" } ]
+    "Bindings": [
+      {
+        "Block": "OakLog",
+        "Face": "Side"
+      }
+    ]
   },
   {
     "Name": "oak_leaves",
@@ -64,6 +99,11 @@
     "Roughness": 0.7,
     "Metallic": 0.0,
     "Emission": 0.0,
-    "Bindings": [ { "Block": "OakLeaves", "Face": "All" } ]
+    "Bindings": [
+      {
+        "Block": "OakLeaves",
+        "Face": "All"
+      }
+    ]
   }
 ]

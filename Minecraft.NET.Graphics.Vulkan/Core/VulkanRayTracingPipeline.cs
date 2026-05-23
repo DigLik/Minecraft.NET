@@ -37,12 +37,19 @@ public unsafe class VulkanRayTracingPipeline : IDisposable
             new() { Binding = 3, DescriptorType = DescriptorType.CombinedImageSampler, DescriptorCount = 1, StageFlags = ShaderStageFlags.ClosestHitBitKhr | ShaderStageFlags.AnyHitBitKhr },
             new() { Binding = 4, DescriptorType = DescriptorType.StorageBuffer, DescriptorCount = 1, StageFlags = ShaderStageFlags.ClosestHitBitKhr | ShaderStageFlags.AnyHitBitKhr },
             new() { Binding = 5, DescriptorType = DescriptorType.StorageImage, DescriptorCount = 1, StageFlags = ShaderStageFlags.RaygenBitKhr },
-            new() { Binding = 6, DescriptorType = DescriptorType.StorageBuffer, DescriptorCount = 1, StageFlags = ShaderStageFlags.ClosestHitBitKhr }
+            new() { Binding = 6, DescriptorType = DescriptorType.StorageBuffer, DescriptorCount = 1, StageFlags = ShaderStageFlags.ClosestHitBitKhr },
+            new() { Binding = 7, DescriptorType = DescriptorType.StorageImage, DescriptorCount = 1, StageFlags = ShaderStageFlags.RaygenBitKhr },
+            new() { Binding = 8, DescriptorType = DescriptorType.StorageImage, DescriptorCount = 1, StageFlags = ShaderStageFlags.RaygenBitKhr },
+            new() { Binding = 9, DescriptorType = DescriptorType.StorageImage, DescriptorCount = 1, StageFlags = ShaderStageFlags.RaygenBitKhr },
+            new() { Binding = 10, DescriptorType = DescriptorType.StorageImage, DescriptorCount = 1, StageFlags = ShaderStageFlags.RaygenBitKhr },
+            new() { Binding = 11, DescriptorType = DescriptorType.StorageImage, DescriptorCount = 1, StageFlags = ShaderStageFlags.RaygenBitKhr },
+            new() { Binding = 12, DescriptorType = DescriptorType.StorageImage, DescriptorCount = 1, StageFlags = ShaderStageFlags.RaygenBitKhr },
+            new() { Binding = 13, DescriptorType = DescriptorType.StorageImage, DescriptorCount = 1, StageFlags = ShaderStageFlags.RaygenBitKhr }
         ];
 
         fixed (DescriptorSetLayoutBinding* pBindings = bindings)
         {
-            DescriptorSetLayoutCreateInfo layoutInfo = new() { SType = StructureType.DescriptorSetLayoutCreateInfo, BindingCount = 7, PBindings = pBindings };
+            DescriptorSetLayoutCreateInfo layoutInfo = new() { SType = StructureType.DescriptorSetLayoutCreateInfo, BindingCount = 14, PBindings = pBindings };
             _device.Vk.CreateDescriptorSetLayout(_device.Device, in layoutInfo, null, out DescriptorSetLayout);
         }
     }

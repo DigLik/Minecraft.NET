@@ -5,7 +5,7 @@ public static class GameConstants
     public const int ChunkSize = 16;
     public const int BlocksInChunk = ChunkSize * ChunkSize * ChunkSize;
 
-    public const int RenderDistance = 64;
+    public const int RenderDistance = 32;
     public const int WorldHeightInChunks = 16;
     public const int WorldHeightInBlocks = ChunkSize * WorldHeightInChunks;
 

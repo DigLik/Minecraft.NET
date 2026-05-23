@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 using Minecraft.NET.Engine.Abstractions;
 using Minecraft.NET.Engine.Abstractions.Graphics;
@@ -9,8 +10,12 @@ using Minecraft.NET.Utils.Collections;
 using Minecraft.NET.Utils.Math;
 
 using Silk.NET.Vulkan;
+using Streamline;
 
 using Semaphore = Silk.NET.Vulkan.Semaphore;
+using Result = Silk.NET.Vulkan.Result;
+using SlResult = Streamline.Result;
+using SlBoolean = Streamline.Boolean;
 
 namespace Minecraft.NET.Graphics.Vulkan;
 
@@ -43,7 +48,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     private readonly CommandBuffer[] _commandBuffers = new CommandBuffer[MaxFramesInFlight];
 
     private readonly Semaphore[] _imageAvailableSemaphores = new Semaphore[MaxFramesInFlight];
-    private readonly Semaphore[] _renderFinishedSemaphores = new Semaphore[MaxFramesInFlight];
+    private readonly Semaphore[] _renderFinishedSemaphores = new Semaphore[8];
     private readonly Fence[] _inFlightFences = new Fence[MaxFramesInFlight];
 
     private readonly VulkanBuffer[] _cameraBuffers = new VulkanBuffer[MaxFramesInFlight];
@@ -53,13 +58,64 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     private Vector2Int _framebufferSize;
     private bool _framebufferResized = false;
 
+    // Output target image (high-res)
     private Image _storageImage;
     private DeviceMemory _storageImageMemory;
     private ImageView _storageImageView;
 
-    private Image _accumulationImage;
-    private DeviceMemory _accumulationImageMemory;
-    private ImageView _accumulationImageView;
+    // DLSS / G-buffer resources
+    private bool _useDLSS_RR = false;
+    private bool _useReflex = false;
+    private bool _useLatewarp = false;
+    private ViewportHandle _slViewport;
+    private Vector2Int _renderSize;
+    private uint _slFrameIndex = 0;
+    private float _currentJitterX = 0f;
+    private float _currentJitterY = 0f;
+
+    private FrameToken* _currentFrameToken = null;
+    private FrameToken* _prevFrameToken = null;
+    private Matrix4x4 _prevWorldToView = Matrix4x4.Identity;
+    private Matrix4x4 _prevViewToClip = Matrix4x4.Identity;
+    private Matrix4x4 _currentPredictedView = Matrix4x4.Identity;
+    private Matrix4x4 _currentPredictedProj = Matrix4x4.Identity;
+    private bool _hasPredictedCamera = false;
+
+    private Image _renderStorageImage;
+    private DeviceMemory _renderStorageImageMemory;
+    private ImageView _renderStorageImageView;
+
+    private Image _renderAccumImage;
+    private DeviceMemory _renderAccumImageMemory;
+    private ImageView _renderAccumImageView;
+
+    private Image _noisyColorImage;
+    private DeviceMemory _noisyColorImageMemory;
+    private ImageView _noisyColorImageView;
+
+    private Image _normalRoughnessImage;
+    private DeviceMemory _normalRoughnessImageMemory;
+    private ImageView _normalRoughnessImageView;
+
+    private Image _albedoImage;
+    private DeviceMemory _albedoImageMemory;
+    private ImageView _albedoImageView;
+
+    private Image _specularAlbedoImage;
+    private DeviceMemory _specularAlbedoImageMemory;
+    private ImageView _specularAlbedoImageView;
+
+    private Image _motionVectorsImage;
+    private DeviceMemory _motionVectorsImageMemory;
+    private ImageView _motionVectorsImageView;
+
+    private Image _depthImage;
+    private DeviceMemory _depthImageMemory;
+    private ImageView _depthImageView;
+
+    private Image _specularMotionVectorsImage;
+    private DeviceMemory _specularMotionVectorsImageMemory;
+    private ImageView _specularMotionVectorsImageView;
 
     private VulkanBuffer? _materialBuffer;
     private Matrix4x4 _lastViewProj;
@@ -88,6 +144,8 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
 
     public VulkanRenderPipeline(IWindow window)
     {
+
+        // 2. Now create Vulkan device and swapchain
         _framebufferSize = window.FramebufferSize;
         _device = new VulkanDevice(window.Handle);
         _swapchain = new VulkanSwapchain(_device, _framebufferSize);
@@ -102,6 +160,130 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         CreateCommandPool();
         CreateCommandBuffers();
         CreateSyncObjects();
+
+        // 3. Set Vulkan Info and query feature support (since Device is now created)
+        try
+        {
+            var vkInfo = VulkanInfo.Create();
+            vkInfo.Device = (void*)_device.Device.Handle;
+            vkInfo.Instance = (void*)_device.Instance.Handle;
+            vkInfo.PhysicalDevice = (void*)_device.PhysicalDevice.Handle;
+            vkInfo.ComputeQueueIndex = 0;
+            vkInfo.ComputeQueueFamily = _device.GraphicsFamilyIndex;
+            vkInfo.GraphicsQueueIndex = 0;
+            vkInfo.GraphicsQueueFamily = _device.GraphicsFamilyIndex;
+            vkInfo.OpticalFlowQueueIndex = 0;
+            vkInfo.OpticalFlowQueueFamily = _device.GraphicsFamilyIndex;
+            vkInfo.UseNativeOpticalFlowMode = 0;
+
+            int setVkRes = StreamlineAPI.slSetVulkanInfo(&vkInfo);
+            if (setVkRes == (int)SlResult.eOk)
+            {
+                var adapterInfo = new AdapterInfo((void*)_device.PhysicalDevice.Handle);
+                
+                // Check DLSS RR
+                int supRes = StreamlineAPI.slIsFeatureSupported((uint)Feature.kFeatureDLSS_RR, &adapterInfo);
+                if (supRes == (int)SlResult.eOk)
+                {
+                    _useDLSS_RR = true;
+                    StreamlineAPI.LoadDLSSDFunctions();
+
+                    int supDlss = StreamlineAPI.slIsFeatureSupported((uint)Feature.kFeatureDLSS, &adapterInfo);
+                    if (supDlss == (int)SlResult.eOk)
+                    {
+                        StreamlineAPI.LoadDLSSFunctions();
+                    }
+
+                    _slViewport = new ViewportHandle(1);
+
+                    // Set standard DLSS options first
+                    if (StreamlineAPI.slDLSSSetOptions != null)
+                    {
+                        var dlssOptions = DLSSOptions.Create();
+                        dlssOptions.Mode = DLSSMode.eMaxQuality;
+                        dlssOptions.QualityPreset = DLSSPreset.ePresetK; // Preset K requested by user
+                        dlssOptions.OutputWidth = (uint)_framebufferSize.X;
+                        dlssOptions.OutputHeight = (uint)_framebufferSize.Y;
+                        dlssOptions.ColorBuffersHDR = SlBoolean.eTrue;
+                        var vp = _slViewport;
+                        StreamlineAPI.slDLSSSetOptions(&vp, &dlssOptions);
+                    }
+
+                    var dlssdOptions = DLSSDOptions.Create();
+                    dlssdOptions.Mode = DLSSMode.eMaxQuality; // Changed to eMaxQuality
+                    dlssdOptions.QualityPreset = DLSSDPreset.ePresetE; // Latest transformer model for RR (avoids crash)
+                    dlssdOptions.OutputWidth = (uint)_framebufferSize.X;
+                    dlssdOptions.OutputHeight = (uint)_framebufferSize.Y;
+                    dlssdOptions.ColorBuffersHDR = SlBoolean.eTrue;
+                    
+                    var dlssdSettings = DLSSDOptimalSettings.Create();
+                    if (StreamlineAPI.slDLSSDGetOptimalSettings(&dlssdOptions, &dlssdSettings) == (int)SlResult.eOk)
+                    {
+                        _renderSize = new Vector2Int((int)dlssdSettings.OptimalRenderWidth, (int)dlssdSettings.OptimalRenderHeight);
+                        Console.WriteLine($"[Streamline] DLSS RR (Quality) initialized successfully. Output: {_framebufferSize.X}x{_framebufferSize.Y}, Render size: {_renderSize.X}x{_renderSize.Y}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"[Streamline] DLSS RR is not supported on this GPU: {(SlResult)supRes}");
+                }
+
+                // Check Reflex
+                int supReflex = StreamlineAPI.slIsFeatureSupported((uint)Feature.kFeatureReflex, &adapterInfo);
+                if (supReflex == (int)SlResult.eOk)
+                {
+                    _useReflex = true;
+                    StreamlineAPI.LoadReflexFunctions();
+
+                    var reflexOpt = ReflexOptions.Create();
+                    reflexOpt.Mode = (uint)ReflexMode.eLowLatencyWithBoost;
+                    reflexOpt.UseMarkersToOptimize = 0;
+                    int setReflexRes = StreamlineAPI.slReflexSetOptions(&reflexOpt);
+                    Console.WriteLine($"[Streamline] Reflex 2 initialized. Mode: LowLatencyWithBoost, status: {(SlResult)setReflexRes}");
+                }
+                else
+                {
+                    Console.WriteLine($"[Streamline] Reflex is not supported: {(SlResult)supReflex}");
+                }
+
+                // Check PCL
+                int supPCL = StreamlineAPI.slIsFeatureSupported((uint)Feature.kFeaturePCL, &adapterInfo);
+                if (supPCL == (int)SlResult.eOk)
+                {
+                    StreamlineAPI.LoadPCLFunctions();
+                    Console.WriteLine($"[Streamline] PCL Stats initialized successfully.");
+                }
+                else
+                {
+                    Console.WriteLine($"[Streamline] PCL Stats is not supported: {(SlResult)supPCL}");
+                }
+
+                // Check Late Warp
+                int supLatewarp = StreamlineAPI.slIsFeatureSupported((uint)Feature.kFeatureLatewarp, &adapterInfo);
+                if (supLatewarp == (int)SlResult.eOk)
+                {
+                    _useLatewarp = true;
+                    Console.WriteLine($"[Streamline] Late Warp (Frame Warp) supported and initialized.");
+                }
+                else
+                {
+                    Console.WriteLine($"[Streamline] Late Warp (Frame Warp) is not supported: {(SlResult)supLatewarp}");
+                }
+            }
+            else
+            {
+                Console.WriteLine($"[Streamline] Failed to set Vulkan info: {(SlResult)setVkRes}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Streamline] Error during Vulkan setup: {ex.Message}");
+        }
+
+        if (!_useDLSS_RR)
+        {
+            _renderSize = _framebufferSize;
+        }
     }
 
     public void Initialize(VertexElement[] layout, uint stride)
@@ -112,48 +294,97 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         _meshPool = new DynamicMeshPool(_device);
     }
 
-    private void CreateStorageImage()
+    private void CreateImageHelper(uint width, uint height, Format format, ImageUsageFlags usage, out Image image, out DeviceMemory memory, out ImageView imageView)
     {
         ImageCreateInfo imageInfo = new()
         {
             SType = StructureType.ImageCreateInfo, ImageType = ImageType.Type2D,
-            Format = Format.R8G8B8A8Unorm,
-            Extent = new Extent3D((uint)_framebufferSize.X, (uint)_framebufferSize.Y, 1),
+            Format = format,
+            Extent = new Extent3D(width, height, 1),
             MipLevels = 1, ArrayLayers = 1, Samples = SampleCountFlags.Count1Bit,
-            Tiling = ImageTiling.Optimal, Usage = ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit,
+            Tiling = ImageTiling.Optimal, Usage = usage,
             InitialLayout = ImageLayout.Undefined
         };
 
-        _device.Vk.CreateImage(_device.Device, in imageInfo, null, out _storageImage);
-        _device.Vk.GetImageMemoryRequirements(_device.Device, _storageImage, out var memReqs);
+        if (_device.Vk.CreateImage(_device.Device, in imageInfo, null, out image) != Result.Success)
+            throw new Exception($"Failed to create image with format {format}!");
 
-        MemoryAllocateInfo allocInfo = new() { SType = StructureType.MemoryAllocateInfo, AllocationSize = memReqs.Size, MemoryTypeIndex = _device.FindMemoryType(memReqs.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit) };
-        _device.Vk.AllocateMemory(_device.Device, in allocInfo, null, out _storageImageMemory);
-        _device.Vk.BindImageMemory(_device.Device, _storageImage, _storageImageMemory, 0);
+        _device.Vk.GetImageMemoryRequirements(_device.Device, image, out var memReqs);
+
+        MemoryAllocateInfo allocInfo = new()
+        {
+            SType = StructureType.MemoryAllocateInfo,
+            AllocationSize = memReqs.Size,
+            MemoryTypeIndex = _device.FindMemoryType(memReqs.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit)
+        };
+
+        if (_device.Vk.AllocateMemory(_device.Device, in allocInfo, null, out memory) != Result.Success)
+            throw new Exception("Failed to allocate image memory!");
+
+        _device.Vk.BindImageMemory(_device.Device, image, memory, 0);
 
         ImageViewCreateInfo viewInfo = new()
         {
-            SType = StructureType.ImageViewCreateInfo, Image = _storageImage, ViewType = ImageViewType.Type2D,
-            Format = Format.R8G8B8A8Unorm,
+            SType = StructureType.ImageViewCreateInfo, Image = image, ViewType = ImageViewType.Type2D,
+            Format = format,
             SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1)
         };
-        _device.Vk.CreateImageView(_device.Device, in viewInfo, null, out _storageImageView);
+        if (_device.Vk.CreateImageView(_device.Device, in viewInfo, null, out imageView) != Result.Success)
+            throw new Exception("Failed to create image view!");
+    }
 
-        ImageCreateInfo accumInfo = imageInfo;
-        accumInfo.Format = Format.R32G32B32A32Sfloat;
-        accumInfo.Usage = ImageUsageFlags.StorageBit;
-        _device.Vk.CreateImage(_device.Device, in accumInfo, null, out _accumulationImage);
-        _device.Vk.GetImageMemoryRequirements(_device.Device, _accumulationImage, out memReqs);
+    private void DestroyImageHelper(Image image, DeviceMemory memory, ImageView view)
+    {
+        if (view.Handle != 0) _device.Vk.DestroyImageView(_device.Device, view, null);
+        if (image.Handle != 0) _device.Vk.DestroyImage(_device.Device, image, null);
+        if (memory.Handle != 0) _device.Vk.FreeMemory(_device.Device, memory, null);
+    }
 
-        allocInfo.AllocationSize = memReqs.Size;
-        allocInfo.MemoryTypeIndex = _device.FindMemoryType(memReqs.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit);
-        _device.Vk.AllocateMemory(_device.Device, in allocInfo, null, out _accumulationImageMemory);
-        _device.Vk.BindImageMemory(_device.Device, _accumulationImage, _accumulationImageMemory, 0);
+    private void CreateStorageImage()
+    {
+        // 1. Create main output target image (high-res)
+        CreateImageHelper((uint)_framebufferSize.X, (uint)_framebufferSize.Y, Format.R16G16B16A16Sfloat, 
+            ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit, 
+            out _storageImage, out _storageImageMemory, out _storageImageView);
 
-        ImageViewCreateInfo accumViewInfo = viewInfo;
-        accumViewInfo.Image = _accumulationImage;
-        accumViewInfo.Format = Format.R32G32B32A32Sfloat;
-        _device.Vk.CreateImageView(_device.Device, in accumViewInfo, null, out _accumulationImageView);
+        // 2. Create render storage image (low-res)
+        CreateImageHelper((uint)_renderSize.X, (uint)_renderSize.Y, Format.R16G16B16A16Sfloat, 
+            ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit, 
+            out _renderStorageImage, out _renderStorageImageMemory, out _renderStorageImageView);
+
+        // 3. Create render accumulation image (low-res)
+        CreateImageHelper((uint)_renderSize.X, (uint)_renderSize.Y, Format.R32G32B32A32Sfloat, 
+            ImageUsageFlags.StorageBit, 
+            out _renderAccumImage, out _renderAccumImageMemory, out _renderAccumImageView);
+
+        // 4. Create G-buffers at render resolution
+        CreateImageHelper((uint)_renderSize.X, (uint)_renderSize.Y, Format.R16G16B16A16Sfloat, 
+            ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit, 
+            out _noisyColorImage, out _noisyColorImageMemory, out _noisyColorImageView);
+
+        CreateImageHelper((uint)_renderSize.X, (uint)_renderSize.Y, Format.R16G16B16A16Sfloat, 
+            ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit, 
+            out _normalRoughnessImage, out _normalRoughnessImageMemory, out _normalRoughnessImageView);
+
+        CreateImageHelper((uint)_renderSize.X, (uint)_renderSize.Y, Format.R8G8B8A8Unorm, 
+            ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit, 
+            out _albedoImage, out _albedoImageMemory, out _albedoImageView);
+
+        CreateImageHelper((uint)_renderSize.X, (uint)_renderSize.Y, Format.R8G8B8A8Unorm, 
+            ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit, 
+            out _specularAlbedoImage, out _specularAlbedoImageMemory, out _specularAlbedoImageView);
+
+        CreateImageHelper((uint)_renderSize.X, (uint)_renderSize.Y, Format.R16G16Sfloat, 
+            ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit, 
+            out _motionVectorsImage, out _motionVectorsImageMemory, out _motionVectorsImageView);
+
+        CreateImageHelper((uint)_renderSize.X, (uint)_renderSize.Y, Format.R32Sfloat, 
+            ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit, 
+            out _depthImage, out _depthImageMemory, out _depthImageView);
+
+        CreateImageHelper((uint)_renderSize.X, (uint)_renderSize.Y, Format.R16G16Sfloat, 
+            ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit, 
+            out _specularMotionVectorsImage, out _specularMotionVectorsImageMemory, out _specularMotionVectorsImageView);
     }
 
     public IMesh CreateMesh<T>(NativeList<T> vertices, NativeList<ushort> indices, uint opaqueIndexCount = 0) where T : unmanaged
@@ -205,8 +436,12 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         for (int i = 0; i < MaxFramesInFlight; i++)
         {
             _device.Vk.CreateSemaphore(_device.Device, in semaphoreInfo, null, out _imageAvailableSemaphores[i]);
-            _device.Vk.CreateSemaphore(_device.Device, in semaphoreInfo, null, out _renderFinishedSemaphores[i]);
             _device.Vk.CreateFence(_device.Device, in fenceInfo, null, out _inFlightFences[i]);
+        }
+
+        for (int i = 0; i < 8; i++)
+        {
+            _device.Vk.CreateSemaphore(_device.Device, in semaphoreInfo, null, out _renderFinishedSemaphores[i]);
         }
     }
 
@@ -214,7 +449,7 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     {
         DescriptorPoolSize[] poolSizes = [
             new() { Type = DescriptorType.AccelerationStructureKhr, DescriptorCount = MaxFramesInFlight },
-            new() { Type = DescriptorType.StorageImage, DescriptorCount = MaxFramesInFlight * 2 },
+            new() { Type = DescriptorType.StorageImage, DescriptorCount = MaxFramesInFlight * 12 },
             new() { Type = DescriptorType.UniformBuffer, DescriptorCount = MaxFramesInFlight },
             new() { Type = DescriptorType.CombinedImageSampler, DescriptorCount = MaxFramesInFlight },
             new() { Type = DescriptorType.StorageBuffer, DescriptorCount = MaxFramesInFlight * 2 }
@@ -247,16 +482,51 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
     {
         _device.Vk.DeviceWaitIdle(_device.Device);
 
-        _device.Vk.DestroyImageView(_device.Device, _storageImageView, null);
-        _device.Vk.DestroyImage(_device.Device, _storageImage, null);
-        _device.Vk.FreeMemory(_device.Device, _storageImageMemory, null);
-
-        _device.Vk.DestroyImageView(_device.Device, _accumulationImageView, null);
-        _device.Vk.DestroyImage(_device.Device, _accumulationImage, null);
-        _device.Vk.FreeMemory(_device.Device, _accumulationImageMemory, null);
+        DestroyImageHelper(_storageImage, _storageImageMemory, _storageImageView);
+        DestroyImageHelper(_renderStorageImage, _renderStorageImageMemory, _renderStorageImageView);
+        DestroyImageHelper(_renderAccumImage, _renderAccumImageMemory, _renderAccumImageView);
+        DestroyImageHelper(_noisyColorImage, _noisyColorImageMemory, _noisyColorImageView);
+        DestroyImageHelper(_normalRoughnessImage, _normalRoughnessImageMemory, _normalRoughnessImageView);
+        DestroyImageHelper(_albedoImage, _albedoImageMemory, _albedoImageView);
+        DestroyImageHelper(_specularAlbedoImage, _specularAlbedoImageMemory, _specularAlbedoImageView);
+        DestroyImageHelper(_motionVectorsImage, _motionVectorsImageMemory, _motionVectorsImageView);
+        DestroyImageHelper(_depthImage, _depthImageMemory, _depthImageView);
+        DestroyImageHelper(_specularMotionVectorsImage, _specularMotionVectorsImageMemory, _specularMotionVectorsImageView);
 
         _swapchain.Dispose();
         _swapchain = new VulkanSwapchain(_device, _framebufferSize);
+
+        if (_useDLSS_RR)
+        {
+            if (StreamlineAPI.slDLSSSetOptions != null)
+            {
+                var dlssOptions = DLSSOptions.Create();
+                dlssOptions.Mode = DLSSMode.eMaxQuality;
+                dlssOptions.QualityPreset = DLSSPreset.ePresetK;
+                dlssOptions.OutputWidth = (uint)_framebufferSize.X;
+                dlssOptions.OutputHeight = (uint)_framebufferSize.Y;
+                dlssOptions.ColorBuffersHDR = SlBoolean.eTrue;
+                var vp = _slViewport;
+                StreamlineAPI.slDLSSSetOptions(&vp, &dlssOptions);
+            }
+
+            var dlssdOptions = DLSSDOptions.Create();
+            dlssdOptions.Mode = DLSSMode.eMaxQuality; // Changed to eMaxQuality
+            dlssdOptions.QualityPreset = DLSSDPreset.ePresetE; // Latest transformer model for RR (avoids crash)
+            dlssdOptions.OutputWidth = (uint)_framebufferSize.X;
+            dlssdOptions.OutputHeight = (uint)_framebufferSize.Y;
+            dlssdOptions.ColorBuffersHDR = SlBoolean.eTrue;
+            
+            var dlssdSettings = DLSSDOptimalSettings.Create();
+            if (StreamlineAPI.slDLSSDGetOptimalSettings(&dlssdOptions, &dlssdSettings) == (int)SlResult.eOk)
+            {
+                _renderSize = new Vector2Int((int)dlssdSettings.OptimalRenderWidth, (int)dlssdSettings.OptimalRenderHeight);
+            }
+        }
+        else
+        {
+            _renderSize = _framebufferSize;
+        }
 
         CreateStorageImage();
     }
@@ -280,6 +550,10 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         cameraData.FrameCount = _frameCount;
         cameraData.Seed = _seed;
 
+        UpdateJitter();
+        cameraData.JitterX = _currentJitterX;
+        cameraData.JitterY = _currentJitterY;
+
         _device.Vk.WaitForFences(_device.Device, 1, ref _inFlightFences[_currentFrame], Vk.True, ulong.MaxValue);
 
         foreach (var mesh in _meshesToDispose[_currentFrame])
@@ -301,14 +575,87 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
             }
         }
 
-        if (_framebufferSize.X == 0 || _framebufferSize.Y == 0) return;
+        if (_framebufferSize.X == 0 || _framebufferSize.Y == 0)
+        {
+            _currentFrameToken = null;
+            _prevFrameToken = null;
+            return;
+        }
 
-        if (_framebufferResized) { _framebufferResized = false; RecreateSwapchain(); return; }
+        if (_framebufferResized)
+        {
+            _framebufferResized = false;
+            RecreateSwapchain();
+            return;
+        }
 
         uint imageIndex;
         var result = _device.KhrSwapchain.AcquireNextImage(_device.Device, _swapchain.Swapchain, ulong.MaxValue, _imageAvailableSemaphores[_currentFrame], default, &imageIndex);
 
-        if (result == Result.ErrorOutOfDateKhr) { RecreateSwapchain(); return; }
+        if (result == Result.ErrorOutOfDateKhr)
+        {
+            RecreateSwapchain();
+            return;
+        }
+
+        if (_currentFrameToken == null)
+        {
+            if (_useDLSS_RR || _useReflex)
+            {
+                FrameToken* frameToken = null;
+                _slFrameIndex++;
+                uint localFrameIndex = _slFrameIndex;
+                StreamlineAPI.slGetNewFrameToken(&frameToken, &localFrameIndex);
+                _slFrameIndex = localFrameIndex;
+                _currentFrameToken = frameToken;
+
+                if (StreamlineAPI.slPCLSetMarker != null)
+                {
+                    StreamlineAPI.slPCLSetMarker(PCLMarker.eSimulationStart, _currentFrameToken);
+                    StreamlineAPI.slPCLSetMarker(PCLMarker.eSimulationEnd, _currentFrameToken);
+                }
+            }
+        }
+
+        var originalView = Matrix4x4.CreateLookAt(cameraData.LocalPosition, cameraData.LocalPosition + cameraData.CameraFwd, cameraData.CameraUp);
+
+        float aspect = _framebufferSize.X / (float)Math.Max(1, _framebufferSize.Y);
+        var originalProj = Matrix4x4.CreatePerspectiveFieldOfView(float.Pi / 2.5f, aspect, 0.1f, 3000f);
+        originalProj.M22 *= -1;
+
+        Matrix4x4 view, proj, viewInverse;
+        if (_useReflex && _hasPredictedCamera)
+        {
+            view = _currentPredictedView;
+            proj = _currentPredictedProj;
+            Matrix4x4.Invert(view, out viewInverse);
+        }
+        else
+        {
+            view = originalView;
+            proj = originalProj;
+            Matrix4x4.Invert(view, out viewInverse);
+        }
+
+        if (_useReflex && _currentFrameToken != null)
+        {
+            var viewport = _slViewport;
+            var reflexCam = ReflexCameraData.Create();
+            reflexCam.WorldToViewMatrix = originalView;
+            reflexCam.ViewToClipMatrix = originalProj;
+            reflexCam.PrevRenderedWorldToViewMatrix = _prevWorldToView;
+            reflexCam.PrevRenderedViewToClipMatrix = _prevViewToClip;
+
+            // Save for next frame
+            _prevWorldToView = originalView;
+            _prevViewToClip = originalProj;
+
+            int setCamRes = StreamlineAPI.slReflexSetCameraData(&viewport, _currentFrameToken, &reflexCam);
+            if (setCamRes != (int)SlResult.eOk)
+            {
+                Console.WriteLine($"[Streamline] slReflexSetCameraData failed: {(SlResult)setCamRes}");
+            }
+        }
 
         _cameraBuffers[_currentFrame].UpdateData(in cameraData);
         _device.Vk.ResetFences(_device.Device, 1, ref _inFlightFences[_currentFrame]);
@@ -318,6 +665,11 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
 
         CommandBufferBeginInfo beginInfo = new() { SType = StructureType.CommandBufferBeginInfo };
         _device.Vk.BeginCommandBuffer(cmd, in beginInfo);
+
+        if (StreamlineAPI.slPCLSetMarker != null && _currentFrameToken != null)
+        {
+            StreamlineAPI.slPCLSetMarker(PCLMarker.eRenderSubmitStart, _currentFrameToken);
+        }
 
         if (_drawCallCount > 0)
         {
@@ -441,17 +793,38 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
             WriteDescriptorSetAccelerationStructureKHR descriptorAS = new() { SType = StructureType.WriteDescriptorSetAccelerationStructureKhr, AccelerationStructureCount = 1, PAccelerationStructures = &tlasHandleForWrite };
             WriteDescriptorSet writeAS = new() { SType = StructureType.WriteDescriptorSet, PNext = &descriptorAS, DstSet = _descriptorSets[_currentFrame], DstBinding = 0, DescriptorCount = 1, DescriptorType = DescriptorType.AccelerationStructureKhr };
 
-            DescriptorImageInfo storageImageInfo = new() { ImageLayout = ImageLayout.General, ImageView = _storageImageView };
+            DescriptorImageInfo storageImageInfo = new() { ImageLayout = ImageLayout.General, ImageView = _renderStorageImageView };
             WriteDescriptorSet writeStorageImage = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 1, DescriptorCount = 1, DescriptorType = DescriptorType.StorageImage, PImageInfo = &storageImageInfo };
 
-            DescriptorImageInfo accumImageInfo = new() { ImageLayout = ImageLayout.General, ImageView = _accumulationImageView };
+            DescriptorImageInfo accumImageInfo = new() { ImageLayout = ImageLayout.General, ImageView = _renderAccumImageView };
             WriteDescriptorSet writeAccumImage = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 5, DescriptorCount = 1, DescriptorType = DescriptorType.StorageImage, PImageInfo = &accumImageInfo };
 
             DescriptorBufferInfo instanceDataInfo = new() { Buffer = _instanceDataBuffers[_currentFrame].Buffer, Offset = 0, Range = Vk.WholeSize };
             WriteDescriptorSet writeInstanceData = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 4, DescriptorCount = 1, DescriptorType = DescriptorType.StorageBuffer, PBufferInfo = &instanceDataInfo };
 
-            var writes = stackalloc WriteDescriptorSet[4] { writeAS, writeStorageImage, writeAccumImage, writeInstanceData };
-            _device.Vk.UpdateDescriptorSets(_device.Device, 4, writes, 0, null);
+            DescriptorImageInfo noisyImageInfo = new() { ImageLayout = ImageLayout.General, ImageView = _noisyColorImageView };
+            WriteDescriptorSet writeNoisyImage = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 7, DescriptorCount = 1, DescriptorType = DescriptorType.StorageImage, PImageInfo = &noisyImageInfo };
+
+            DescriptorImageInfo normalRoughnessImageInfo = new() { ImageLayout = ImageLayout.General, ImageView = _normalRoughnessImageView };
+            WriteDescriptorSet writeNormalRoughnessImage = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 8, DescriptorCount = 1, DescriptorType = DescriptorType.StorageImage, PImageInfo = &normalRoughnessImageInfo };
+
+            DescriptorImageInfo albedoImageInfo = new() { ImageLayout = ImageLayout.General, ImageView = _albedoImageView };
+            WriteDescriptorSet writeAlbedoImage = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 9, DescriptorCount = 1, DescriptorType = DescriptorType.StorageImage, PImageInfo = &albedoImageInfo };
+
+            DescriptorImageInfo specAlbedoImageInfo = new() { ImageLayout = ImageLayout.General, ImageView = _specularAlbedoImageView };
+            WriteDescriptorSet writeSpecAlbedoImage = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 10, DescriptorCount = 1, DescriptorType = DescriptorType.StorageImage, PImageInfo = &specAlbedoImageInfo };
+
+            DescriptorImageInfo mvecImageInfo = new() { ImageLayout = ImageLayout.General, ImageView = _motionVectorsImageView };
+            WriteDescriptorSet writeMvecImage = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 11, DescriptorCount = 1, DescriptorType = DescriptorType.StorageImage, PImageInfo = &mvecImageInfo };
+
+            DescriptorImageInfo depthImageInfo = new() { ImageLayout = ImageLayout.General, ImageView = _depthImageView };
+            WriteDescriptorSet writeDepthImage = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 12, DescriptorCount = 1, DescriptorType = DescriptorType.StorageImage, PImageInfo = &depthImageInfo };
+
+            DescriptorImageInfo specularMotionVectorsImageInfo = new() { ImageLayout = ImageLayout.General, ImageView = _specularMotionVectorsImageView };
+            WriteDescriptorSet writeSpecularMotionVectorsImage = new() { SType = StructureType.WriteDescriptorSet, DstSet = _descriptorSets[_currentFrame], DstBinding = 13, DescriptorCount = 1, DescriptorType = DescriptorType.StorageImage, PImageInfo = &specularMotionVectorsImageInfo };
+
+            var writes = stackalloc WriteDescriptorSet[11] { writeAS, writeStorageImage, writeAccumImage, writeInstanceData, writeNoisyImage, writeNormalRoughnessImage, writeAlbedoImage, writeSpecAlbedoImage, writeMvecImage, writeDepthImage, writeSpecularMotionVectorsImage };
+            _device.Vk.UpdateDescriptorSets(_device.Device, 11, writes, 0, null);
 
             if (_materialBuffer != null)
             {
@@ -467,12 +840,15 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
                 _device.Vk.UpdateDescriptorSets(_device.Device, 1, &writeTex, 0, null);
             }
 
-            TransitionImageLayout(cmd, _storageImage, ImageLayout.Undefined, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
-
-            if (_frameCount == 1)
-                TransitionImageLayout(cmd, _accumulationImage, ImageLayout.Undefined, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit | AccessFlags2.ShaderReadBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
-            else
-                TransitionImageLayout(cmd, _accumulationImage, ImageLayout.General, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit | AccessFlags2.ShaderReadBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
+            TransitionImageLayout(cmd, _renderStorageImage, ImageLayout.Undefined, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
+            TransitionImageLayout(cmd, _renderAccumImage, ImageLayout.Undefined, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit | AccessFlags2.ShaderReadBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
+            TransitionImageLayout(cmd, _noisyColorImage, ImageLayout.Undefined, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
+            TransitionImageLayout(cmd, _normalRoughnessImage, ImageLayout.Undefined, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
+            TransitionImageLayout(cmd, _albedoImage, ImageLayout.Undefined, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
+            TransitionImageLayout(cmd, _specularAlbedoImage, ImageLayout.Undefined, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
+            TransitionImageLayout(cmd, _motionVectorsImage, ImageLayout.Undefined, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
+            TransitionImageLayout(cmd, _depthImage, ImageLayout.Undefined, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
+            TransitionImageLayout(cmd, _specularMotionVectorsImage, ImageLayout.Undefined, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
 
             _device.Vk.CmdBindPipeline(cmd, PipelineBindPoint.RayTracingKhr, _pipeline.Pipeline);
             var descSet = _descriptorSets[_currentFrame];
@@ -484,41 +860,224 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
             var hitRegion = new StridedDeviceAddressRegionKHR { DeviceAddress = _pipeline.SbtBuffer.DeviceAddress + 2 * sbtProps.RegionAligned, Stride = sbtProps.RegionAligned, Size = sbtProps.RegionAligned };
             var callRegion = new StridedDeviceAddressRegionKHR { };
 
-            _device.KhrRayTracingPipeline.CmdTraceRays(cmd, &raygenRegion, &missRegion, &hitRegion, &callRegion, (uint)_framebufferSize.X, (uint)_framebufferSize.Y, 1);
+            _device.KhrRayTracingPipeline.CmdTraceRays(cmd, &raygenRegion, &missRegion, &hitRegion, &callRegion, (uint)_renderSize.X, (uint)_renderSize.Y, 1);
 
-            TransitionImageLayout(cmd, _storageImage, ImageLayout.General, ImageLayout.TransferSrcOptimal, AccessFlags2.ShaderWriteBit, AccessFlags2.TransferReadBit, PipelineStageFlags2.RayTracingShaderBitKhr, PipelineStageFlags2.TransferBit);
+            if (_useDLSS_RR)
+            {
+                // Streamline layout transitions are handled by Streamline, but output image _storageImage needs to be in General
+                TransitionImageLayout(cmd, _storageImage, ImageLayout.Undefined, ImageLayout.General, AccessFlags2.None, AccessFlags2.ShaderWriteBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.RayTracingShaderBitKhr);
+
+                FrameToken* frameToken = _currentFrameToken;
+
+                var viewport = _slViewport;
+
+
+
+                // Set Constants
+                var consts = Constants.Create();
+                consts.CameraViewToClip = proj;
+                Matrix4x4.Invert(proj, out consts.ClipToCameraView);
+                consts.ClipToPrevClip = cameraData.InverseViewProjection * cameraData.PrevViewProjection;
+                Matrix4x4.Invert(cameraData.PrevViewProjection, out var invPrevViewProj);
+                consts.PrevClipToClip = invPrevViewProj * cameraData.ViewProjection;
+
+                consts.CameraPos = cameraData.LocalPosition;
+                consts.CameraUp = cameraData.CameraUp;
+                consts.CameraRight = cameraData.CameraRight;
+                consts.CameraFwd = cameraData.CameraFwd;
+                consts.CameraNear = 0.1f;
+                consts.CameraFar = 3000.0f;
+                consts.CameraFOV = float.Pi / 2.5f;
+                consts.CameraAspectRatio = _framebufferSize.X / (float)Math.Max(1, _framebufferSize.Y);
+                consts.JitterOffset = new Vector2(-_currentJitterX, -_currentJitterY);
+                consts.MvecScale = new Vector2(0.5f, 0.5f);
+                consts.DepthInverted = SlBoolean.eFalse;
+                consts.CameraMotionIncluded = SlBoolean.eTrue;
+                consts.MotionVectors3D = SlBoolean.eFalse;
+                consts.Reset = (cameraData.FrameCount == 1) ? SlBoolean.eTrue : SlBoolean.eFalse;
+
+                StreamlineAPI.slSetConstants(&consts, frameToken, &viewport);
+
+                // Set Options
+                if (StreamlineAPI.slDLSSSetOptions != null)
+                {
+                    var dlssOpt = DLSSOptions.Create();
+                    dlssOpt.Mode = DLSSMode.eMaxQuality;
+                    dlssOpt.QualityPreset = DLSSPreset.ePresetK; // Preset K requested by user
+                    dlssOpt.OutputWidth = (uint)_framebufferSize.X;
+                    dlssOpt.OutputHeight = (uint)_framebufferSize.Y;
+                    dlssOpt.ColorBuffersHDR = SlBoolean.eTrue;
+                    StreamlineAPI.slDLSSSetOptions(&viewport, &dlssOpt);
+                }
+
+                var opt = DLSSDOptions.Create();
+                opt.Mode = DLSSMode.eMaxQuality; // Changed to eMaxQuality
+                opt.QualityPreset = DLSSDPreset.ePresetE; // Latest transformer model for RR (avoids crash)
+                opt.OutputWidth = (uint)_framebufferSize.X;
+                opt.OutputHeight = (uint)_framebufferSize.Y;
+                opt.NormalRoughnessMode = DLSSDNormalRoughnessMode.ePacked;
+                opt.WorldToCameraView = view;
+                opt.CameraViewToWorld = viewInverse;
+                opt.ColorBuffersHDR = SlBoolean.eTrue;
+
+                StreamlineAPI.slDLSSDSetOptions(&viewport, &opt);
+
+                // Setup resource tags
+                var extentIn = new Extent((uint)_renderSize.X, (uint)_renderSize.Y);
+                var extentOut = new Extent((uint)_framebufferSize.X, (uint)_framebufferSize.Y);
+
+                uint gBufferUsage = (uint)(ImageUsageFlags.StorageBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit);
+                uint outUsage = (uint)(ImageUsageFlags.StorageBit | ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit);
+
+                var resNoisy = new Resource(ResourceType.eTex2d, (void*)_noisyColorImage.Handle, (void*)_noisyColorImageMemory.Handle, (void*)_noisyColorImageView.Handle, (uint)ImageLayout.General, (uint)_renderSize.X, (uint)_renderSize.Y, (uint)Format.R16G16B16A16Sfloat, gBufferUsage);
+                var tagNoisy = new ResourceTag(&resNoisy, BufferType.kBufferTypeScalingInputColor, ResourceLifecycle.eValidUntilEvaluate, extentIn);
+
+                var resAlbedo = new Resource(ResourceType.eTex2d, (void*)_albedoImage.Handle, (void*)_albedoImageMemory.Handle, (void*)_albedoImageView.Handle, (uint)ImageLayout.General, (uint)_renderSize.X, (uint)_renderSize.Y, (uint)Format.R8G8B8A8Unorm, gBufferUsage);
+                var tagAlbedo = new ResourceTag(&resAlbedo, BufferType.kBufferTypeAlbedo, ResourceLifecycle.eValidUntilEvaluate, extentIn);
+
+                var resSpecAlbedo = new Resource(ResourceType.eTex2d, (void*)_specularAlbedoImage.Handle, (void*)_specularAlbedoImageMemory.Handle, (void*)_specularAlbedoImageView.Handle, (uint)ImageLayout.General, (uint)_renderSize.X, (uint)_renderSize.Y, (uint)Format.R8G8B8A8Unorm, gBufferUsage);
+                var tagSpecAlbedo = new ResourceTag(&resSpecAlbedo, BufferType.kBufferTypeSpecularAlbedo, ResourceLifecycle.eValidUntilEvaluate, extentIn);
+
+                var resNormalRough = new Resource(ResourceType.eTex2d, (void*)_normalRoughnessImage.Handle, (void*)_normalRoughnessImageMemory.Handle, (void*)_normalRoughnessImageView.Handle, (uint)ImageLayout.General, (uint)_renderSize.X, (uint)_renderSize.Y, (uint)Format.R16G16B16A16Sfloat, gBufferUsage);
+                var tagNormalRough = new ResourceTag(&resNormalRough, BufferType.kBufferTypeNormalRoughness, ResourceLifecycle.eValidUntilEvaluate, extentIn);
+
+                var resMvec = new Resource(ResourceType.eTex2d, (void*)_motionVectorsImage.Handle, (void*)_motionVectorsImageMemory.Handle, (void*)_motionVectorsImageView.Handle, (uint)ImageLayout.General, (uint)_renderSize.X, (uint)_renderSize.Y, (uint)Format.R16G16Sfloat, gBufferUsage);
+                var tagMvec = new ResourceTag(&resMvec, BufferType.kBufferTypeMotionVectors, ResourceLifecycle.eValidUntilEvaluate, extentIn);
+
+                var resDepth = new Resource(ResourceType.eTex2d, (void*)_depthImage.Handle, (void*)_depthImageMemory.Handle, (void*)_depthImageView.Handle, (uint)ImageLayout.General, (uint)_renderSize.X, (uint)_renderSize.Y, (uint)Format.R32Sfloat, gBufferUsage);
+                var tagDepth = new ResourceTag(&resDepth, BufferType.kBufferTypeLinearDepth, ResourceLifecycle.eValidUntilEvaluate, extentIn);
+
+                var resOut = new Resource(ResourceType.eTex2d, (void*)_storageImage.Handle, (void*)_storageImageMemory.Handle, (void*)_storageImageView.Handle, (uint)ImageLayout.General, (uint)_framebufferSize.X, (uint)_framebufferSize.Y, (uint)Format.R16G16B16A16Sfloat, outUsage);
+                var tagOut = new ResourceTag(&resOut, BufferType.kBufferTypeScalingOutputColor, ResourceLifecycle.eValidUntilEvaluate, extentOut);
+
+                var resSpecularMvec = new Resource(ResourceType.eTex2d, (void*)_specularMotionVectorsImage.Handle, (void*)_specularMotionVectorsImageMemory.Handle, (void*)_specularMotionVectorsImageView.Handle, (uint)ImageLayout.General, (uint)_renderSize.X, (uint)_renderSize.Y, (uint)Format.R16G16Sfloat, gBufferUsage);
+                var tagSpecularMvec = new ResourceTag(&resSpecularMvec, BufferType.kBufferTypeSpecularMotionVectors, ResourceLifecycle.eValidUntilEvaluate, extentIn);
+
+                // For Late Warp, we also tag the backbuffer
+                var resBackBuffer = new Resource(ResourceType.eTex2d, (void*)_swapchain.Images[imageIndex].Handle, null, (void*)_swapchain.ImageViews[imageIndex].Handle, (uint)ImageLayout.TransferDstOptimal, (uint)_framebufferSize.X, (uint)_framebufferSize.Y, (uint)_swapchain.ImageFormat, (uint)(ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferDstBit));
+                var tagBackBuffer = new ResourceTag(&resBackBuffer, BufferType.kBufferTypeBackbuffer, ResourceLifecycle.eValidUntilEvaluate, extentOut);
+
+                int numTags = _useLatewarp ? 9 : 8;
+                ResourceTag* pTags = stackalloc ResourceTag[numTags];
+                pTags[0] = tagNoisy;
+                pTags[1] = tagAlbedo;
+                pTags[2] = tagSpecAlbedo;
+                pTags[3] = tagNormalRough;
+                pTags[4] = tagMvec;
+                pTags[5] = tagDepth;
+                pTags[6] = tagOut;
+                pTags[7] = tagSpecularMvec;
+                if (_useLatewarp)
+                {
+                    pTags[8] = tagBackBuffer;
+                }
+
+                StreamlineAPI.slSetTagForFrame(frameToken, &viewport, pTags, (uint)numTags, (void*)cmd.Handle);
+
+                void* inputViewport = &viewport;
+                int evalRes = StreamlineAPI.slEvaluateFeature((uint)Feature.kFeatureDLSS_RR, frameToken, &inputViewport, 1, (void*)cmd.Handle);
+                if (evalRes != (int)SlResult.eOk)
+                {
+                    Console.WriteLine($"[Streamline] Evaluate failed: {(SlResult)evalRes}");
+                }
+
+                TransitionImageLayout(cmd, _storageImage, ImageLayout.General, ImageLayout.TransferSrcOptimal, AccessFlags2.ShaderWriteBit, AccessFlags2.TransferReadBit, PipelineStageFlags2.RayTracingShaderBitKhr, PipelineStageFlags2.TransferBit);
+            }
+            else
+            {
+                // Fallback copy
+                TransitionImageLayout(cmd, _renderStorageImage, ImageLayout.General, ImageLayout.TransferSrcOptimal, AccessFlags2.ShaderWriteBit, AccessFlags2.TransferReadBit, PipelineStageFlags2.RayTracingShaderBitKhr, PipelineStageFlags2.TransferBit);
+                TransitionImageLayout(cmd, _storageImage, ImageLayout.Undefined, ImageLayout.TransferDstOptimal, AccessFlags2.None, AccessFlags2.TransferWriteBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.TransferBit);
+
+                ImageCopy2 copy = new() { SType = StructureType.ImageCopy2, SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1), DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1), Extent = new Extent3D((uint)_framebufferSize.X, (uint)_framebufferSize.Y, 1) };
+                CopyImageInfo2 copyInfo = new() { SType = StructureType.CopyImageInfo2, SrcImage = _renderStorageImage, SrcImageLayout = ImageLayout.TransferSrcOptimal, DstImage = _storageImage, DstImageLayout = ImageLayout.TransferDstOptimal, RegionCount = 1, PRegions = &copy };
+                _device.Vk.CmdCopyImage2(cmd, in copyInfo);
+
+                TransitionImageLayout(cmd, _storageImage, ImageLayout.TransferDstOptimal, ImageLayout.TransferSrcOptimal, AccessFlags2.TransferWriteBit, AccessFlags2.TransferReadBit, PipelineStageFlags2.TransferBit, PipelineStageFlags2.TransferBit);
+            }
         }
 
         TransitionImageLayout(cmd, _swapchain.Images[imageIndex], ImageLayout.Undefined, ImageLayout.TransferDstOptimal, AccessFlags2.None, AccessFlags2.TransferWriteBit, PipelineStageFlags2.TopOfPipeBit, PipelineStageFlags2.TransferBit);
 
         if (_drawCallCount > 0)
         {
-            ImageCopy2 copy = new() { SType = StructureType.ImageCopy2, SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1), DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1), Extent = new Extent3D((uint)_framebufferSize.X, (uint)_framebufferSize.Y, 1) };
-            CopyImageInfo2 copyInfo = new() { SType = StructureType.CopyImageInfo2, SrcImage = _storageImage, SrcImageLayout = ImageLayout.TransferSrcOptimal, DstImage = _swapchain.Images[imageIndex], DstImageLayout = ImageLayout.TransferDstOptimal, RegionCount = 1, PRegions = &copy };
-            _device.Vk.CmdCopyImage2(cmd, in copyInfo);
+            ImageBlit blit = new()
+            {
+                SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+                DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1)
+            };
+            blit.SrcOffsets[0] = new Offset3D(0, 0, 0);
+            blit.SrcOffsets[1] = new Offset3D((int)_framebufferSize.X, (int)_framebufferSize.Y, 1);
+            blit.DstOffsets[0] = new Offset3D(0, 0, 0);
+            blit.DstOffsets[1] = new Offset3D((int)_framebufferSize.X, (int)_framebufferSize.Y, 1);
+
+            _device.Vk.CmdBlitImage(cmd, _storageImage, ImageLayout.TransferSrcOptimal, _swapchain.Images[imageIndex], ImageLayout.TransferDstOptimal, 1, &blit, Filter.Linear);
         }
 
-        TransitionImageLayout(cmd, _swapchain.Images[imageIndex], ImageLayout.TransferDstOptimal, ImageLayout.PresentSrcKhr, AccessFlags2.TransferWriteBit, AccessFlags2.None, PipelineStageFlags2.TransferBit, PipelineStageFlags2.BottomOfPipeBit);
+        if (_useLatewarp && _useDLSS_RR)
+        {
+            // Transition backbuffer to General layout for Late Warp evaluation
+            TransitionImageLayout(cmd, _swapchain.Images[imageIndex], ImageLayout.TransferDstOptimal, ImageLayout.General, AccessFlags2.TransferWriteBit, AccessFlags2.ShaderWriteBit | AccessFlags2.ShaderReadBit, PipelineStageFlags2.TransferBit, PipelineStageFlags2.RayTracingShaderBitKhr);
+
+            var viewport = _slViewport;
+            void* inputViewport = &viewport;
+            int evalLatewarpRes = StreamlineAPI.slEvaluateFeature((uint)Feature.kFeatureLatewarp, _currentFrameToken, &inputViewport, 1, (void*)cmd.Handle);
+            if (evalLatewarpRes != (int)SlResult.eOk)
+            {
+                Console.WriteLine($"[Streamline] Late Warp Evaluate failed: {(SlResult)evalLatewarpRes}");
+            }
+
+            // Transition from General to PresentSrcKhr
+            TransitionImageLayout(cmd, _swapchain.Images[imageIndex], ImageLayout.General, ImageLayout.PresentSrcKhr, AccessFlags2.ShaderWriteBit | AccessFlags2.ShaderReadBit, AccessFlags2.None, PipelineStageFlags2.RayTracingShaderBitKhr, PipelineStageFlags2.BottomOfPipeBit);
+        }
+        else
+        {
+            TransitionImageLayout(cmd, _swapchain.Images[imageIndex], ImageLayout.TransferDstOptimal, ImageLayout.PresentSrcKhr, AccessFlags2.TransferWriteBit, AccessFlags2.None, PipelineStageFlags2.TransferBit, PipelineStageFlags2.BottomOfPipeBit);
+        }
 
         _device.Vk.EndCommandBuffer(cmd);
 
         var waitInfo = new SemaphoreSubmitInfo { SType = StructureType.SemaphoreSubmitInfo, Semaphore = _imageAvailableSemaphores[_currentFrame], StageMask = PipelineStageFlags2.ColorAttachmentOutputBit };
-        var signalInfo = new SemaphoreSubmitInfo { SType = StructureType.SemaphoreSubmitInfo, Semaphore = _renderFinishedSemaphores[_currentFrame], StageMask = PipelineStageFlags2.AllCommandsBit };
+        var signalInfo = new SemaphoreSubmitInfo { SType = StructureType.SemaphoreSubmitInfo, Semaphore = _renderFinishedSemaphores[imageIndex], StageMask = PipelineStageFlags2.AllCommandsBit };
         var cmdInfo = new CommandBufferSubmitInfo { SType = StructureType.CommandBufferSubmitInfo, CommandBuffer = cmd };
 
         var submitInfo = new SubmitInfo2 { SType = StructureType.SubmitInfo2, WaitSemaphoreInfoCount = 1, PWaitSemaphoreInfos = &waitInfo, CommandBufferInfoCount = 1, PCommandBufferInfos = &cmdInfo, SignalSemaphoreInfoCount = 1, PSignalSemaphoreInfos = &signalInfo };
 
+        if (StreamlineAPI.slPCLSetMarker != null && _currentFrameToken != null)
+        {
+            StreamlineAPI.slPCLSetMarker(PCLMarker.eRenderSubmitEnd, _currentFrameToken);
+        }
+
         lock (_device.QueueLock) _device.Vk.QueueSubmit2(_device.GraphicsQueue, 1, in submitInfo, _inFlightFences[_currentFrame]);
 
         var swapchains = stackalloc[] { _swapchain.Swapchain };
-        PresentInfoKHR presentInfo = new() { SType = StructureType.PresentInfoKhr, WaitSemaphoreCount = 1, PWaitSemaphores = (Semaphore*)Unsafe.AsPointer(ref _renderFinishedSemaphores[_currentFrame]), SwapchainCount = 1, PSwapchains = swapchains, PImageIndices = &imageIndex };
+        PresentInfoKHR presentInfo = new() { SType = StructureType.PresentInfoKhr, WaitSemaphoreCount = 1, PWaitSemaphores = (Semaphore*)Unsafe.AsPointer(ref _renderFinishedSemaphores[imageIndex]), SwapchainCount = 1, PSwapchains = swapchains, PImageIndices = &imageIndex };
 
-        lock (_device.QueueLock) result = _device.KhrSwapchain.QueuePresent(_device.PresentQueue, in presentInfo);
+        if (StreamlineAPI.slPCLSetMarker != null && _currentFrameToken != null)
+        {
+            StreamlineAPI.slPCLSetMarker(PCLMarker.ePresentStart, _currentFrameToken);
+        }
+
+        if (_useDLSS_RR)
+        {
+            lock (_device.QueueLock) result = (Result)StreamlineAPI.vkQueuePresentKHR((void*)_device.PresentQueue.Handle, &presentInfo);
+        }
+        else
+        {
+            lock (_device.QueueLock) result = _device.KhrSwapchain.QueuePresent(_device.PresentQueue, in presentInfo);
+        }
+
+        if (StreamlineAPI.slPCLSetMarker != null && _currentFrameToken != null)
+        {
+            StreamlineAPI.slPCLSetMarker(PCLMarker.ePresentEnd, _currentFrameToken);
+        }
 
         if (result == Result.ErrorDeviceLost) throw new Exception("Критическая ошибка: Vulkan Device Lost (видеокарта перестала отвечать)!");
         if (result is Result.ErrorOutOfDateKhr or Result.SuboptimalKhr) _framebufferResized = true;
 
         _currentFrame = (_currentFrame + 1) % MaxFramesInFlight;
+        _prevFrameToken = _currentFrameToken;
+        _currentFrameToken = null;
     }
 
     private void TransitionImageLayout(CommandBuffer cmd, Image image, ImageLayout oldLayout, ImageLayout newLayout, AccessFlags2 srcAccess, AccessFlags2 dstAccess, PipelineStageFlags2 srcStage, PipelineStageFlags2 dstStage)
@@ -571,23 +1130,129 @@ public unsafe class VulkanRenderPipeline : IRenderPipeline
         for (int i = 0; i < MaxFramesInFlight; i++)
         {
             _device.Vk.DestroySemaphore(_device.Device, _imageAvailableSemaphores[i], null);
-            _device.Vk.DestroySemaphore(_device.Device, _renderFinishedSemaphores[i], null);
             _device.Vk.DestroyFence(_device.Device, _inFlightFences[i], null);
+        }
+
+        for (int i = 0; i < 8; i++)
+        {
+            _device.Vk.DestroySemaphore(_device.Device, _renderFinishedSemaphores[i], null);
         }
 
         _meshPool?.Dispose();
 
-        _device.Vk.DestroyImageView(_device.Device, _storageImageView, null);
-        _device.Vk.DestroyImage(_device.Device, _storageImage, null);
-        _device.Vk.FreeMemory(_device.Device, _storageImageMemory, null);
-
-        _device.Vk.DestroyImageView(_device.Device, _accumulationImageView, null);
-        _device.Vk.DestroyImage(_device.Device, _accumulationImage, null);
-        _device.Vk.FreeMemory(_device.Device, _accumulationImageMemory, null);
+        DestroyImageHelper(_storageImage, _storageImageMemory, _storageImageView);
+        DestroyImageHelper(_renderStorageImage, _renderStorageImageMemory, _renderStorageImageView);
+        DestroyImageHelper(_renderAccumImage, _renderAccumImageMemory, _renderAccumImageView);
+        DestroyImageHelper(_noisyColorImage, _noisyColorImageMemory, _noisyColorImageView);
+        DestroyImageHelper(_normalRoughnessImage, _normalRoughnessImageMemory, _normalRoughnessImageView);
+        DestroyImageHelper(_albedoImage, _albedoImageMemory, _albedoImageView);
+        DestroyImageHelper(_specularAlbedoImage, _specularAlbedoImageMemory, _specularAlbedoImageView);
+        DestroyImageHelper(_motionVectorsImage, _motionVectorsImageMemory, _motionVectorsImageView);
+        DestroyImageHelper(_depthImage, _depthImageMemory, _depthImageView);
+        DestroyImageHelper(_specularMotionVectorsImage, _specularMotionVectorsImageMemory, _specularMotionVectorsImageView);
 
         _device.Vk.DestroyCommandPool(_device.Device, _commandPool, null);
         _pipeline?.Dispose();
         _swapchain.Dispose();
+
+        if (_useDLSS_RR)
+        {
+            try
+            {
+                StreamlineAPI.slShutdown();
+            }
+            catch {}
+        }
+
         _device.Dispose();
     }
+
+    private static float Halton(int index, int @base)
+    {
+        float result = 0f;
+        float f = 1f / @base;
+        int i = index;
+        while (i > 0)
+        {
+            result += f * (i % @base);
+            i /= @base;
+            f /= @base;
+        }
+        return result;
+    }
+
+    private void UpdateJitter()
+    {
+        if (_useDLSS_RR)
+        {
+            int haltonIndex = (int)(_slFrameIndex % 16) + 1;
+            _currentJitterX = Halton(haltonIndex, 2) - 0.5f;
+            _currentJitterY = Halton(haltonIndex, 3) - 0.5f;
+        }
+        else
+        {
+            _currentJitterX = 0f;
+            _currentJitterY = 0f;
+        }
+    }
+
+    public void StartFrame()
+    {
+        _hasPredictedCamera = false;
+        if (_currentFrameToken != null) return;
+
+        if (_useDLSS_RR || _useReflex)
+        {
+            FrameToken* frameToken = null;
+            _slFrameIndex++;
+            uint localFrameIndex = _slFrameIndex;
+            StreamlineAPI.slGetNewFrameToken(&frameToken, &localFrameIndex);
+            _slFrameIndex = localFrameIndex;
+            _currentFrameToken = frameToken;
+        }
+
+        if (_useReflex && _currentFrameToken != null)
+        {
+            StreamlineAPI.slReflexSleep(_currentFrameToken);
+        }
+    }
+
+    public bool GetPredictedCamera(out Matrix4x4 view, out Matrix4x4 proj)
+    {
+        view = Matrix4x4.Identity;
+        proj = Matrix4x4.Identity;
+        _hasPredictedCamera = false;
+        if (!_useReflex || !_useLatewarp || _prevFrameToken == null) return false;
+
+        var predicted = ReflexPredictedCameraData.Create();
+        var viewport = _slViewport;
+        int res = StreamlineAPI.slReflexGetPredictedCameraData(&viewport, _prevFrameToken, &predicted);
+        if (res == (int)SlResult.eOk)
+        {
+            view = predicted.PredictedWorldToViewMatrix;
+            proj = predicted.PredictedViewToClipMatrix;
+            _currentPredictedView = view;
+            _currentPredictedProj = proj;
+            _hasPredictedCamera = true;
+            return true;
+        }
+        return false;
+    }
+
+    public void SetSimulationStart()
+    {
+        if (StreamlineAPI.slPCLSetMarker != null && _currentFrameToken != null)
+        {
+            StreamlineAPI.slPCLSetMarker(PCLMarker.eSimulationStart, _currentFrameToken);
+        }
+    }
+
+    public void SetSimulationEnd()
+    {
+        if (StreamlineAPI.slPCLSetMarker != null && _currentFrameToken != null)
+        {
+            StreamlineAPI.slPCLSetMarker(PCLMarker.eSimulationEnd, _currentFrameToken);
+        }
+    }
+
 }

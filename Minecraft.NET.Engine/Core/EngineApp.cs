@@ -20,6 +20,7 @@ public sealed class EngineApp : IDisposable
     private bool _isDisposed;
 
     public Registry Registry { get; } = new();
+    public IRenderPipeline RenderPipeline => _renderPipeline;
     public CameraData Camera { get; set; } = new()
     {
         ViewProjection = Matrix4x4.Identity,
@@ -48,12 +49,15 @@ public sealed class EngineApp : IDisposable
 
     private void OnUpdate(double dt)
     {
+        _renderPipeline.StartFrame();
+        _renderPipeline.SetSimulationStart();
         _inputManager.OnUpdate(dt);
         _renderPipeline.ClearDraws();
 
         var time = new Time { DeltaTime = dt, TotalTime = _totalTime += dt };
 
         foreach (var system in CollectionsMarshal.AsSpan(_systems)) system.Update(Registry, in time);
+        _renderPipeline.SetSimulationEnd();
     }
 
     private void OnRender(double dt)

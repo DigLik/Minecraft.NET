@@ -24,6 +24,8 @@ public class CameraSystem(EngineApp engine, IWindow window) : ISystem
 
             var forward = new Vector3(cx, cy, cz);
             var up = new Vector3(0, 0, 1);
+            var right = Vector3.Normalize(Vector3.Cross(forward, up));
+            var orthoUp = Vector3.Cross(right, forward);
 
             var chunkPos = transform.ChunkPosition;
             var localPos = transform.LocalPosition;
@@ -38,6 +40,12 @@ public class CameraSystem(EngineApp engine, IWindow window) : ISystem
 
             proj.M22 *= -1;
 
+            if (engine.RenderPipeline.GetPredictedCamera(out var predView, out var predProj))
+            {
+                view = predView;
+                proj = predProj;
+            }
+
             var viewProj = view * proj;
 
             Matrix4x4.Invert(viewProj, out var invViewProj);
@@ -49,9 +57,13 @@ public class CameraSystem(EngineApp engine, IWindow window) : ISystem
             {
                 ViewProjection = viewProj,
                 InverseViewProjection = invViewProj,
+                PrevViewProjection = oldCamera.ViewProjection == default ? viewProj : oldCamera.ViewProjection,
                 ChunkPosition = chunkPos,
                 LocalPosition = localPos,
                 SunDirection = new Vector4(sunDir.X, sunDir.Y, sunDir.Z, 0.0f),
+                CameraUp = orthoUp,
+                CameraRight = right,
+                CameraFwd = forward,
                 SamplesPerPixel = oldCamera.SamplesPerPixel,
                 FrameCount = oldCamera.FrameCount,
                 Seed = oldCamera.Seed

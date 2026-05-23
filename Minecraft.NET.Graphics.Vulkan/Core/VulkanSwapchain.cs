@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 
 using Minecraft.NET.Utils.Math;
 
@@ -29,7 +29,7 @@ public unsafe class VulkanSwapchain : IDisposable
         _device.KhrSurface.GetPhysicalDeviceSurfaceCapabilities(_device.PhysicalDevice, _device.Surface, out var capabilities);
 
         Extent = new Extent2D((uint)Math.Max(1, windowSize.X), (uint)Math.Max(1, windowSize.Y));
-        ImageFormat = Format.B8G8R8A8Unorm;
+        ImageFormat = Format.B8G8R8A8Srgb;
 
         uint imageCount = 3;
         if (capabilities.MinImageCount > imageCount) imageCount = capabilities.MinImageCount;

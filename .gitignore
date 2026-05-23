@@ -10,3 +10,6 @@ obj/
 
 # Visual Studio Code
 .vscode
+
+# SDK
+streamline-sdk-v2.11.1/

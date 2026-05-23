@@ -18,4 +18,8 @@ public interface IRenderPipeline : IDisposable
     void ClearDraws();
     void RenderFrame(CameraData cameraData);
     void OnFramebufferResize(Vector2Int newSize);
+    void StartFrame();
+    bool GetPredictedCamera(out Matrix4x4 view, out Matrix4x4 proj);
+    void SetSimulationStart();
+    void SetSimulationEnd();
 }

@@ -49,6 +49,10 @@
     <ProjectReference Include="..\Minecraft.NET.Platform.Glfw\Minecraft.NET.Platform.Glfw.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="$(ProjectDir)..\streamline-sdk-v2.11.1\bin\x64\development\*.dll" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <Import Project="Assets.targets" />
 	
 </Project>
