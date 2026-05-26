@@ -1,0 +1,54 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- Runtime & GC settings -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+	
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <Optimize>false</Optimize>
+    <DebugType>full</DebugType>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <Optimize>true</Optimize>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <TieredPGO>true</TieredPGO>
+	  
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <DebuggerSupport>false</DebuggerSupport>
+    <StripSymbols>true</StripSymbols>
+    <AllowedReferenceRelatedFileExtensions>none</AllowedReferenceRelatedFileExtensions>
+	  
+    <PublishAot>true</PublishAot>
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>full</TrimMode>
+    <NoWarn>$(NoWarn);IL3000;IL3002</NoWarn>
+  </PropertyGroup>
+	
+  <ItemGroup>
+    <!-- Project dependencies -->
+    <ProjectReference Include="..\MinecraftPT.Game\MinecraftPT.Game.csproj" />
+    <ProjectReference Include="..\MinecraftPT.Graphics.Vulkan\MinecraftPT.Graphics.Vulkan.csproj" />
+    <ProjectReference Include="..\MinecraftPT.Platform.Glfw\MinecraftPT.Platform.Glfw.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.8" />
+  </ItemGroup>
+
+  <Import Project="Assets.targets" />
+	
+</Project>

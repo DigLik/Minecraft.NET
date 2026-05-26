@@ -1,0 +1,86 @@
+[
+  {
+    "Id": "Air",
+    "Transparency": "Transparent"
+  },
+  {
+    "Id": "Stone",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "Dirt",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "Grass",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "OakLog",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "OakLeaves",
+    "Transparency": "Transparent"
+  },
+  {
+    "Id": "Glass",
+    "Transparency": "Transparent"
+  },
+  {
+    "Id": "IronBlock",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "WhiteConcrete",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "LightGrayConcrete",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "GrayConcrete",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "BlackConcrete",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "RedConcrete",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "OrangeConcrete",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "YellowConcrete",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "LimeConcrete",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "LightBlueConcrete",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "BlueConcrete",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "PurpleConcrete",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "MagentaConcrete",
+    "Transparency": "Opaque"
+  },
+  {
+    "Id": "PinkConcrete",
+    "Transparency": "Opaque"
+  }
+]

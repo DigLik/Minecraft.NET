@@ -1,0 +1,477 @@
+#version 460
+#extension GL_EXT_ray_tracing : require
+
+layout(binding = 0, set = 0) uniform accelerationStructureEXT Scene;
+layout(binding = 1, set = 0, rgba16f) uniform image2D RenderTarget;
+
+layout(binding = 2, set = 0) uniform Camera {
+    mat4 ViewProj;
+    mat4 InverseViewProj;
+    mat4 PrevViewProj;
+    ivec3 ChunkPosition;
+    uint FrameCount;
+    vec3 LocalPosition;
+    uint SamplesPerPixel;
+    vec4 SunDirection;
+    vec3 CameraUp;
+    uint Seed;
+    vec3 CameraRight;
+    float JitterX;
+    vec3 CameraFwd;
+    float JitterY;
+} cam;
+
+layout(binding = 6, set = 0, rgba16f) uniform image2D NoisyColorTarget;
+layout(binding = 7, set = 0, rgba16f) uniform image2D NormalTarget;
+layout(binding = 8, set = 0, r16f) uniform image2D RoughnessTarget;
+layout(binding = 9, set = 0, rgba8) uniform image2D AlbedoTarget;
+layout(binding = 10, set = 0, rgba8) uniform image2D SpecularAlbedoTarget;
+layout(binding = 11, set = 0, rg16f) uniform image2D MotionVectorsTarget;
+layout(binding = 12, set = 0, r32f) uniform image2D DepthTarget;
+layout(binding = 13, set = 0, rg16f) uniform image2D SpecularMotionVectorsTarget;
+layout(binding = 14, set = 0, r16f) uniform image2D SpecularHitDistanceTarget;
+layout(binding = 15, set = 0, r32f) uniform image2D LinearDepthTarget;
+layout(binding = 16, set = 0, rgba16f) uniform image2D ColorBeforeTransparencyTarget;
+
+struct Payload {
+    vec3 hitPos;
+    float hitDistance;
+    vec3 normal;
+    float roughness;
+    vec3 albedo;
+    float metallic;
+    vec3 emission;
+    float opacity;
+    float ior;
+    float absorption;
+    float frontFacing;
+};
+
+layout(location = 0) rayPayloadEXT Payload payload;
+
+uint seed;
+uint pcg_hash() {
+    seed = seed * 747796405u + 2891336453u;
+    uint word = ((seed >> ((seed >> 28u) + 4u)) ^ seed) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+float rnd() {
+    return float(pcg_hash()) / 4294967296.0;
+}
+
+void update_seed(vec3 p) {
+    uint h = uint(abs(p.x) * 73856093u) ^ uint(abs(p.y) * 19349663u) ^ uint(abs(p.z) * 83492791u);
+    seed = seed ^ h;
+    seed = pcg_hash();
+}
+
+vec3 random_on_unit_sphere() {
+    float z = rnd() * 2.0 - 1.0;
+    float a = rnd() * 6.28318530718;
+    float r = sqrt(1.0 - z * z);
+    return vec3(r * cos(a), r * sin(a), z);
+}
+
+vec3 random_in_unit_sphere() {
+    return random_on_unit_sphere() * pow(rnd(), 1.0/3.0);
+}
+
+vec3 random_cosine_hemisphere(vec3 n) {
+    float r1 = rnd();
+    float r2 = rnd();
+    float phi = r1 * 6.28318530718;
+    float r = sqrt(r2);
+    float x = r * cos(phi);
+    float y = r * sin(phi);
+    float z = sqrt(max(0.0, 1.0 - r2));
+    
+    vec3 w = n;
+    vec3 u = normalize(cross((abs(w.x) > 0.1 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)), w));
+    vec3 v = cross(w, u);
+    
+    return x * u + y * v + z * w;
+}
+
+void main() {
+    ivec2 launchIndex = ivec2(gl_LaunchIDEXT.xy);
+    ivec2 launchDim = ivec2(gl_LaunchSizeEXT.xy);
+
+    seed = cam.Seed + launchIndex.y * launchDim.x + launchIndex.x;
+    seed = pcg_hash();
+
+    vec2 crd = vec2(launchIndex) / vec2(launchDim);
+    crd = crd * 2.0 - 1.0;
+
+    if (cam.JitterX != 0.0 || cam.JitterY != 0.0) {
+        crd += vec2(cam.JitterX, cam.JitterY) * (2.0 / vec2(launchDim));
+    } else if (cam.FrameCount > 1) {
+        vec2 jitter = vec2(rnd() - 0.5, rnd() - 0.5) / vec2(launchDim);
+        crd += jitter;
+    }
+
+    vec4 target = cam.InverseViewProj * vec4(crd.x, crd.y, 1.0, 1.0);
+    vec3 baseRayDir = normalize(target.xyz / target.w - cam.LocalPosition);
+
+    uint rayFlags = gl_RayFlagsNoneEXT;
+    uint cullMask = 0xFF;
+    float tmin = 0.0;
+    float tmax = 10000.0;
+
+    vec3 finalColor = vec3(0.0);
+    vec3 finalColorBeforeTransparency = vec3(0.0);
+
+    vec3 primaryNormal = vec3(0.0);
+    float primaryRoughness = 1.0;
+    vec3 primaryAlbedo = vec3(0.0);
+    vec3 primarySpecularAlbedo = vec3(0.0);
+    float primaryDepth = 0.0;
+    float primaryLinearDepth = 10000.0;
+    vec2 primaryMotionVector = vec2(0.0);
+    vec2 specularMotionVector = vec2(0.0);
+    float specularHitDistance = 0.0;
+
+    for (uint s = 0; s < cam.SamplesPerPixel; s++) {
+        vec3 radiance = vec3(0.0);
+        vec3 glassReflection = vec3(0.0);
+        vec3 throughput = vec3(1.0);
+        vec3 rayOrigin = cam.LocalPosition;
+        vec3 rayDir = baseRayDir;
+        bool primaryIsSpecular = false;
+
+        float currentIor = 1.0;
+        float currentAbsorption = 0.0;
+        vec3 currentAlbedo = vec3(1.0);
+
+        bool primaryDataWritten = false;
+
+        for (int bounce = 0; bounce < 32; bounce++) {
+            payload.hitDistance = -1.0;
+            traceRayEXT(Scene, rayFlags, cullMask, 0, 0, 0, rayOrigin, tmin, rayDir, tmax, 0);
+
+            if (s == 0 && !primaryDataWritten) {
+                if (payload.opacity == 1.0 || payload.hitDistance < 0.0) {
+                    if (payload.hitDistance >= 0.0) {
+                        primaryNormal = payload.normal;
+                        primaryRoughness = payload.roughness;
+                        primaryAlbedo = payload.albedo;
+                        primarySpecularAlbedo = mix(vec3(0.04), payload.albedo, payload.metallic);
+                        primaryLinearDepth = dot(payload.hitPos - cam.LocalPosition, cam.CameraFwd);
+
+                        vec4 clipPos = cam.ViewProj * vec4(payload.hitPos, 1.0);
+                        vec3 ndcPos = clipPos.xyz / clipPos.w;
+                        primaryDepth = ndcPos.z;
+
+                        vec4 prevClipPos = cam.PrevViewProj * vec4(payload.hitPos, 1.0);
+                        vec3 prevNdcPos = prevClipPos.xyz / prevClipPos.w;
+
+                        primaryMotionVector = ndcPos.xy - prevNdcPos.xy;
+                    } else {
+                        primaryNormal = vec3(0.0);
+                        primaryRoughness = 1.0;
+                        primaryAlbedo = vec3(0.0);
+                        primarySpecularAlbedo = vec3(0.0);
+                        primaryDepth = 0.0;
+                        primaryLinearDepth = 10000.0;
+                        primaryMotionVector = vec2(0.0);
+                    }
+                    primaryDataWritten = true;
+                }
+            }
+
+            if (payload.hitDistance < 0.0) {
+                radiance += throughput * payload.emission;
+                break;
+            }
+
+            // Apply Beer-Lambert absorption
+            float activeAbsorption = (payload.frontFacing == 0.0) ? payload.absorption : currentAbsorption;
+            vec3 activeAlbedo = (payload.frontFacing == 0.0) ? payload.albedo : currentAlbedo;
+            if (activeAbsorption > 0.0 && payload.hitDistance >= 0.0) {
+                throughput *= exp(-activeAbsorption * payload.hitDistance * (vec3(1.0) - activeAlbedo));
+            }
+
+            radiance += throughput * payload.emission;
+
+            vec3 surfaceNormal = payload.normal;
+            vec3 surfaceAlbedo = payload.albedo;
+            float surfaceRoughness = payload.roughness;
+            float surfaceMetallic = payload.metallic;
+            vec3 surfaceHitPos = payload.hitPos;
+
+            // Handle translucent refraction and Fresnel reflections
+            if (payload.opacity < 1.0) {
+                bool isCoincidentTransition = (payload.frontFacing == 0.0 && currentIor == 1.0);
+                float eta = (currentIor == 1.0) ? (1.0 / payload.ior) : (payload.ior / 1.0);
+                if (isCoincidentTransition) {
+                    eta = 1.0;
+                }
+                vec3 refractDir = refract(rayDir, surfaceNormal, eta);
+
+                bool doRefract = false;
+                float F = 0.0;
+                if (isCoincidentTransition) {
+                    F = 0.0;
+                    doRefract = true;
+                } else if (refractDir != vec3(0.0)) {
+                    float r0 = (1.0 - payload.ior) / (1.0 + payload.ior);
+                    r0 = r0 * r0;
+                    
+                    float cosX = abs(dot(rayDir, surfaceNormal));
+                    if (currentIor > 1.0) {
+                        cosX = abs(dot(refractDir, surfaceNormal));
+                    }
+                    F = r0 + (1.0 - r0) * pow(1.0 - cosX, 5.0);
+
+                    if (bounce == 0) {
+                        doRefract = true;
+                    } else {
+                        if (rnd() > F) {
+                            doRefract = true;
+                        }
+                    }
+                } else {
+                    F = 1.0;
+                }
+
+                if (doRefract) {
+                    if (bounce == 0) {
+                        // Ray Splitting: Trace the reflection path analytically to eliminate Monte Carlo noise
+                        vec3 savedHitPos = surfaceHitPos;
+                        vec3 savedNormal = surfaceNormal;
+                        vec3 savedRefractDir = refractDir;
+                        float savedF = F;
+                        vec3 savedAlbedo = surfaceAlbedo;
+                        float savedIor = payload.ior;
+                        float savedAbsorption = payload.absorption;
+                        float savedFrontFacing = payload.frontFacing;
+
+                        vec3 specRadiance = vec3(0.0);
+                        vec3 specThroughput = vec3(1.0);
+                        vec3 specOrigin = surfaceHitPos + surfaceNormal * 0.001;
+                        update_seed(surfaceHitPos);
+                        vec3 specDir = normalize(reflect(rayDir, surfaceNormal) + random_in_unit_sphere() * surfaceRoughness);
+                        
+                        float specCurrentIor = currentIor;
+                        float specCurrentAbsorption = currentAbsorption;
+                        vec3 specCurrentAlbedo = currentAlbedo;
+
+                        for (int rBounce = 1; rBounce < 6; rBounce++) {
+                            payload.hitDistance = -1.0;
+                            traceRayEXT(Scene, rayFlags, cullMask, 0, 0, 0, specOrigin, tmin, specDir, tmax, 0);
+
+                            if (s == 0 && rBounce == 1) {
+                                vec3 hitPos = payload.hitDistance >= 0.0 ? payload.hitPos : (specOrigin + 1000.0 * specDir);
+                                vec4 clipPos = cam.ViewProj * vec4(hitPos, 1.0);
+                                vec3 ndcPos = clipPos.xyz / clipPos.w;
+
+                                vec4 prevClipPos = cam.PrevViewProj * vec4(hitPos, 1.0);
+                                vec3 prevNdcPos = prevClipPos.xyz / prevClipPos.w;
+
+                                specularMotionVector = ndcPos.xy - prevNdcPos.xy;
+                                primarySpecularAlbedo = vec3(F);
+                                specularHitDistance = payload.hitDistance;
+                            }
+
+                            if (payload.hitDistance < 0.0) {
+                                specRadiance += specThroughput * payload.emission;
+                                break;
+                            }
+
+                            // Apply Beer-Lambert absorption
+                            float specActiveAbs = (payload.frontFacing == 0.0) ? payload.absorption : specCurrentAbsorption;
+                            vec3 specActiveAlb = (payload.frontFacing == 0.0) ? payload.albedo : specCurrentAlbedo;
+                            if (specActiveAbs > 0.0 && payload.hitDistance >= 0.0) {
+                                specThroughput *= exp(-specActiveAbs * payload.hitDistance * (vec3(1.0) - specActiveAlb));
+                            }
+
+                            specRadiance += specThroughput * payload.emission;
+
+                            vec3 rNormal = payload.normal;
+                            vec3 rAlbedo = payload.albedo;
+                            float rRoughness = payload.roughness;
+                            float rMetallic = payload.metallic;
+                            vec3 rHitPos = payload.hitPos;
+
+                            // Handle secondary translucent hits stochastically
+                            if (payload.opacity < 1.0) {
+                                bool rIsCoincidentTransition = (payload.frontFacing == 0.0 && specCurrentIor == 1.0);
+                                float rEta = (specCurrentIor == 1.0) ? (1.0 / payload.ior) : (payload.ior / 1.0);
+                                if (rIsCoincidentTransition) {
+                                    rEta = 1.0;
+                                }
+                                vec3 rRefract = refract(specDir, rNormal, rEta);
+                                bool rDoRefract = false;
+                                if (rIsCoincidentTransition) {
+                                    rDoRefract = true;
+                                } else if (rRefract != vec3(0.0)) {
+                                    float r_r0 = (1.0 - payload.ior) / (1.0 + payload.ior);
+                                    r_r0 = r_r0 * r_r0;
+                                    float rCos = abs(dot(specDir, rNormal));
+                                    if (specCurrentIor > 1.0) {
+                                        rCos = abs(dot(rRefract, rNormal));
+                                    }
+                                    float rF = r_r0 + (1.0 - r_r0) * pow(1.0 - rCos, 5.0);
+                                    if (rnd() > rF) rDoRefract = true;
+                                }
+
+                                if (rDoRefract) {
+                                    specDir = rRefract;
+                                    specOrigin = rHitPos - rNormal * 0.001;
+                                    if (payload.frontFacing == 1.0) {
+                                        specCurrentIor = payload.ior;
+                                        specCurrentAbsorption = payload.absorption;
+                                        specCurrentAlbedo = rAlbedo;
+                                    } else {
+                                        specCurrentIor = 1.0;
+                                        specCurrentAbsorption = 0.0;
+                                        specCurrentAlbedo = vec3(1.0);
+                                    }
+                                    specThroughput *= rAlbedo;
+                                    continue;
+                                } else {
+                                    update_seed(rHitPos);
+                                    specDir = normalize(reflect(specDir, rNormal) + random_in_unit_sphere() * rRoughness);
+                                    specOrigin = rHitPos + rNormal * 0.001;
+                                    continue;
+                                }
+                            }
+
+                            // Direct Lighting (NEE)
+                            vec3 rSafeOrigin = rHitPos + rNormal * 0.001;
+                            vec3 sunDir = normalize(cam.SunDirection.xyz);
+                            update_seed(rHitPos);
+                            vec3 lightDir = normalize(sunDir + random_in_unit_sphere() * 0.05);
+                            float nDotL = max(dot(rNormal, lightDir), 0.0);
+                            if (nDotL > 0.0) {
+                                payload.hitDistance = 1.0;
+                                uint shadowFlags = gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT;
+                                traceRayEXT(Scene, shadowFlags, cullMask, 0, 0, 0, rSafeOrigin, 0.0, lightDir, 10000.0, 0);
+                                if (payload.hitDistance < 0.0) {
+                                    vec3 sunLightColor = pow(vec3(1.0, 0.95, 0.8), vec3(2.2)) * 5.0;
+                                    vec3 diffuse = rAlbedo / 3.14159265;
+                                    specRadiance += specThroughput * diffuse * sunLightColor * nDotL;
+                                }
+                            }
+
+                            update_seed(rHitPos);
+                            vec3 diffuseDir = random_cosine_hemisphere(rNormal);
+                            vec3 reflectDir = normalize(reflect(specDir, rNormal) + random_in_unit_sphere() * rRoughness);
+                            bool isSpecular = rnd() < rMetallic;
+                            specDir = isSpecular ? reflectDir : diffuseDir;
+                            specThroughput *= rAlbedo;
+                            specOrigin = rSafeOrigin;
+
+                            if (rBounce > 3) {
+                                float maxT = max(max(specThroughput.r, specThroughput.g), specThroughput.b);
+                                if (rnd() > maxT) break;
+                                specThroughput /= maxT;
+                            }
+                        }
+
+                        // Accumulate specular reflection weighted by Fresnel coefficient
+                        glassReflection = throughput * savedF * specRadiance;
+
+                        // Restore main path variables
+                        surfaceHitPos = savedHitPos;
+                        surfaceNormal = savedNormal;
+                        refractDir = savedRefractDir;
+                        F = savedF;
+                        surfaceAlbedo = savedAlbedo;
+                        payload.ior = savedIor;
+                        payload.absorption = savedAbsorption;
+                        payload.frontFacing = savedFrontFacing;
+                        payload.hitDistance = 0.001; // Fake a small distance to keep absorption state valid
+                    }
+
+                    // Refract through the surface
+                    rayDir = refractDir;
+                    rayOrigin = surfaceHitPos - surfaceNormal * 0.001;
+
+                    if (payload.frontFacing == 1.0) {
+                        currentIor = payload.ior;
+                        currentAbsorption = payload.absorption;
+                        currentAlbedo = surfaceAlbedo;
+                    } else {
+                        currentIor = 1.0;
+                        currentAbsorption = 0.0;
+                        currentAlbedo = vec3(1.0);
+                    }
+
+                    throughput *= (bounce == 0) ? ((1.0 - F) * surfaceAlbedo) : surfaceAlbedo;
+                    continue;
+                } else {
+                    // Reflect specularly (TIR or Fresnel reflection on secondary bounces)
+                    update_seed(surfaceHitPos);
+                    rayDir = normalize(reflect(rayDir, surfaceNormal) + random_in_unit_sphere() * surfaceRoughness);
+                    rayOrigin = surfaceHitPos + surfaceNormal * 0.001;
+                    continue;
+                }
+            }
+
+            vec3 safeOrigin = surfaceHitPos + surfaceNormal * 0.001;
+
+            // Direct Lighting (Next Event Estimation)
+            vec3 sunDir = normalize(cam.SunDirection.xyz);
+            float sunRadius = 0.05; // Create soft shadows with random sun perturbation
+            update_seed(surfaceHitPos);
+            vec3 sunJitter = random_in_unit_sphere() * sunRadius;
+            vec3 lightDir = normalize(sunDir + sunJitter);
+
+            float nDotL = max(dot(surfaceNormal, lightDir), 0.0);
+            if (nDotL > 0.0) {
+                payload.hitDistance = 1.0; 
+                uint shadowFlags = gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT;
+                traceRayEXT(Scene, shadowFlags, cullMask, 0, 0, 0, safeOrigin, 0.0, lightDir, 10000.0, 0);
+
+                if (payload.hitDistance < 0.0) {
+                    vec3 sunLightColor = pow(vec3(1.0, 0.95, 0.8), vec3(2.2)) * 5.0; 
+                    vec3 diffuse = surfaceAlbedo / 3.14159265;
+                    radiance += throughput * diffuse * sunLightColor * nDotL;
+                }
+            }
+
+            update_seed(surfaceHitPos);
+            vec3 diffuseDir = random_cosine_hemisphere(surfaceNormal);
+            vec3 reflectDir = normalize(reflect(rayDir, surfaceNormal) + random_in_unit_sphere() * surfaceRoughness);
+            
+            bool isSpecular = rnd() < surfaceMetallic;
+            if (s == 0 && bounce == 0) {
+                primaryIsSpecular = isSpecular;
+            }
+            vec3 nextDir = isSpecular ? reflectDir : diffuseDir;
+
+            throughput *= surfaceAlbedo;
+            
+            rayOrigin = safeOrigin;
+            rayDir = nextDir;
+            
+            if (bounce > 4) {
+                float maxThroughput = max(max(throughput.r, throughput.g), throughput.b);
+                if (rnd() > maxThroughput) break;
+                throughput /= maxThroughput;
+            }
+        }
+        
+        if (any(isnan(radiance))) radiance = vec3(0.0);
+        finalColorBeforeTransparency += radiance;
+        finalColor += radiance + glassReflection;
+    }
+    
+    finalColor /= float(cam.SamplesPerPixel);
+    finalColorBeforeTransparency /= float(cam.SamplesPerPixel);
+
+    imageStore(NoisyColorTarget, launchIndex, vec4(finalColor, 1.0));
+    imageStore(NormalTarget, launchIndex, vec4(primaryNormal, 1.0));
+    imageStore(RoughnessTarget, launchIndex, vec4(primaryRoughness, 0.0, 0.0, 0.0));
+    imageStore(AlbedoTarget, launchIndex, vec4(primaryAlbedo, 1.0));
+    imageStore(SpecularAlbedoTarget, launchIndex, vec4(primarySpecularAlbedo, 1.0));
+    imageStore(MotionVectorsTarget, launchIndex, vec4(primaryMotionVector, 0.0, 0.0));
+    imageStore(DepthTarget, launchIndex, vec4(primaryDepth, 0.0, 0.0, 0.0));
+    imageStore(LinearDepthTarget, launchIndex, vec4(primaryLinearDepth, 0.0, 0.0, 0.0));
+    imageStore(ColorBeforeTransparencyTarget, launchIndex, vec4(finalColorBeforeTransparency, 1.0));
+    imageStore(SpecularMotionVectorsTarget, launchIndex, vec4(specularMotionVector, 0.0, 0.0));
+    imageStore(SpecularHitDistanceTarget, launchIndex, vec4(specularHitDistance, 0.0, 0.0, 0.0));
+
+    imageStore(RenderTarget, launchIndex, vec4(finalColor, 1.0));
+}

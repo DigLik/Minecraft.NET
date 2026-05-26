@@ -1,4 +1,4 @@
-name: Build and Release
+﻿name: Build and Release
 
 on:
   push:
@@ -10,24 +10,8 @@ permissions:
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            rid: win-x64
-            exe_name: Minecraft.NET.exe
-            archive_name: Minecraft.NET-win-x64.7z
-          - os: ubuntu-latest
-            rid: linux-x64
-            exe_name: Minecraft.NET
-            archive_name: Minecraft.NET-linux-x64.7z
-          - os: macos-latest
-            rid: osx-arm64
-            exe_name: Minecraft.NET
-            archive_name: Minecraft.NET-osx-arm64.7z
+    name: Build on Windows
+    runs-on: windows-latest
 
     steps:
     - name: Checkout Repository
@@ -39,50 +23,36 @@ jobs:
         dotnet-version: '10.0.x'
 
     - name: Install Vulkan SDK
-      if: runner.os != 'macOS'
       uses: humbletim/install-vulkan-sdk@v1.2
       with:
         version: latest
         cache: true
 
     - name: Install Dependencies (Windows)
-      if: runner.os == 'Windows'
       run: choco install upx -y
 
-    - name: Install Dependencies (Linux)
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y clang zlib1g-dev upx-ucl p7zip-full
-
-    - name: Install Dependencies (macOS)
-      if: runner.os == 'macOS'
-      run: brew install p7zip shaderc
-
     - name: Publish .NET Project
-      run: dotnet publish Minecraft.NET/Minecraft.NET.csproj -c Release -r ${{ matrix.rid }} -o ./publish_output
+      run: dotnet publish MinecraftPT/MinecraftPT.csproj -c Release -r win-x64 -o ./publish_output
       
     - name: Clean up debug symbols
       shell: pwsh
       run: |
         Get-ChildItem -Path ./publish_output -Include *.pdb, *.dbg -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force
-        Get-ChildItem -Path ./publish_output -Filter "*.dSYM" -Recurse -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 
     - name: UPX Compress Binary
-      if: runner.os != 'macOS'
-      run: upx --best --lzma ./publish_output/${{ matrix.exe_name }}
+      run: upx --best --lzma ./publish_output/MinecraftPT.exe
 
     - name: Compress to 7z
       shell: bash
       run: |
         cd publish_output
-        7z a -t7z -mx=9 -mfb=273 -ms=on -m0=lzma2 ../${{ matrix.archive_name }} *
+        7z a -t7z -mx=9 -mfb=273 -ms=on -m0=lzma2 ../MinecraftPT-win-x64.7z *
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.archive_name }}
-        path: ${{ matrix.archive_name }}
+        name: MinecraftPT-win-x64.7z
+        path: MinecraftPT-win-x64.7z
         retention-days: 1 
 
   create_release:

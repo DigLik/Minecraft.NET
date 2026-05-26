@@ -1,0 +1,352 @@
+[
+  {
+    "Name": "stone",
+    "TexturePath": "Assets/Textures/Blocks/stone.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "Stone",
+        "Face": "All"
+      }
+    ]
+  },
+  {
+    "Name": "dirt",
+    "TexturePath": "Assets/Textures/Blocks/dirt.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "Dirt",
+        "Face": "All"
+      },
+      {
+        "Block": "Grass",
+        "Face": "Bottom"
+      }
+    ]
+  },
+  {
+    "Name": "grass_top",
+    "TexturePath": "Assets/Textures/Blocks/grass_top.ztex",
+    "Roughness": 1.0,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "Grass",
+        "Face": "Top"
+      }
+    ]
+  },
+  {
+    "Name": "grass_side",
+    "TexturePath": "Assets/Textures/Blocks/grass_side.ztex",
+    "Roughness": 1.0,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "Grass",
+        "Face": "Side"
+      }
+    ]
+  },
+  {
+    "Name": "grass_side_overlay",
+    "TexturePath": "Assets/Textures/Blocks/grass_side_overlay.ztex",
+    "Roughness": 1.0,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": []
+  },
+  {
+    "Name": "oak_log_top",
+    "TexturePath": "Assets/Textures/Blocks/oak_log_top.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "OakLog",
+        "Face": "Top"
+      },
+      {
+        "Block": "OakLog",
+        "Face": "Bottom"
+      }
+    ]
+  },
+  {
+    "Name": "oak_log_side",
+    "TexturePath": "Assets/Textures/Blocks/oak_log_side.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "OakLog",
+        "Face": "Side"
+      }
+    ]
+  },
+  {
+    "Name": "oak_leaves",
+    "TexturePath": "Assets/Textures/Blocks/oak_leaves.ztex",
+    "Roughness": 0.7,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Transparent",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "OakLeaves",
+        "Face": "All"
+      }
+    ]
+  },
+  {
+    "Name": "glass",
+    "TexturePath": "Assets/Textures/Blocks/glass.ztex",
+    "Roughness": 0.0,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Translucent",
+    "Opacity": 0.2,
+    "Ior": 1.5,
+    "Absorption": 0.5,
+    "Bindings": [
+      {
+        "Block": "Glass",
+        "Face": "All"
+      }
+    ]
+  },
+  {
+    "Name": "iron_block",
+    "TexturePath": "Assets/Textures/Blocks/iron_block.ztex",
+    "Roughness": 0.2,
+    "Metallic": 1.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "IronBlock",
+        "Face": "All"
+      }
+    ]
+  },
+  {
+    "Name": "white_concrete",
+    "TexturePath": "Assets/Textures/Blocks/white_concrete.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "WhiteConcrete",
+        "Face": "All"
+      }
+    ]
+  },
+  {
+    "Name": "light_gray_concrete",
+    "TexturePath": "Assets/Textures/Blocks/light_gray_concrete.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "LightGrayConcrete",
+        "Face": "All"
+      }
+    ]
+  },
+  {
+    "Name": "gray_concrete",
+    "TexturePath": "Assets/Textures/Blocks/gray_concrete.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "GrayConcrete",
+        "Face": "All"
+      }
+    ]
+  },
+  {
+    "Name": "black_concrete",
+    "TexturePath": "Assets/Textures/Blocks/black_concrete.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "BlackConcrete",
+        "Face": "All"
+      }
+    ]
+  },
+  {
+    "Name": "red_concrete",
+    "TexturePath": "Assets/Textures/Blocks/red_concrete.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "RedConcrete",
+        "Face": "All"
+      }
+    ]
+  },
+  {
+    "Name": "orange_concrete",
+    "TexturePath": "Assets/Textures/Blocks/orange_concrete.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "OrangeConcrete",
+        "Face": "All"
+      }
+    ]
+  },
+  {
+    "Name": "yellow_concrete",
+    "TexturePath": "Assets/Textures/Blocks/yellow_concrete.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "YellowConcrete",
+        "Face": "All"
+      }
+    ]
+  },
+  {
+    "Name": "lime_concrete",
+    "TexturePath": "Assets/Textures/Blocks/lime_concrete.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "LimeConcrete",
+        "Face": "All"
+      }
+    ]
+  },
+  {
+    "Name": "light_blue_concrete",
+    "TexturePath": "Assets/Textures/Blocks/light_blue_concrete.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "LightBlueConcrete",
+        "Face": "All"
+      }
+    ]
+  },
+  {
+    "Name": "blue_concrete",
+    "TexturePath": "Assets/Textures/Blocks/blue_concrete.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "BlueConcrete",
+        "Face": "All"
+      }
+    ]
+  },
+  {
+    "Name": "purple_concrete",
+    "TexturePath": "Assets/Textures/Blocks/purple_concrete.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "PurpleConcrete",
+        "Face": "All"
+      }
+    ]
+  },
+  {
+    "Name": "magenta_concrete",
+    "TexturePath": "Assets/Textures/Blocks/magenta_concrete.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "MagentaConcrete",
+        "Face": "All"
+      }
+    ]
+  },
+  {
+    "Name": "pink_concrete",
+    "TexturePath": "Assets/Textures/Blocks/pink_concrete.ztex",
+    "Roughness": 0.9,
+    "Metallic": 0.0,
+    "Emission": 0.0,
+    "Type": "Opaque",
+    "Opacity": 1.0,
+    "Bindings": [
+      {
+        "Block": "PinkConcrete",
+        "Face": "All"
+      }
+    ]
+  }
+]

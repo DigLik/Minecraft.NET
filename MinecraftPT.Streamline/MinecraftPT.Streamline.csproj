@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="$(MSBuildThisFileDirectory)binaries\x64\*.dll">
+      <Link>binaries\x64\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+</Project>
